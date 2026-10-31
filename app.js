@@ -1,5 +1,5 @@
-/* MyIB: app logic. Vanilla JS, no build step.
-   Each person's planner lives in their MyIB account (the /api server, stored in
+/* Bloc: app logic. Vanilla JS, no build step.
+   Each person's planner lives in their Bloc account (the /api server, stored in
    Cloudflare D1). This browser keeps a copy so the app opens offline. */
 (function () {
   'use strict';
@@ -15,13 +15,18 @@
   var DATE = /^\d{4}-\d{2}-\d{2}$/;
   var TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
   var ID = /^[\w-]{1,48}$/;
+  /* the app's name on screen. Storage keys, the API header and the iPhone bridge keep the old myib names. */
+  var BRAND = 'Bloc';
   var TYPES = ['deadline', 'exam', 'mock', 'holiday', 'grades', 'other'];
   var TYPE_ORDER = { exam: 0, deadline: 1, grades: 2, other: 3, mock: 4, holiday: 5 };
   var DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   var DAYS_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  var PALETTE = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#00C7BE', '#30B0C7', '#32ADE6', '#007AFF', '#5856D6', '#AF52DE', '#FF2D55', '#A2845E', '#8E8E93'];
+  /* subject colours: vermilion, tangerine, marigold, fern, jade, lagoon, sky, cobalt, ink, plum, rose, clay, graphite */
+  var PALETTE = ['#E4572E', '#F28C28', '#EDB21A', '#5DAA3A', '#1E9E6A', '#1597A8', '#3E9BD6', '#3B6FD4', '#3D5591', '#8C3B72', '#E0527D', '#A9714B', '#7D756C'];
+  /* planners before Bloc used the iOS system colours: each one moves to its Bloc twin once (version 3) */
+  var V2_COLORS = { '#FF3B30': '#E4572E', '#FF9500': '#F28C28', '#FFCC00': '#EDB21A', '#34C759': '#5DAA3A', '#00C7BE': '#1E9E6A', '#30B0C7': '#1597A8', '#32ADE6': '#3E9BD6', '#007AFF': '#3B6FD4', '#5856D6': '#3D5591', '#AF52DE': '#8C3B72', '#FF2D55': '#E0527D', '#A2845E': '#A9714B', '#8E8E93': '#7D756C' };
   /* v1 colours → iOS system colours (only applied to colours nobody changed) */
   var V1_COLORS = { '#EE7418': '#FF9500', '#F0C814': '#FFCC00', '#0FAE9B': '#00C7BE', '#3D8BF2': '#007AFF', '#5A3CC8': '#5856D6', '#1F7A36': '#34C759', '#64748B': '#8E8E93', '#E54F8B': '#FF2D55', '#74C442': '#32ADE6', '#B8B0A6': '#A2845E', '#B044D8': '#AF52DE', '#92400E': '#FF3B30' };
 
@@ -79,6 +84,8 @@
     return m ? h + 'h ' + m + 'm' : h + 'h';
   }
   function fmtClock(secs) { secs = Math.max(0, Math.round(secs)); return Math.floor(secs / 60) + ':' + pad(secs % 60); }
+  /* the stopwatch: 4:05, then 1:04:05 past an hour */
+  function fmtWatch(secs) { secs = Math.max(0, Math.floor(secs)); var h = Math.floor(secs / 3600); return h ? h + ':' + pad(Math.floor(secs / 60) % 60) + ':' + pad(secs % 60) : fmtClock(secs); }
   function onColor(hex) {
     var n = parseInt(hex.slice(1), 16);
     var ch = [n >> 16 & 255, n >> 8 & 255, n & 255].map(function (c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); });
@@ -98,11 +105,17 @@
   function sjson(k) { try { var v = JSON.parse(sget(k) || 'null'); return v && typeof v === 'object' ? v : null; } catch (e) { return null; } }
   var DEFAULTS = window.IB_DEFAULTS;
   var BLANK = window.IB_BLANK;
+  /* what you study: IB, Bachillerato, ESO or University (data.js). It picks the starting planner,
+     the subject list and words like "IB subjects" or "Courses". */
+  var LEVELS = window.LEVELS || { ib: { name: 'IB Diploma', short: 'IB', sub: '', group: 'IB subjects', one: 'IB subject', exams: 'IB exams', sl: true, blank: BLANK, common: [] } };
+  var LEVEL_IDS = ['ib', 'bach', 'eso', 'uni'].filter(function (k) { return LEVELS[k]; });
+  var LEVEL_TILE = { ib: 'IB', bach: 'Bach', eso: 'ESO', uni: 'Uni' };
   /* usernames for accounts outside Sociales 2 IB (the server checks the same rule) */
   var FREE_ID = /^[a-z0-9][a-z0-9_.]{1,18}[a-z0-9]$/;
   var GUIDE = ['new', 'on', 'done'];
-  /* [setting value, name, swatch colour] (MyIB Plus) */
-  var ACCENTS = [['', 'Blue', '#007AFF'], ['indigo', 'Indigo', '#5856D6'], ['purple', 'Purple', '#AF52DE'], ['pink', 'Pink', '#FF2D55'], ['orange', 'Orange', '#FF9500'], ['green', 'Green', '#34C759'], ['teal', 'Teal', '#30B0C7'], ['graphite', 'Graphite', '#8E8E93']];
+  /* [setting value, name, swatch colour] (Bloc Plus) */
+  /* the keys stay from MyIB so saved choices keep working; the colours are Bloc's */
+  var ACCENTS = [['', 'Persimmon', '#D9501F'], ['indigo', 'Ink', '#3D5591'], ['purple', 'Plum', '#8C3B72'], ['pink', 'Rose', '#C93A66'], ['orange', 'Marigold', '#E8930C'], ['green', 'Jade', '#167F59'], ['teal', 'Lagoon', '#0A7684'], ['graphite', 'Graphite', '#5B544C']];
   var SESSIONS = { may: 'May', nov: 'November', spec: 'Specimen' };
 
   function cleanSubject(s) {
@@ -133,7 +146,7 @@
   }
   function cleanEvent(e, sid) {
     if (!e || typeof e !== 'object' || !ID.test(e.id) || !DATE.test(e.start)) return null;
-    return {
+    var o = {
       id: e.id,
       type: TYPES.indexOf(e.type) >= 0 ? e.type : 'other',
       subject: sid.has(e.subject) ? e.subject : null,
@@ -141,20 +154,39 @@
       detail: str(e.detail, 80).trim(),
       start: e.start,
       end: DATE.test(e.end) && e.end > e.start ? e.end : null,
+      at: TIME.test(e.at) ? e.at : null,
+      dur: TIME.test(e.at) ? cleanDur(e.dur, 60) : null,
       note: str(e.note, 2000),
       done: !!e.done
     };
+    /* its own reminder timeline (days before), instead of the one for its kind; [] = no reminders */
+    if (Array.isArray(e.rem)) o.rem = remOffs(e.rem);
+    if (typeof e.ext === 'string' && e.ext) o.ext = e.ext.slice(0, 160);
+    return o;
   }
+  /* reminders: days before a date (14 = two weeks, 0 = on the day) */
+  var REM_OFFS = [14, 7, 3, 2, 1, 0];
+  var REM_DEF = { exam: [7, 1, 0], mock: [7, 1, 0], deadline: [3, 1, 0], other: [1], grades: [], holiday: [] };
+  function remOffs(v) { return Array.isArray(v) ? REM_OFFS.filter(function (o) { return v.map(Number).indexOf(o) >= 0; }) : null; }
+  function cleanRem(r) {
+    r = r && typeof r === 'object' ? r : {};
+    var ev = {};
+    Object.keys(REM_DEF).forEach(function (k) { ev[k] = (r.ev && remOffs(r.ev[k])) || REM_DEF[k].slice(); });
+    return { ev: ev, eve: TIME.test(r.eve) ? r.eve : '19:00', morn: TIME.test(r.morn) ? r.morn : '07:30', plan: [-1, 0, 5, 15, 30].indexOf(r.plan) >= 0 ? r.plan : 0 };
+  }
+  /* a length in minutes for something on the hourly plan: 5 minutes to 12 hours */
+  function cleanDur(v, def) { var d = Math.round(Number(v)); return d >= 5 && d <= 720 ? d : def; }
   function cleanTask(t, sid, eid) {
     if (!t || typeof t !== 'object' || !ID.test(t.id)) return null;
     var title = str(t.title, 200).trim();
     if (!title) return null;
     var est = Math.round(Number(t.est));
-    return {
+    var o = {
       id: t.id,
       title: title,
       subject: sid.has(t.subject) ? t.subject : null,
       due: DATE.test(t.due) ? t.due : null,
+      at: DATE.test(t.due) && TIME.test(t.at) ? t.at : null,
       event: eid.has(t.event) ? t.event : null,
       est: est > 0 ? Math.min(1440, est) : null,
       notes: str(t.notes, 2000),
@@ -162,6 +194,22 @@
       doneAt: DATE.test(t.doneAt) ? t.doneAt : null,
       created: DATE.test(t.created) ? t.created : today()
     };
+    /* a repeating task: the weekdays it happens on (0 = Monday), from its date until 'until',
+       with each day ticked off on its own (doneOn) and days taken out (skip) */
+    var days = Array.isArray(t.rep) ? t.rep.map(Number).filter(function (d, i, a) { return d >= 0 && d <= 6 && Math.floor(d) === d && a.indexOf(d) === i; }).sort() : [];
+    if (days.length) {
+      if (!o.due) o.due = o.created;
+      o.rep = days;
+      o.until = DATE.test(t.until) && t.until >= o.due ? t.until : null;
+      o.doneOn = dateList(t.doneOn, 500);
+      o.skip = dateList(t.skip, 300);
+      o.done = false; o.doneAt = null;
+    }
+    if (typeof t.ext === 'string' && t.ext) o.ext = t.ext.slice(0, 160);
+    return o;
+  }
+  function dateList(v, max) {
+    return Array.isArray(v) ? v.filter(function (d, i, a) { return DATE.test(d) && a.indexOf(d) === i; }).sort().slice(-max) : [];
   }
   function cleanSession(x, sid) {
     if (!x || typeof x !== 'object' || !ID.test(x.id) || !DATE.test(x.date)) return null;
@@ -169,12 +217,20 @@
     if (!(m >= 1 && m <= 720)) return null;
     return { id: x.id, subject: sid.has(x.subject) ? x.subject : null, date: x.date, minutes: m };
   }
+  /* a study block on the hourly plan */
+  function cleanPlan(x, sid) {
+    if (!x || typeof x !== 'object' || !ID.test(x.id) || !DATE.test(x.date) || !TIME.test(x.at)) return null;
+    return { id: x.id, date: x.date, at: x.at, dur: cleanDur(x.dur, 60), subject: sid.has(x.subject) ? x.subject : null, title: str(x.title, 80).trim() };
+  }
+  /* up: a stopwatch that counts up (at most 12 hours) instead of a countdown */
   function cleanTimer(t, sid) {
     if (!t || typeof t !== 'object') return null;
-    var len = Math.round(Number(t.len)), st = Number(t.startedAt);
-    if (!(len >= 1 && len <= 240) || !isFinite(st)) return null;
+    var up = t.up === true, len = up ? 720 : Math.round(Number(t.len)), st = Number(t.startedAt);
+    if (!(len >= 1 && len <= 240) && !up || !isFinite(st)) return null;
     var pa = t.pausedAt == null ? null : Number(t.pausedAt);
-    return { subject: sid.has(t.subject) ? t.subject : null, len: len, startedAt: st, pausedAt: isFinite(pa) && pa !== null ? pa : null, pausedTotal: Math.max(0, Number(t.pausedTotal) || 0) };
+    var o = { subject: sid.has(t.subject) ? t.subject : null, len: len, startedAt: st, pausedAt: isFinite(pa) && pa !== null ? pa : null, pausedTotal: Math.max(0, Number(t.pausedTotal) || 0) };
+    if (up) o.up = true;
+    return o;
   }
   function cleanPaper(x, sid) {
     if (!x || typeof x !== 'object' || !ID.test(x.id)) return null;
@@ -201,7 +257,7 @@
     var D = clone(DEFAULTS);
     var src = input && typeof input === 'object' ? input : D;
     function pick(k) { return Object.prototype.hasOwnProperty.call(src, k) ? src[k] : D[k]; }
-    var out = { version: 2 };
+    var out = { version: 3 };
     var fromVersion = Number(src.version) || 1;
     var prof = pick('profile') || {};
     out.profile = { name: typeof prof.name === 'string' ? prof.name.slice(0, 40) : D.profile.name };
@@ -212,10 +268,15 @@
       lastBackup: DATE.test(st.lastBackup) ? st.lastBackup : null,
       accent: ACCENTS.some(function (a) { return a[0] && a[0] === st.accent; }) ? st.accent : '',
       /* setup guide for empty planners: new = welcome sheet next, on = checklist on Today */
-      guide: GUIDE.indexOf(st.guide) >= 0 ? st.guide : 'done'
+      guide: GUIDE.indexOf(st.guide) >= 0 ? st.guide : 'done',
+      rem: cleanRem(st.rem),
+      level: LEVEL_IDS.indexOf(st.level) >= 0 ? st.level : '',
+      /* calendars linked by address, refreshed every 6 hours */
+      feeds: cleanFeeds(st.feeds)
     };
     out.subjects = uniq((Array.isArray(pick('subjects')) ? pick('subjects') : []).map(cleanSubject));
     if (fromVersion < 2) out.subjects.forEach(function (x) { if (V1_COLORS[x.color]) x.color = V1_COLORS[x.color]; });
+    if (fromVersion < 3) out.subjects.forEach(function (x) { if (V2_COLORS[x.color]) x.color = V2_COLORS[x.color]; });
     var sid = new Set(out.subjects.map(function (s) { return s.id; }));
     out.periods = uniq((Array.isArray(pick('periods')) ? pick('periods') : []).map(cleanPeriod))
       .sort(function (a, b) { return toMin(a.start) - toMin(b.start); });
@@ -237,6 +298,7 @@
     out.tasks = uniq((Array.isArray(pick('tasks')) ? pick('tasks') : []).map(function (t) { return cleanTask(t, sid, eid); }));
     out.sessions = uniq((Array.isArray(pick('sessions')) ? pick('sessions') : []).map(function (x) { return cleanSession(x, sid); })).slice(-4000);
     out.papers = uniq((Array.isArray(pick('papers')) ? pick('papers') : []).map(function (x) { return cleanPaper(x, sid); })).slice(-1000);
+    out.plans = uniq((Array.isArray(pick('plans')) ? pick('plans') : []).map(function (x) { return cleanPlan(x, sid); })).slice(-3000);
     out.timer = cleanTimer(pick('timer'), sid);
     out.pet = cleanPet(pick('pet'));
     return out;
@@ -252,7 +314,18 @@
   function plusOn() { return !!(ME && ME.plus); }
   /* an account outside Sociales 2 IB (free tier, own username) */
   function isFree() { return !!(ME && ME.kind === 'free'); }
-  function startData() { return clone(isFree() ? BLANK : DEFAULTS); }
+  function startData() {
+    if (!isFree()) return clone(DEFAULTS);
+    var l = level(), d = clone((LEVELS[l] && LEVELS[l].blank) || BLANK);
+    d.settings.level = l;
+    return d;
+  }
+  /* the level this device picked on the log in screen */
+  function deviceLevel() { var l = sget('myib:level'); return LEVEL_IDS.indexOf(l) >= 0 ? l : ''; }
+  /* the planner's level; the class is IB; an older planner without one takes this device's pick */
+  function level() { var l = S.settings.level; return LEVEL_IDS.indexOf(l) >= 0 ? l : ME && !isFree() ? 'ib' : deviceLevel() || 'ib'; }
+  function LV() { return LEVELS[level()] || LEVELS.ib; }
+  function isIB() { return level() === 'ib'; }
 
   function blankConf() { return { cal: null, bizum: null, price: null, papers: null }; }
   function setConf(d) {
@@ -307,7 +380,7 @@
     }, function (err) { clearTimeout(timer); throw err; });
   }
 
-  /* This browser's copy of your planner, so MyIB opens offline and never loses an unsynced change. */
+  /* This browser's copy of your planner, so Bloc opens offline and never loses an unsynced change. */
   function cacheKey(id) { return 'myib:cache:' + id; }
   function readCache(id) {
     var c = id ? sjson(cacheKey(id)) : null;
@@ -361,8 +434,8 @@
     /* sanitize first: every copy gets the same key order, so equal items compare equal */
     base = base && typeof base === 'object' ? sanitize(base) : {};
     mine = sanitize(mine); theirs = sanitize(theirs);
-    var out = { version: 2 };
-    ['subjects', 'periods', 'events', 'tasks', 'sessions', 'papers'].forEach(function (k) { out[k] = mergeList(base[k], mine[k], theirs[k]); });
+    var out = { version: 3 };
+    ['subjects', 'periods', 'events', 'tasks', 'sessions', 'papers', 'plans'].forEach(function (k) { out[k] = mergeList(base[k], mine[k], theirs[k]); });
     ['slots', 'settings', 'profile'].forEach(function (k) { out[k] = mergeMap(base[k], mine[k], theirs[k]); });
     out.timer = pick3(base.timer, mine.timer, theirs.timer) || null;
     out.pet = mergePet(base.pet || null, mine.pet || null, theirs.pet || null);
@@ -393,6 +466,9 @@
     writeCache();
     schedulePush(1200);
     nativeSoon();
+    petCardSoon();
+    REM_CACHE.at = 0;
+    pushPlanSoon();
     if (!persistAsked) {
       persistAsked = true;
       try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (e) { /* ignore */ }
@@ -581,7 +657,7 @@
   function markLegacy(id) { var l = sjson('myib:legacy') || {}; l[id] = 1; sset('myib:legacy', JSON.stringify(l)); }
 
   /* view settings, per person and per device */
-  function blankUI() { return { tab: 'today', calMonth: null, calSel: null, calMode: 'month', hidden: [], showPast: false, ttDay: null, taskFilter: 'all', showDone: false, focusSubject: null, focusLen: 25, todayWhich: null, paperSubject: '' }; }
+  function blankUI() { return { tab: 'today', calMonth: null, calSel: null, calMode: 'month', hidden: [], showPast: false, ttDay: null, taskFilter: 'all', showDone: false, focusSubject: null, focusLen: 25, focusUp: false, todayWhich: null, paperSubject: '' }; }
   var UI = blankUI();
   function loadUI(id) {
     var tab = UI.tab;
@@ -595,23 +671,47 @@
     UI.showDone = !!u.showDone;
     if (typeof u.focusSubject === 'string' && ID.test(u.focusSubject)) UI.focusSubject = u.focusSubject;
     if (Number.isInteger(u.focusLen) && u.focusLen >= 5 && u.focusLen <= 180) UI.focusLen = u.focusLen;
+    UI.focusUp = u.focusUp === true;
     if (typeof u.paperSubject === 'string' && ID.test(u.paperSubject)) UI.paperSubject = u.paperSubject;
   }
   function saveUI() {
     if (!ME) return;
-    sset('myib:ui:' + ME.id, JSON.stringify({ calMode: UI.calMode, hidden: UI.hidden, showPast: UI.showPast, taskFilter: UI.taskFilter, showDone: UI.showDone, focusSubject: UI.focusSubject, focusLen: UI.focusLen, paperSubject: UI.paperSubject }));
+    sset('myib:ui:' + ME.id, JSON.stringify({ calMode: UI.calMode, hidden: UI.hidden, showPast: UI.showPast, taskFilter: UI.taskFilter, showDone: UI.showDone, focusSubject: UI.focusSubject, focusLen: UI.focusLen, focusUp: UI.focusUp, paperSubject: UI.paperSubject }));
   }
 
   /* lookups */
   function subj(id) { if (!id) return null; for (var i = 0; i < S.subjects.length; i++) if (S.subjects[i].id === id) return S.subjects[i]; return null; }
   function evById(id) { if (!id) return null; for (var i = 0; i < S.events.length; i++) if (S.events[i].id === id) return S.events[i]; return null; }
   function taskById(id) { for (var i = 0; i < S.tasks.length; i++) if (S.tasks[i].id === id) return S.tasks[i]; return null; }
+  /* repeating tasks: a task with weekdays (rep) shows up on every one of those days from its date on */
+  function isRep(x) { return !!(x && x.rep && x.rep.length); }
+  function occurs(x, d) {
+    if (!isRep(x)) return x.due === d;
+    return d >= x.due && (!x.until || d <= x.until) && x.rep.indexOf(dow(d)) >= 0 && x.skip.indexOf(d) < 0;
+  }
+  /* one day of a repeating task, shaped like a normal task for that day */
+  function occView(x, d) { var o = Object.assign({}, x); o.due = d; o.occ = d; o.done = x.doneOn.indexOf(d) >= 0; return o; }
+  function tasksOn(d) { return S.tasks.filter(function (x) { return occurs(x, d); }).map(function (x) { return isRep(x) ? occView(x, d) : x; }); }
+  function nextOcc(x, from, undone) {
+    var d = from < x.due ? x.due : from;
+    for (var i = 0; i < 400; i++, d = addDays(d, 1)) {
+      if (x.until && d > x.until) return null;
+      if (occurs(x, d) && (!undone || x.doneOn.indexOf(d) < 0)) return d;
+    }
+    return null;
+  }
+  function repText(r) {
+    var k = r.join(',');
+    return k === '0,1,2,3,4,5,6' ? 'Every day' : k === '0,1,2,3,4' ? 'Weekdays' : k === '5,6' ? 'Weekends' :
+      r.length === 1 ? 'Every ' + DAYS_LONG[r[0]] : 'Every ' + r.map(function (i) { return DAYS[i]; }).join(', ');
+  }
   function periodById(id) { for (var i = 0; i < S.periods.length; i++) if (S.periods[i].id === id) return S.periods[i]; return null; }
   function evEnd(e) { return e.end || e.start; }
   function covers(e, d) { return e.start <= d && evEnd(e) >= d; }
-  function byStart(a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : evEnd(a) < evEnd(b) ? -1 : evEnd(a) > evEnd(b) ? 1 : 0; }
+  function byStart(a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : evEnd(a) < evEnd(b) ? -1 : evEnd(a) > evEnd(b) ? 1 : (a.at || '') < (b.at || '') ? -1 : (a.at || '') > (b.at || '') ? 1 : 0; }
   function evOrder(a, b) { return (TYPE_ORDER[a.type] - TYPE_ORDER[b.type]) || byStart(a, b) || (evTitle(a) < evTitle(b) ? -1 : 1); }
-  function holidayOn(d) { for (var i = 0; i < S.events.length; i++) { var e = S.events[i]; if (e.type === 'holiday' && covers(e, d)) return e; } return null; }
+  /* only a school holiday cancels classes: a holiday with a subject (a course, a trip) leaves the timetable alone */
+  function holidayOn(d) { for (var i = 0; i < S.events.length; i++) { var e = S.events[i]; if (e.type === 'holiday' && !e.subject && covers(e, d)) return e; } return null; }
   function cvar(s) { return s ? '--c:' + s.color + ';--on:' + onColor(s.color) : ''; }
   function nameOrGeneral(id) { var s = subj(id); return s ? s.name : 'general study'; }
 
@@ -681,7 +781,7 @@
     var n = nowMs();
     var elapsed = Math.max(0, (t.pausedAt != null ? t.pausedAt : n) - t.startedAt - t.pausedTotal);
     var total = t.len * 60000;
-    return { subject: t.subject, len: t.len, elapsed: elapsed, total: total, remaining: Math.max(0, total - elapsed), running: t.pausedAt == null, startedAt: t.startedAt };
+    return { subject: t.subject, len: t.len, up: !!t.up, elapsed: elapsed, total: total, remaining: Math.max(0, total - elapsed), running: t.pausedAt == null, startedAt: t.startedAt };
   }
   /* A timer's session id comes from its start time, so two open devices finishing the
      same synced timer log it once (the merge keeps one copy per id). */
@@ -733,6 +833,10 @@
     paper: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3.5h7l4 4v12a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z"/><path d="M13.5 3.5v4h4M8.5 12h7M8.5 15.5h7"/></svg>',
     palette: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.2 0 1.8-.7 1.8-1.6 0-1.2-1-1.5-1-2.6 0-1 .8-1.6 1.8-1.6h2.2a3.7 3.7 0 0 0 3.7-3.7c0-4.3-3.8-7.5-8.5-7.5z"/><circle cx="7.8" cy="11.2" r="1"/><circle cx="10.6" cy="7.6" r="1"/><circle cx="15" cy="8.2" r="1"/></svg>',
     timer: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7"/><path d="M12 13.5V9.5M9.5 3h5M18.3 6.7l1.3-1.3"/></svg>',
+    repeat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2.5l3 3-3 3"/><path d="M4 11.5v-1a5 5 0 0 1 5-5h11M7 21.5l-3-3 3-3"/><path d="M20 12.5v1a5 5 0 0 1-5 5H4"/></svg>',
+    skip: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l9 7-9 7z"/><path d="M19 5v14"/></svg>',
+    flame: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.3 2.2c.9 3.4-1.4 5.1-2.8 7.2C8.2 11.3 7.4 12.9 7.4 15a4.6 4.6 0 0 0 9.2 0c0-2.1-1-3.7-2.1-5 .1 1.5-.5 2.6-1.5 3 .6-3.6-.4-7.7-.7-10.8Z"/></svg>',
+    watch: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5l3-2.5M10 2.5h4M12 2.5V6M4.8 7.3l1.4 1.2"/><circle cx="12" cy="13.5" r=".6" fill="currentColor"/></svg>',
     quiet: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.2 16.5V11a5.8 5.8 0 0 1 9.4-4.5M17.8 10.5v6l1.5 1.5H8M10 20.5a2.2 2.2 0 0 0 4 0M4 4l16 16"/></svg>',
     refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4"/></svg>',
     chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5c4.7 0 8.5 3.1 8.5 7s-3.8 7-8.5 7c-1 0-2-.1-2.9-.4L5 19.5l1.2-3.5c-1.7-1.2-2.7-2.8-2.7-4.5 0-3.9 3.8-7 8.5-7z"/></svg>',
@@ -772,7 +876,7 @@
     if (acc) root.setAttribute('data-accent', acc); else root.removeAttribute('data-accent');
     $$('meta[name="theme-color"]').forEach(function (m) {
       var dark = t === 'auto' ? /dark/.test(m.getAttribute('media') || '') : t === 'dark';
-      m.setAttribute('content', dark ? '#040507' : '#EDF0F6');
+      m.setAttribute('content', dark ? '#13100D' : '#F4EFE6');
     });
     /* auto: the app follows the phone, so the page's prefers-color-scheme keeps working */
     toNative({ type: 'theme', mode: t, dark: effectiveDark() });
@@ -781,7 +885,42 @@
     var onScheme = function () { if (MODE === 'app' && currentTheme() === 'auto') renderNav(); };
     if (mqDark.addEventListener) mqDark.addEventListener('change', onScheme); else if (mqDark.addListener) mqDark.addListener(onScheme);
   }
+  /* Big screens: the app scales up with the window (styles.css, "big screens").
+     --z grows slower than the window, so Ctrl + and Ctrl - still make the app bigger or smaller,
+     and a short window keeps it smaller so pages still fit. --ih is the window height in px. */
+  var uiZ = 0, uiH = 0, canZoom = !!(window.CSS && CSS.supports && CSS.supports('zoom', '1.5'));
+  function uiScale() {
+    var w = window.innerWidth || 0, h = window.innerHeight || 0, root = document.documentElement;
+    var z = Math.min(Math.pow(w / 1440, 0.6), Math.pow(h / 820, 0.75));
+    z = Math.round(Math.max(1, Math.min(1.6, z || 1)) * 100) / 100;
+    if (z < 1.03 || !canZoom) z = 1;
+    if (h !== uiH) { uiH = h; root.style.setProperty('--ih', h + 'px'); }
+    if (z === uiZ) return;
+    uiZ = z;
+    root.style.setProperty('--z', String(z));
+    root.classList.toggle('zoomed', z > 1);
+  }
+  uiScale();
+  window.addEventListener('resize', uiScale);
+  /* how much an element is scaled on screen: pointer positions come in screen pixels */
+  function zoomOf(el) { var w = el && el.offsetWidth; return w ? el.getBoundingClientRect().width / w : 1; }
   var navBuilt = false;
+  /* the pill under the current section slides there on a spring */
+  function navPill(nav) {
+    if (!nav) return;
+    var cur = $('[aria-current="page"]', nav), pill = $('.nav-pill', nav);
+    if (!pill) { pill = document.createElement('span'); pill.className = 'nav-pill'; pill.setAttribute('aria-hidden', 'true'); nav.insertBefore(pill, nav.firstChild); }
+    if (!cur || !cur.offsetWidth) { pill.style.opacity = '0'; return; }
+    var first = pill.dataset.on !== '1';
+    pill.dataset.on = '1';
+    if (first) pill.style.transition = 'none';
+    pill.style.opacity = '1';
+    pill.style.width = cur.offsetWidth + 'px';
+    pill.style.height = cur.offsetHeight + 'px';
+    pill.style.transform = 'translate(' + cur.offsetLeft + 'px,' + cur.offsetTop + 'px)';
+    if (first) { void pill.offsetWidth; pill.style.transition = ''; }
+  }
+  window.addEventListener('resize', function () { navPill($('#top-nav')); navPill($('#tabbar')); });
   function renderNav() {
     if (!navBuilt) {
       var html = TABS.map(function (t) {
@@ -807,7 +946,13 @@
     }
     $$('#top-nav [data-tab], #tabbar [data-tab]').forEach(function (b) {
       if (b.dataset.tab === UI.tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+      if (b.dataset.tab === 'pet') {
+        var n = GARDEN.invites.length;
+        b.classList.toggle('has-dot', n > 0);
+        b.setAttribute('aria-label', n ? 'Pet, ' + n + ' garden invite' + (n === 1 ? '' : 's') : 'Pet');
+      }
     });
+    navPill($('#top-nav')); navPill($('#tabbar'));
     var dark = effectiveDark(), tb = $('#theme-btn');
     tb.innerHTML = icon(dark ? 'sun' : 'moon');
     tb.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
@@ -818,7 +963,7 @@
     if (MODE === 'app') {
       if (!SYNC.online) msg = 'Offline. Your changes are saved on this device and sync when you’re back online.';
       else if (SYNC.tooBig) msg = 'Your planner is too big to sync. Delete some old tasks or study sessions.';
-      else if (!storageOK) msg = 'This browser blocks storage, so MyIB can’t keep a copy here. Changes still save to your account while you’re online.';
+      else if (!storageOK) msg = 'This browser blocks storage, so Bloc can’t keep a copy here. Changes still save to your account while you’re online.';
     }
     if (msg) { b.innerHTML = '<span class="pillnote">' + esc(msg) + '</span>'; b.hidden = false; }
     else { b.hidden = true; b.innerHTML = ''; }
@@ -829,14 +974,23 @@
   var toastEl = $('#toast'), toastPop = !!(toastEl && typeof toastEl.showPopover === 'function');
   if (toastPop) { toastEl.setAttribute('popover', 'manual'); toastEl.hidden = false; }
   function snapshot() { return JSON.stringify(S); }
-  function toast(msg, snap) {
+  var toastAct = null;
+  function toast(msg, snap, act, ms) {
     undoSnap = snap || null;
-    toastEl.innerHTML = '<span>' + esc(msg) + '</span>' + (snap ? '<button type="button" class="btn small" data-act="undo">Undo</button>' : '');
+    toastAct = act || null;
+    toastEl.innerHTML = '<span>' + esc(msg) + '</span>' + (snap ? '<button type="button" class="btn small" data-act="undo">Undo</button>' : '') +
+      (act ? '<button type="button" class="btn small primary" data-act="toast-act">' + esc(act.label) + '</button>' : '');
     if (toastPop) {
-      try { if (toastEl.matches(':popover-open')) toastEl.hidePopover(); toastEl.showPopover(); } catch (e) { /* ignore */ }
+      /* an open sheet makes the rest of the page inert: the toast goes inside it so Undo still works */
+      var host = dlg && dlg.open ? dlg : document.body;
+      try {
+        if (toastEl.matches(':popover-open')) toastEl.hidePopover();
+        if (toastEl.parentNode !== host) host.appendChild(toastEl);
+        toastEl.showPopover();
+      } catch (e) { /* ignore */ }
     } else toastEl.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(hideToast, snap ? 6500 : 2800);
+    toastTimer = setTimeout(hideToast, ms || (snap || act ? 6500 : 2800));
   }
   function hideToast() {
     if (toastPop) { try { if (toastEl.matches(':popover-open')) toastEl.hidePopover(); } catch (e) { /* ignore */ } }
@@ -861,14 +1015,16 @@
     var right = o.onSubmit ? '<button type="submit" class="nav-btn strong' + (o.submitDanger ? ' danger' : '') + '">' + esc(o.submitLabel || 'Save') + '</button>'
                            : '<button type="button" class="nav-btn strong" data-act="dlg-close">' + esc(o.doneLabel || 'Done') + '</button>';
     dlgBack = o.back || null;
-    dlg.innerHTML =
+    /* swap the sheet, keep anything else in the dialog (a toast) */
+    $$(':scope > form.sheet', dlg).forEach(function (f) { f.remove(); });
+    dlg.insertAdjacentHTML('afterbegin',
       '<form class="sheet" tabindex="-1" novalidate autocomplete="off">' +
         '<div class="grabber" aria-hidden="true"></div>' +
         '<header class="sheet-head">' + left + '<h2 id="dlg-title">' + esc(o.title) + '</h2>' + right + '</header>' +
         '<div class="sheet-body">' + o.body +
           (o.danger ? '<div class="group"><button type="button" class="row row-btn danger" data-act="' + o.danger.act + '" data-id="' + esc(o.danger.id) + '">' + esc(o.danger.label) + '</button></div>' : '') +
         '</div>' +
-      '</form>';
+      '</form>');
     dlgSubmit = o.onSubmit || null;
     dlg.classList.toggle('wide', !!o.wide);
     if (!dlg.open) dlg.showModal();
@@ -914,14 +1070,21 @@
   }
   function closeDialog() { if (dlg.open) dlg.close(); }
   dlg.addEventListener('close', function () {
+    /* a toast shown inside the sheet moves back out and stays up */
+    if (toastEl.parentNode === dlg) {
+      var up = toastPop && toastEl.matches(':popover-open');
+      document.body.appendChild(toastEl);
+      if (up) { try { toastEl.showPopover(); } catch (e) { /* ignore */ } }
+    }
     dlgSubmit = null; dlgBack = null; curSheet = null; dlg.innerHTML = '';
     if (PFP) { URL.revokeObjectURL(PFP.url); PFP = null; }
+    if (PETUI.cruise) { PETUI.cruise = false; setTimeout(function () { if (PETUI.ctl && UI.tab === 'pet') PETUI.ctl.idle('cruise'); }, 350); }
     if (settingsTouched) { settingsTouched = false; render(); }
     if (SYNC.wantPull) setTimeout(pull, 60);
   });
   /* avatars: a coloured circle with the first letter */
   var KNOWN = ['alexia', 'ana', 'ariel', 'berta', 'carlota', 'cata', 'jorge', 'juan', 'luca', 'mauro', 'simon'];
-  var AVATAR = ['#FF9500', '#FF2D55', '#AF52DE', '#5856D6', '#007AFF', '#32ADE6', '#00C7BE', '#34C759', '#A2845E', '#FF3B30', '#30B0C7', '#8E8E93'];
+  var AVATAR = ['#F28C28', '#E0527D', '#8C3B72', '#3D5591', '#3B6FD4', '#3E9BD6', '#1E9E6A', '#5DAA3A', '#A9714B', '#E4572E', '#1597A8', '#7D756C'];
   function avatarColor(id) {
     var i = KNOWN.indexOf(id);
     if (i < 0) { i = 0; for (var k = 0; k < id.length; k++) i = (i * 31 + id.charCodeAt(k)) >>> 0; }
@@ -1007,18 +1170,37 @@
     var fk = focusKey(document.activeElement);
     if (v.getAttribute('data-view') === 'chat') chatKeep();
     petKeep();
+    tlKeep();
     v.innerHTML = (VIEWS[UI.tab] || VIEWS.today)();
     v.setAttribute('data-view', UI.tab);
     document.body.classList.toggle('chat-conv', UI.tab === 'chat' && !!CHAT.open && chatAgreed());
     if (fk) { var back = $(fk, v); if (back) back.focus({ preventScroll: true }); }
     if (UI.tab === 'chat' && chatAgreed()) chatMounted();
     if (UI.tab === 'pet') petMounted();
+    if (UI.tab === 'calendar') tlMounted();
+    var entering = !!UI.enter;
+    UI.enter = false;
+    if (entering && !calm()) {
+      v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter');
+      $$('#view > *:not(.today-cols):not(.hero), #view .hero > div:first-child > *, #view .hero > :not(:first-child), #view .today-cols .col > *', v).forEach(function (el, i) {
+        el.classList.add('rise'); el.style.setProperty('--i', Math.min(i, 10));
+      });
+      $$('.count-num', v).forEach(countUp);
+      clearTimeout(UI.enterT);
+      UI.enterT = setTimeout(function () { v.classList.remove('enter'); }, 1100);
+    }
+    ringMount(entering);
     updateTimerUI();
     nativeSoon();
   }
   function go(tab) {
     if (!isView(tab)) tab = 'today';
     var changed = UI.tab !== tab;
+    if (changed) {
+      var order = TABS.map(function (x) { return x[0]; }).concat('chat'), a = order.indexOf(UI.tab), b = order.indexOf(tab);
+      $('#view').style.setProperty('--vt-dir', a < 0 || b < 0 ? '0' : b > a ? '1' : '-1');
+      UI.enter = true;
+    }
     /* phones open Chats on the list; big screens keep the chat you had open */
     if (tab === 'chat' && changed && !wideChat()) { CHAT.open = null; CHAT.pushed = false; }
     UI.tab = tab;
@@ -1032,6 +1214,31 @@
       chatWake(tab === 'chat' ? 60 : null);
     }
   }
+  /* the light on glass follows the pointer (mouse and trackpad only) */
+  (function () {
+    if (!window.matchMedia || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    var lit = null, raf = 0, ev = null;
+    document.addEventListener('pointermove', function (e) {
+      ev = e;
+      if (raf) return;
+      raf = requestAnimationFrame(function () {
+        raf = 0;
+        var el = ev.target && ev.target.closest ? ev.target.closest('.card, .count') : null;
+        if (lit && lit !== el) lit.classList.remove('lit');
+        lit = el;
+        if (!el) return;
+        var r = el.getBoundingClientRect();
+        el.style.setProperty('--mx', (ev.clientX - r.left) + 'px');
+        el.style.setProperty('--my', (ev.clientY - r.top) + 'px');
+        el.classList.add('lit');
+      });
+    }, { passive: true });
+  })();
+  var scrolledNow = false;
+  window.addEventListener('scroll', function () {
+    var on = window.scrollY > 6;
+    if (on !== scrolledNow) { scrolledNow = on; document.body.classList.toggle('scrolled', on); }
+  }, { passive: true });
   window.addEventListener('popstate', function () {
     var v = parseHash(location.hash.slice(1));
     UI.tab = v.tab;
@@ -1050,7 +1257,7 @@
         return '<option value="' + s.id + '"' + (s.id === sel ? ' selected' : '') + '>' + esc(s.name) + '</option>';
       }).join('') + '</optgroup>';
     }
-    return '<option value="">' + esc(noneLabel) + '</option>' + grp('ib', 'IB subjects') + grp('core', 'Core') + grp('other', 'Other');
+    return '<option value="">' + esc(noneLabel) + '</option>' + grp('ib', LV().group) + grp('core', 'Core') + grp('other', 'Other');
   }
   function whenInfo(e, t) {
     if (e.end && e.start <= t && e.end >= t) return { txt: 'Until ' + fShort(e.end), cls: 'live' };
@@ -1076,6 +1283,9 @@
     if (a.done !== b.done) return a.done ? 1 : -1;
     var ad = a.due || '9999-99-99', bd = b.due || '9999-99-99';
     if (ad !== bd) return ad < bd ? -1 : 1;
+    /* the same day: no time first, then by time */
+    var at = a.at || '', bt = b.at || '';
+    if (at !== bt) return at < bt ? -1 : 1;
     return a.created < b.created ? -1 : a.created > b.created ? 1 : 0;
   }
   function dueLabel(x, t) {
@@ -1088,15 +1298,18 @@
     if (n < 7) return { txt: 'Due ' + DAYS_LONG[dow(x.due)], cls: '' };
     return { txt: 'Due ' + fDay(x.due), cls: '' };
   }
-  function taskRow(x, t) {
+  function taskRow(x, t, o) {
     var s = subj(x.subject), e = evById(x.event), due = dueLabel(x, t), meta = [];
+    if (x.at) meta.push('<span class="m tm">' + x.at + '</span>');
     if (s) meta.push('<span class="m"><i class="sw" style="' + cvar(s) + '"></i>' + esc(s.short) + '</span>');
     if (due) meta.push('<span class="m ' + due.cls + '">' + esc(due.txt) + '</span>');
     if (e) meta.push('<span class="m">For ' + esc(evShort(e)) + (evDetail(e) ? ' · ' + esc(evDetail(e)) : '') + '</span>');
     if (x.est) meta.push('<span class="m">' + esc(dur(x.est)) + '</span>');
-    return '<li class="task' + (x.done ? ' done' : '') + '">' +
-      '<label class="check" style="' + cvar(s) + '"><input type="checkbox" data-change="task-done" data-id="' + x.id + '"' + (x.done ? ' checked' : '') + ' aria-label="Done: ' + esc(x.title) + '"><span class="box">' + icon('check') + '</span></label>' +
-      '<button type="button" class="task-main" data-act="task-open" data-id="' + x.id + '"><span class="task-title">' + esc(x.title) + '</span>' +
+    if (isRep(x)) meta.push('<span class="m rep">' + icon('repeat') + esc(repText(x.rep)) + '</span>');
+    var occ = x.occ ? ' data-date="' + x.occ + '"' : '';
+    return '<li class="task' + (x.done ? ' done' : '') + (isRep(x) ? ' is-rep' : '') + '"' + (o && o.drag ? ' data-drag="task:' + x.id + '"' + occ : '') + '>' +
+      '<label class="check" style="' + cvar(s) + '"><input type="checkbox" data-change="task-done" data-id="' + x.id + '"' + occ + (x.done ? ' checked' : '') + ' aria-label="Done: ' + esc(x.title) + '"><span class="box">' + icon('check') + '</span></label>' +
+      '<button type="button" class="task-main" data-act="task-open" data-id="' + x.id + '"' + occ + '><span class="task-title">' + esc(x.title) + '</span>' +
       (meta.length ? '<span class="task-meta">' + meta.join('') + '</span>' : '') + '</button>' +
     '</li>';
   }
@@ -1112,7 +1325,7 @@
           '<p class="hero-day">' + DAYS_LONG[dow(t)] + '</p>' +
           '<h1 class="display">' + td.getDate() + ' ' + MONTH_LONG[td.getMonth()] + '</h1>' +
           '<p class="sub">' + esc(greet) + (name ? ', ' + esc(name) : '') + '</p>' +
-          headsUp(t) + petNudge() +
+          winsRow(t) + headsUp(t) + petNudge() +
         '</div>' +
         countdown(t) +
         guideCard() +
@@ -1123,13 +1336,65 @@
       '</div>';
   };
 
+  /* today's wins: how many of today's tasks are done, and how many days in a row you got something done */
+  function streakDays(t) {
+    var days = {};
+    S.sessions.forEach(function (x) { days[x.date] = 1; });
+    S.tasks.forEach(function (x) { if (x.doneAt) days[x.doneAt] = 1; if (x.doneOn) x.doneOn.forEach(function (d) { days[d] = 1; }); });
+    var n = 0, d = days[t] ? t : addDays(t, -1);
+    while (days[d] && n < 1000) { n++; d = addDays(d, -1); }
+    return { n: n, today: !!days[t] };
+  }
+  function winsRow(t) {
+    var list = tasksOn(t), n = list.length, done = list.filter(function (x) { return x.done; }).length, st = streakDays(t), out = '';
+    if (n) {
+      var full = done === n, p = (done / n).toFixed(3);
+      out += '<button type="button" class="win ring-win' + (full ? ' full' : '') + '" data-act="tab" data-tab="tasks" aria-label="' + done + ' of ' + n + ' tasks done today">' +
+        '<svg class="wring" viewBox="0 0 36 36" aria-hidden="true"><circle class="wring-bg" cx="18" cy="18" r="15.5"/><circle class="wring-fg" cx="18" cy="18" r="15.5" data-p="' + p + '" style="--p:' + p + '"/></svg>' +
+        '<span class="two-line"><b>' + (full ? 'All done' : done + ' of ' + n) + '</b><span>' + (full ? 'for today' : n === 1 ? 'task today' : 'tasks today') + '</span></span></button>';
+    }
+    if (st.n || n) {
+      var hot = st.today;
+      out += '<span class="win streak-win' + (hot ? ' hot' : st.n ? '' : ' cold') + '" title="Days in a row with a finished task or study time">' +
+        '<span class="flame" aria-hidden="true">' + icon('flame') + '</span><span class="two-line"><b>' + (st.n ? st.n + (st.n === 1 ? ' day' : ' days') : 'No streak yet') + '</b><span>' +
+        (hot ? 'in a row' : st.n ? 'finish one today to keep it' : 'finish a task to start one') + '</span></span></span>';
+    }
+    return out ? '<div class="wins">' + out + '</div>' : '';
+  }
+  /* the ring fills from where it was (or from empty when Today opens) */
+  var RING = { p: null };
+  function ringMount(entering) {
+    var c = $('#view .wring-fg');
+    if (!c) { RING.p = null; return; }
+    var p = Number(c.dataset.p), from = entering || RING.p == null ? 0 : RING.p;
+    RING.p = p;
+    if (calm() || from === p) return;
+    c.style.transition = 'none';
+    c.style.strokeDashoffset = String(97.4 * (1 - from));
+    void c.getBoundingClientRect();
+    c.style.transition = '';
+    c.style.strokeDashoffset = '';
+  }
+  /* big numbers count up when a section opens */
+  function countUp(el) {
+    var to = parseInt(el.textContent, 10);
+    if (!(to > 1) || calm() || String(to) !== el.textContent.trim()) return;
+    var t0 = performance.now(), d = Math.min(1100, 420 + to * 3);
+    el.textContent = '0';
+    (function f(t) {
+      var k = Math.min(1, (t - t0) / d), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = String(Math.round(to * e));
+      if (k < 1) requestAnimationFrame(f);
+    })(t0);
+  }
+
   /* ---------- setup guide (empty planners) ---------- */
   function hasIBSubjects() { return S.subjects.some(function (s) { return s.group === 'ib'; }); }
   function guideSteps() {
     return [
-      { act: 'guide-subjects', done: hasIBSubjects(), title: 'Add your subjects', sub: 'Pick your IB subjects from a list.' },
+      { act: 'guide-subjects', done: hasIBSubjects(), title: 'Add your ' + (level() === 'uni' ? 'courses' : 'subjects'), sub: 'Pick yours from a list.' },
       { act: 'guide-timetable', done: Object.keys(S.slots).length > 0, title: 'Fill in your timetable', sub: 'Tap a slot, then pick the class.' },
-      { act: 'guide-dates', done: S.events.length > 0, title: 'Add your dates', sub: 'Deadlines, mock exams, IB exams.' },
+      { act: 'guide-dates', done: S.events.length > 0, title: 'Add your dates', sub: 'Deadlines and exams. Type them in or import your calendar.' },
       { act: 'guide-task', done: S.tasks.length > 0, title: 'Add a task', sub: 'Something you need to do this week.' }
     ];
   }
@@ -1146,11 +1411,11 @@
         (x.done ? '<span class="sr">, done</span>' : '') + '</button></li>';
     }).join('');
     return '<section class="card c-guide" aria-labelledby="h-guide">' +
-        '<header class="card-head"><h2 id="h-guide">' + (all ? 'You’re all set' : 'Set up MyIB') + '</h2>' +
+        '<header class="card-head"><h2 id="h-guide">' + (all ? 'You’re all set' : 'Set up Bloc') + '</h2>' +
           '<button type="button" class="link" data-act="guide-hide">' + (all ? 'Close' : 'Hide') + '</button></header>' +
         '<div class="guide-progress"><div class="guide-bar" aria-hidden="true"><i style="width:' + Math.round(n / steps.length * 100) + '%"></i></div>' +
           '<span class="guide-count">' + n + ' of ' + steps.length + ' done</span></div>' +
-        (all ? '<p class="empty">Your planner is ready. Settings has more: ' + (sellHere() || plusOn() ? 'a backup, calendar export and MyIB Plus.' : 'a backup and calendar export.') + '</p>' : '<ol class="guide-steps">' + list + '</ol>') +
+        (all ? '<p class="empty">Your planner is ready. Settings has more: ' + (sellHere() || plusOn() ? 'a backup, calendar export and Bloc Plus.' : 'a backup and calendar export.') + '</p>' : '<ol class="guide-steps">' + list + '</ol>') +
       '</section>';
   }
 
@@ -1176,7 +1441,16 @@
     var exams = S.events.filter(function (e) { return e.type === 'exam'; }).sort(byStart);
     var num, label, sub;
     if (!exams.length) { num = '–'; label = ''; sub = 'Add your exam dates in the calendar.'; }
-    else {
+    else if (!isIB()) {
+      /* exams all year round: count down to the next one */
+      var nx = exams.filter(function (e) { return !e.done && evEnd(e) >= t; })[0];
+      if (!nx) { num = '–'; label = ''; sub = 'No exams coming up.'; }
+      else {
+        var dn = diff(t, nx.start);
+        num = dn <= 0 ? 'Today' : String(dn); label = dn <= 0 ? '' : dn === 1 ? 'day to go' : 'days to go';
+        sub = evFull(nx) + ' · ' + fDay(nx.start);
+      }
+    } else {
       var first = exams[0], last = exams[exams.length - 1];
       if (t < first.start) {
         var n = diff(t, first.start);
@@ -1192,7 +1466,7 @@
     var mockVal = !mock ? '–' : mock.start <= t ? 'On now' : diff(t, mock.start) === 1 ? 'Tomorrow' : 'in ' + diff(t, mock.start) + ' days';
     var n14 = S.events.filter(function (e) { return e.type === 'deadline' && !e.done && e.start >= t && diff(t, e.start) <= 14; }).length;
     return '<div class="count" role="group" aria-label="Countdowns">' +
-        '<p class="count-cap">IB exams</p>' +
+        '<p class="count-cap">' + esc(LV().exams) + '</p>' +
         '<div class="count-row"><span class="count-num">' + esc(num) + '</span><span class="count-label">' + esc(label) + '</span></div>' +
         '<p class="count-sub">' + esc(sub) + '</p>' +
         schoolEnds(t) +
@@ -1206,7 +1480,7 @@
   /* days until the last day of school, for each IB year (dates in data.js) */
   var SCHOOL_END = (Array.isArray(window.IB_SCHOOL_END) ? window.IB_SCHOOL_END : []).filter(function (x) { return Array.isArray(x) && typeof x[0] === 'string' && DATE.test(x[1]); });
   function schoolEnds(t) {
-    if (!SCHOOL_END.length) return '';
+    if (!SCHOOL_END.length || isFree()) return '';
     return '<div class="count-school"><p class="count-cap school">School ends</p><ul class="count-mini school">' + SCHOOL_END.map(function (x) {
       var n = diff(t, x[1]);
       var val = n > 1 ? n + ' days' : n === 1 ? 'Tomorrow' : n === 0 ? 'Today' : 'Done';
@@ -1308,8 +1582,17 @@
       '</section>';
   }
 
+  /* every open task, with a repeating task as its next day not done yet */
+  function openTasks(t) {
+    var out = [];
+    S.tasks.forEach(function (x) {
+      if (isRep(x)) { var d = nextOcc(x, t, true); if (d) out.push(occView(x, d)); }
+      else if (!x.done) out.push(x);
+    });
+    return out;
+  }
   function cardTasksToday(t) {
-    var soon = S.tasks.filter(function (x) { return !x.done && x.due && diff(t, x.due) <= 3; }).sort(taskSort);
+    var soon = openTasks(t).filter(function (x) { return x.due && diff(t, x.due) <= 3; }).sort(taskSort);
     var undated = S.tasks.filter(function (x) { return !x.done && !x.due; }).length;
     return '<section class="card c-tasks" aria-labelledby="h-tasks">' +
         '<header class="card-head"><h2 id="h-tasks">Tasks<span class="hint">next 3 days</span></h2><button type="button" class="link" data-act="tab" data-tab="tasks">All tasks</button></header>' +
@@ -1326,7 +1609,7 @@
   function cardFocus() {
     var st = timerState();
     var sel = st ? st.subject : (subj(UI.focusSubject) ? UI.focusSubject : '');
-    var len = st ? st.len : UI.focusLen;
+    var up = st ? st.up : UI.focusUp, len = st ? st.len : UI.focusLen;
     var opts = '<option value="">General study</option>' + S.subjects.filter(function (s) { return s.group !== 'other'; }).map(function (s) {
       return '<option value="' + s.id + '"' + (sel === s.id ? ' selected' : '') + '>' + esc(s.name) + '</option>';
     }).join('');
@@ -1338,19 +1621,20 @@
         '<div class="focus-row">' +
           '<div class="ring' + (st && !st.running ? ' paused' : '') + '">' +
             '<svg viewBox="0 0 148 148" aria-hidden="true"><circle class="trk" cx="74" cy="74" r="66"/><circle class="arc" id="ring-arc" cx="74" cy="74" r="66" stroke-linecap="round" stroke-dasharray="' + RING_C.toFixed(2) + '" stroke-dashoffset="0"/></svg>' +
-            '<div class="ring-num" role="timer" aria-live="off"><b id="ring-time">' + fmtClock(len * 60) + '</b><span id="ring-sub">' + (st ? (st.running ? 'Focusing' : 'Paused') : 'Ready') + '</span></div>' +
+            '<div class="ring-num" role="timer" aria-live="off"><b id="ring-time">' + (up ? '0:00' : fmtClock(len * 60)) + '</b><span id="ring-sub">' + (st ? (st.running ? (up ? 'Stopwatch' : 'Focusing') : 'Paused') : up ? 'Stopwatch' : 'Ready') + '</span></div>' +
           '</div>' +
           '<div class="focus-controls">' +
             '<span class="select-pill"><select id="focus-subject" data-change="focus-subject" aria-label="Subject"' + (st ? ' disabled' : '') + '>' + opts + '</select>' + icon('updown') + '</span>' +
             '<div class="seg" role="group" aria-label="Session length">' + [25, 45, 60].map(function (m) {
-              return '<button type="button" data-act="focus-len" data-len="' + m + '" aria-pressed="' + (len === m) + '"' + (st ? ' disabled' : '') + '>' + m + ' min</button>';
+              return '<button type="button" data-act="focus-len" data-len="' + m + '" aria-pressed="' + (!up && len === m) + '"' + (st ? ' disabled' : '') + '>' + m + ' min</button>';
             }).join('') +
-              (plusOn() || sellHere() ? '<button type="button" data-act="focus-custom" aria-pressed="' + ([25, 45, 60].indexOf(len) < 0) + '"' + (st ? ' disabled' : '') + '>' + ([25, 45, 60].indexOf(len) < 0 ? len + ' min' : 'Other') + '</button>' : '') +
+              (plusOn() || sellHere() ? '<button type="button" data-act="focus-custom" aria-pressed="' + (!up && [25, 45, 60].indexOf(len) < 0) + '"' + (st ? ' disabled' : '') + '>' + ([25, 45, 60].indexOf(len) < 0 ? len + ' min' : 'Other') + '</button>' : '') +
+              '<button type="button" class="seg-watch" data-act="focus-len" data-len="up" aria-pressed="' + !!up + '"' + (st ? ' disabled' : '') + ' aria-label="Stopwatch" title="Stopwatch: counts up until you stop it">' + icon('watch') + '</button>' +
             '</div>' +
             '<div class="btns">' +
               '<button type="button" class="round-btn stop" data-act="focus-cancel"' + (st ? '' : ' disabled') + '>Cancel</button>' + go +
             '</div>' +
-            (st ? '<button type="button" class="link" data-act="focus-finish">Finish now and log it</button>' : '') +
+            (st ? '<button type="button" class="link" data-act="focus-finish">' + (st.up ? 'Stop and log it' : 'Finish now and log it') + '</button>' : '') +
           '</div>' +
         '</div>' + weekBars() +
       '</section>';
@@ -1391,14 +1675,15 @@
     var tEl = $('#ring-time'), arc = $('#ring-arc');
     if (st) {
       if (st.remaining <= 0) { completeTimer(); return; }
-      var secs = Math.ceil(st.remaining / 1000);
-      if (tEl) tEl.textContent = fmtClock(secs);
-      if (arc) arc.setAttribute('stroke-dashoffset', (RING_C * (1 - st.remaining / st.total)).toFixed(2));
-      var pt = $('#pet-timer'); if (pt) pt.textContent = fmtClock(secs);
-      document.title = fmtClock(secs) + ' · ' + (subj(st.subject) ? subj(st.subject).short : 'Focus') + ' · MyIB';
+      var secs = Math.ceil(st.remaining / 1000), shown = st.up ? fmtWatch(st.elapsed / 1000) : fmtClock(secs);
+      if (tEl) tEl.textContent = shown;
+      /* the stopwatch ring fills once an hour */
+      if (arc) arc.setAttribute('stroke-dashoffset', (RING_C * (st.up ? 1 - (st.elapsed % 3600000) / 3600000 : 1 - st.remaining / st.total)).toFixed(2));
+      var pt = $('#pet-timer'); if (pt) pt.textContent = shown;
+      document.title = shown + ' · ' + (subj(st.subject) ? subj(st.subject).short : 'Focus') + ' · Bloc';
     } else {
-      if (arc) arc.setAttribute('stroke-dashoffset', '0');
-      document.title = 'MyIB';
+      if (arc) arc.setAttribute('stroke-dashoffset', UI.focusUp ? RING_C.toFixed(2) : '0');
+      document.title = 'Bloc';
     }
   }
   function completeTimer() {
@@ -1407,10 +1692,12 @@
     S.timer = null;
     logSession(st.subject, st.len, toISO(new Date(st.startedAt)), timerId(st));
     save();
+    if (st.up) { render(); toast('The stopwatch stopped at 12 hours: ' + dur(st.len) + ' of ' + nameOrGeneral(st.subject) + ' logged' + petNote()); return; }
     chime();
     try { if (navigator.vibrate) navigator.vibrate([180, 80, 180]); } catch (e) { /* ignore */ }
     render();
-    toast('Session done: ' + dur(st.len) + ' of ' + nameOrGeneral(st.subject) + ' logged');
+    toast('Session done: ' + dur(st.len) + ' of ' + nameOrGeneral(st.subject) + ' logged' + petNote());
+    celebrate(null, st.len >= 25);
   }
   var actx = null;
   function unlockAudio() {
@@ -1552,7 +1839,7 @@
     var evs = S.events.filter(visible);
     var multi = evs.filter(function (e) { return !!e.end; }).sort(byStart);
     var singles = evs.filter(function (e) { return !e.end; });
-    var tasks = S.tasks.filter(function (x) { return x.due && (!x.subject || UI.hidden.indexOf(x.subject) < 0); });
+    var plans = S.plans.filter(function (p) { return !p.subject || UI.hidden.indexOf(p.subject) < 0; }).sort(function (a, b) { return toMin(a.at) - toMin(b.at); });
     var html = '<div class="month"><div class="mhead" aria-hidden="true">' + DAYS.map(function (d) { return '<span>' + d + '</span>'; }).join('') + '</div>';
     for (var ws = start; ws <= end; ws = addDays(ws, 7)) {
       var we = addDays(ws, 6);
@@ -1567,28 +1854,27 @@
         sg.lane = lane;
       });
       var lanes = laneEnds.length;
-      var w = '<div class="wk" style="grid-template-rows:var(--num-h) ' + (lanes ? 'repeat(' + lanes + ',var(--lane-h)) ' : '') + 'minmax(var(--stack-h),auto)">';
+      var w = '<div class="wk" data-ws="' + ws + '" style="grid-template-rows:var(--num-h) ' + (lanes ? 'repeat(' + lanes + ',var(--lane-h)) ' : '') + 'minmax(var(--stack-h),auto)">';
       var i2, d;
       for (i2 = 0; i2 < 7; i2++) {
         d = addDays(ws, i2);
         var out = d.slice(0, 7) !== UI.calMonth;
-        var dayItems = singles.filter(function (e) { return e.start === d; }).length + segs.filter(function (sg) { return sg.s <= d && sg.en >= d; }).length + tasks.filter(function (x) { return x.due === d; }).length;
+        var dayItems = singles.filter(function (e) { return e.start === d; }).length + segs.filter(function (sg) { return sg.s <= d && sg.en >= d; }).length + monthTasks(d).length;
         w += '<button type="button" class="mday' + (i2 === 0 ? ' c1' : '') + (i2 >= 5 ? ' wknd' : '') + (d === UI.calSel ? ' sel' : '') + '" style="grid-column:' + (i2 + 1) + '" data-act="cal-sel" data-date="' + d + '" aria-label="' + esc(fLong(d) + (dayItems ? ', ' + dayItems + ' item' + (dayItems > 1 ? 's' : '') : '')) + '"' + (d === UI.calSel ? ' aria-current="date"' : '') + '></button>';
         w += '<span class="mnum' + (out ? ' out' : '') + (d === t ? ' today' : d === UI.calSel ? ' sel' : '') + '" style="grid-column:' + (i2 + 1) + '" aria-hidden="true">' + fromISO(d).getDate() + '</span>';
       }
       segs.forEach(function (sg) {
         var e = sg.e, c1 = diff(ws, sg.s) + 1, c2 = diff(ws, sg.en) + 2;
         var cls = ['bar', e.type === 'mock' ? 'mock' : e.type === 'holiday' ? 'holiday' : '', e.start < ws ? 'cont-l' : '', evEnd(e) > we ? 'cont-r' : '', e.done ? 'done' : ''].filter(Boolean).join(' ');
-        w += '<button type="button" class="' + cls + '" style="grid-row:' + (2 + sg.lane) + ';grid-column:' + c1 + ' / ' + c2 + ';' + cvar(subj(e.subject)) + '" data-act="ev-open" data-id="' + e.id + '" title="' + esc(evFull(e) + ' · ' + fShort(e.start) + ' – ' + fShort(evEnd(e))) + '">' + esc(evTitle(e)) + '</button>';
+        w += '<button type="button" class="' + cls + '" style="grid-row:' + (2 + sg.lane) + ';grid-column:' + c1 + ' / ' + c2 + ';' + cvar(subj(e.subject)) + '" data-act="ev-open" data-id="' + e.id + '" data-drag="event:' + e.id + '" title="' + esc(evFull(e) + ' · ' + fShort(e.start) + ' – ' + fShort(evEnd(e))) + '">' + esc(evTitle(e)) + '</button>';
       });
       for (i2 = 0; i2 < 7; i2++) {
         d = addDays(ws, i2);
-        var items = singles.filter(function (e) { return e.start === d; }).sort(evOrder).map(function (e) { return { k: 'e', e: e }; })
-          .concat(tasks.filter(function (x) { return x.due === d; }).sort(taskSort).map(function (x) { return { k: 't', x: x }; }));
+        var items = cellItems(d, singles, monthTasks(d), plans);
         var MAX = 3, cut = items.length > MAX ? MAX - 1 : MAX, st = '';
         items.forEach(function (it, idx) {
           var extra = idx >= cut;
-          st += it.k === 'e' ? mpEvent(it.e, extra) : mpTask(it.x, extra);
+          st += it.k === 'e' ? mpEvent(it.e, extra) : it.k === 't' ? mpTask(it.x, extra) : mpPlan(it.p, extra);
         });
         if (items.length > cut) st += '<button type="button" class="more" data-act="cal-sel" data-date="' + d + '">+' + (items.length - cut) + ' more</button>';
         w += '<div class="mstack" style="grid-row:' + (2 + lanes) + ';grid-column:' + (i2 + 1) + '">' + st + '</div>';
@@ -1597,28 +1883,392 @@
     }
     return html + '</div>';
   }
+  /* one day in the month: things without a time first (exams, deadlines, tasks), then everything with a time, earliest first */
+  function monthTasks(d) { return tasksOn(d).filter(function (x) { return !x.subject || UI.hidden.indexOf(x.subject) < 0; }); }
+  function cellItems(d, singles, tasks, plans) {
+    var allDay = singles.filter(function (e) { return e.start === d && !e.at; }).sort(evOrder).map(function (e) { return { k: 'e', e: e }; })
+      .concat(tasks.filter(function (x) { return x.due === d && !x.at; }).sort(taskSort).map(function (x) { return { k: 't', x: x }; }));
+    var timed = singles.filter(function (e) { return e.start === d && e.at; }).map(function (e) { return { k: 'e', e: e, m: toMin(e.at), o: 0 }; })
+      .concat(tasks.filter(function (x) { return x.due === d && x.at; }).map(function (x) { return { k: 't', x: x, m: toMin(x.at), o: 1 }; }))
+      .concat(plans.filter(function (p) { return p.date === d; }).map(function (p) { return { k: 'p', p: p, m: toMin(p.at), o: 2 }; }));
+    timed.sort(function (a, b) { return a.m - b.m || a.o - b.o; });
+    return allDay.concat(timed);
+  }
   function mpEvent(e, extra) {
     var cls = ['mp', e.type === 'exam' ? 'exam' : '', e.type === 'grades' ? 'grades' : '', e.done ? 'done' : '', extra ? 'extra' : ''].filter(Boolean).join(' ');
     var d = evDetail(e);
-    return '<button type="button" class="' + cls + '" style="' + cvar(subj(e.subject)) + '" data-act="ev-open" data-id="' + e.id + '" title="' + esc(evFull(e)) + '">' +
-      '<span class="t">' + esc(evShort(e)) + '</span>' + (d ? '<span class="d">' + esc(d) + '</span>' : '') + '</button>';
+    return '<button type="button" class="' + cls + '" style="' + cvar(subj(e.subject)) + '" data-act="ev-open" data-id="' + e.id + '" data-drag="event:' + e.id + '" title="' + esc(evFull(e)) + '">' +
+      '<span class="t">' + (e.at ? e.at + ' ' : '') + esc(evShort(e)) + '</span>' + (d ? '<span class="d">' + esc(d) + '</span>' : '') + '</button>';
   }
   function mpTask(x, extra) {
-    return '<button type="button" class="mp task' + (x.done ? ' done' : '') + (extra ? ' extra' : '') + '" style="' + cvar(subj(x.subject)) + '" data-act="task-open" data-id="' + x.id + '" title="' + esc('Task: ' + x.title) + '"><span class="t">' + esc(x.title) + '</span></button>';
+    var occ = x.occ ? ' data-date="' + x.occ + '"' : '';
+    return '<button type="button" class="mp task' + (x.done ? ' done' : '') + (isRep(x) ? ' rep' : '') + (extra ? ' extra' : '') + '" style="' + cvar(subj(x.subject)) + '" data-act="task-open" data-id="' + x.id + '"' + occ + ' data-drag="task:' + x.id + '" title="' + esc('Task: ' + x.title + (isRep(x) ? ' · ' + repText(x.rep) : '')) + '"><span class="t">' + (x.at ? x.at + ' ' : '') + esc(x.title) + '</span></button>';
   }
+  function mpPlan(p, extra) {
+    return '<button type="button" class="mp plan' + (extra ? ' extra' : '') + '" style="' + cvar(subj(p.subject)) + '" data-act="plan-open" data-id="' + p.id + '" data-drag="plan:' + p.id + '" title="' + esc('Study block: ' + planName(p) + ', ' + p.at + '–' + hm(toMin(p.at) + p.dur)) + '"><span class="t">' + p.at + ' ' + esc(planName(p)) + '</span></button>';
+  }
+  /* ---------- the day: things without a time, then the hourly plan ---------- */
   function dayPanel(d, t) {
     var evs = S.events.filter(function (e) { return covers(e, d) && visible(e); }).sort(evOrder);
-    var tasks = S.tasks.filter(function (x) { return x.due === d; }).sort(taskSort);
+    var tasks = tasksOn(d).sort(taskSort);
+    var allEv = evs.filter(function (e) { return !(e.at && e.start === d); });
+    var allT = tasks.filter(function (x) { return !x.at; });
     var blocks = blocksFor(d), n = diff(t, d);
     var sub = rel(n) + ' · ' + (holidayOn(d) ? 'no school' : blocks.length ? blocks.length + ' class' + (blocks.length > 1 ? 'es' : '') + ', ' + blocks[0].start + '–' + blocks[blocks.length - 1].end : 'no classes');
     return '<aside class="daypanel" aria-labelledby="dp-h">' +
         '<h2 id="dp-h">' + esc(fLong(d)) + '</h2><p class="dp-sub">' + esc(sub) + '</p>' +
-        (evs.length ? '<ul class="dp-list">' + evs.map(function (e) { return '<li>' + upRow(e, t, { noDate: true }) + (e.note ? '<p class="dp-note">' + esc(e.note) + '</p>' : '') + '</li>'; }).join('') + '</ul>'
-          : '<p class="empty dp-h">No deadlines or exams.</p>') +
-        (tasks.length ? '<h3 class="eyebrow dp-h">Tasks due</h3><ul class="tasklist">' + tasks.map(function (x) { return taskRow(x, t); }).join('') + '</ul>' : '') +
-        '<div class="dp-actions"><button type="button" class="btn small" data-act="ev-new" data-date="' + d + '">' + icon('plus') + 'Event</button><button type="button" class="btn small" data-act="task-new" data-date="' + d + '">' + icon('plus') + 'Task</button></div>' +
+        '<div class="dp-allday" data-date="' + d + '">' +
+          (allEv.length ? '<ul class="dp-list">' + allEv.map(function (e) { return '<li data-drag="event:' + e.id + '">' + upRow(e, t, { noDate: true }) + (e.note ? '<p class="dp-note">' + esc(e.note) + '</p>' : '') + '</li>'; }).join('') + '</ul>'
+            : '<p class="empty dp-h">No deadlines or exams.</p>') +
+          (allT.length ? '<h3 class="eyebrow dp-h">Tasks due</h3><ul class="tasklist">' + allT.map(function (x) { return taskRow(x, t, { drag: true }); }).join('') + '</ul>' : '') +
+        '</div>' +
+        '<div class="tl-tools">' +
+          '<button type="button" class="btn small tl-study" data-act="plan-new" data-date="' + d + '" data-drag="new:study">' + icon('timer') + 'Study Block</button>' +
+          '<button type="button" class="btn small" data-act="task-new" data-date="' + d + '">' + icon('plus') + 'Task</button>' +
+          '<button type="button" class="btn small" data-act="ev-new" data-date="' + d + '">' + icon('plus') + 'Event</button>' +
+        '</div>' +
+        '<div class="tl-scroll" id="tl-scroll" data-date="' + d + '">' + timeline(d, t) + '</div>' +
+        '<p class="tl-hint">Tap a free time to plan it. Drag anything to move it, or drag its bottom edge to make it longer.</p>' +
       '</aside>';
   }
+
+  /* the hourly plan: classes faded behind, then timed tasks, timed events and study blocks */
+  var PXM = 0.8;   /* px per minute: 48 px an hour */
+  function hm(min) { min = Math.max(0, Math.min(1439, Math.round(min))); return pad(Math.floor(min / 60)) + ':' + pad(min % 60); }
+  function planById(id) { for (var i = 0; i < S.plans.length; i++) if (S.plans[i].id === id) return S.plans[i]; return null; }
+  function planName(p) { var s = subj(p.subject); return p.title || (s ? 'Study ' + s.short : 'Study'); }
+  /* official school dates keep their day: only your own events move */
+  function evLocked(e) { return !isFree() && !/^ev-/.test(e.id); }
+  function dayItems(d) {
+    var out = [];
+    tasksOn(d).forEach(function (x) { if (x.at) out.push({ k: 'task', id: x.id, occ: x.occ || '', start: toMin(x.at), dur: x.est || 30, title: x.title, s: subj(x.subject), done: x.done, what: isRep(x) ? 'Repeating task' : 'Task' }); });
+    S.events.forEach(function (e) { if (e.start === d && e.at && visible(e)) out.push({ k: 'event', id: e.id, start: toMin(e.at), dur: e.dur || 60, title: evFull(e), s: subj(e.subject), done: e.done, what: e.type === 'exam' ? 'Exam' : e.type === 'deadline' ? 'Deadline' : 'Event' }); });
+    S.plans.forEach(function (p) { if (p.date === d) out.push({ k: 'plan', id: p.id, start: toMin(p.at), dur: p.dur, title: planName(p), s: subj(p.subject), done: false, what: 'Study block' }); });
+    return out.sort(function (a, b) { return a.start - b.start || b.dur - a.dur; });
+  }
+  function tlStart(items) {
+    var first = items.length ? items[0].start : 1440;
+    return Math.min(360, Math.floor(first / 60) * 60);
+  }
+  function timeline(d, t) {
+    var items = dayItems(d), t0 = tlStart(items), h = '';
+    function top(m) { return Math.round((m - t0) * PXM); }
+    for (var m = t0; m < 1440; m += 60) h += '<div class="tl-hr" style="top:' + top(m) + 'px" aria-hidden="true"><span>' + hm(m) + '</span></div>';
+    blocksFor(d).forEach(function (b) {
+      var a = toMin(b.start), z = toMin(b.end);
+      if (z <= t0) return;
+      h += '<div class="tl-class" style="top:' + top(Math.max(a, t0)) + 'px;height:' + Math.max(10, Math.round((z - Math.max(a, t0)) * PXM) - 2) + 'px;' + cvar(b.s) + '" aria-hidden="true"><span>' + esc(b.s.short) + '</span></div>';
+    });
+    /* side by side when they overlap */
+    var cl = [], end = -1;
+    items.forEach(function (it) {
+      if (it.start >= end) cl.push([]);
+      var g = cl[cl.length - 1], col = 0;
+      while (g.some(function (o) { return o.col === col && o.start + o.dur > it.start; })) col++;
+      it.col = col; g.push(it);
+      end = Math.max(end, it.start + it.dur);
+    });
+    cl.forEach(function (g) { var n = Math.max.apply(null, g.map(function (o) { return o.col; })) + 1; g.forEach(function (o) { o.cols = n; }); });
+    var nowMin = d === t ? now().getHours() * 60 + now().getMinutes() : -1;
+    items.forEach(function (it) {
+      var y = top(Math.max(it.start, t0)), ht = Math.max(22, Math.round(it.dur * PXM) - 2);
+      var w = 100 / it.cols, live = it.start <= nowMin && nowMin < it.start + it.dur;
+      var go = it.k === 'plan' && d === t && nowMin < it.start + it.dur && !S.timer;
+      h += '<div class="tl-item k-' + it.k + (it.done ? ' done' : '') + (ht < 36 ? ' short' : '') + (live ? ' live' : '') + '" style="top:' + y + 'px;height:' + ht + 'px;left:' + (it.col * w).toFixed(2) + '%;width:' + w.toFixed(2) + '%;' + cvar(it.s) + '" data-drag="' + it.k + ':' + it.id + '"' + (it.occ ? ' data-date="' + it.occ + '"' : '') + ' data-start="' + it.start + '" data-dur="' + it.dur + '">' +
+        '<button type="button" class="tl-main" data-act="tl-open" data-kind="' + it.k + '" data-id="' + it.id + '"' + (it.occ ? ' data-date="' + it.occ + '"' : '') + ' aria-label=""' + esc(it.what + ': ' + it.title + ', ' + hm(it.start) + ' to ' + hm(it.start + it.dur)) + '">' +
+          '<b>' + (it.k === 'plan' ? icon('timer') : it.occ ? icon('repeat') : '') + esc(it.title) + '</b><span class="tl-t">' + hm(it.start) + '–' + hm(it.start + it.dur) + '</span></button>' +
+        (go ? '<button type="button" class="tl-go" data-act="plan-start" data-id="' + it.id + '">Start</button>' : '') +
+        '<span class="tl-grip" aria-hidden="true"></span>' +
+      '</div>';
+    });
+    if (nowMin >= t0) h += '<div class="tl-now" id="tl-now" style="top:' + top(nowMin) + 'px" aria-hidden="true"></div>';
+    return '<div class="tl" data-act="tl-add" data-date="' + d + '" data-t0="' + t0 + '" style="height:' + top(1440) + 'px">' + h + '</div>';
+  }
+  /* keep the plan's scroll place across renders; a new day scrolls to its first plan, now, or 08:00 */
+  var TLS = { date: null, top: 0 };
+  function tlKeep() { var sc = $('#tl-scroll'); if (sc) { TLS.date = sc.dataset.date; TLS.top = sc.scrollTop; } }
+  function tlMounted() {
+    var sc = $('#tl-scroll'), tl = sc && $('.tl', sc);
+    if (!sc || !tl) return;
+    if (TLS.date === sc.dataset.date) { sc.scrollTop = TLS.top; return; }
+    var t0 = Number(tl.dataset.t0), d = sc.dataset.date, items = dayItems(d), aim = 480;
+    if (d === today()) aim = now().getHours() * 60 + now().getMinutes() - 60;
+    else if (items.length) aim = items[0].start - 30;
+    sc.scrollTop = Math.max(0, Math.round((aim - t0) * PXM));
+    TLS.date = d; TLS.top = sc.scrollTop;
+  }
+  function tlNow() {
+    var el = $('#tl-now'), tl = $('.tl');
+    if (!el || !tl) return;
+    el.style.top = Math.round((now().getHours() * 60 + now().getMinutes() - Number(tl.dataset.t0)) * PXM) + 'px';
+  }
+
+  /* add something at a time: a study block or a task */
+  var LENGTHS = [[15, '15 min'], [30, '30 min'], [45, '45 min'], [60, '1 hour'], [90, '1 h 30'], [120, '2 hours'], [150, '2 h 30'], [180, '3 hours'], [240, '4 hours'], [300, '5 hours'], [360, '6 hours']];
+  function lengthOptions(v) {
+    var l = LENGTHS.slice();
+    if (!l.some(function (o) { return o[0] === v; })) l.push([v, dur(v)]);
+    return optionList(l.sort(function (a, b) { return a[0] - b[0]; }), v);
+  }
+  function freeTime(d) {
+    if (d === today()) { var m = now().getHours() * 60 + now().getMinutes(); return hm(Math.min(1425, Math.ceil(m / 15) * 15)); }
+    return '16:00';
+  }
+  function openPlan(id, preset) {
+    preset = preset || {};
+    var p = id ? planById(id) : null;
+    if (id && !p) return;
+    var kind = p ? 'plan' : preset.kind === 'task' ? 'task' : 'plan';
+    var v = p || { date: DATE.test(preset.date) ? preset.date : UI.calSel || today(), at: TIME.test(preset.at) ? preset.at : null, dur: cleanDur(preset.dur, 60), subject: preset.subject || (subj(UI.focusSubject) ? UI.focusSubject : ''), title: preset.title || '' };
+    if (!v.at) v.at = freeTime(v.date);
+    var seg = p ? '' : '<div class="seg plan-seg" role="group" aria-label="What to add">' +
+      '<button type="button" data-act="plan-kind" data-kind="plan" aria-pressed="' + (kind === 'plan') + '">Study Block</button>' +
+      '<button type="button" data-act="plan-kind" data-kind="task" aria-pressed="' + (kind === 'task') + '">Task</button></div>';
+    var when = grp(rPill('Day', 'date', 'date', 'pl-date', v.date, ' required') +
+        rPill('Starts', 'time', 'at', 'pl-at', v.at, ' required') +
+        rSelect('Length', 'dur', 'pl-dur', lengthOptions(v.dur)), '', kind === 'plan' ? 'When it starts, Bloc offers to start the focus timer.' : '');
+    var body = kind === 'plan'
+      ? seg + grp(rSelect('Subject', 'subject', 'pl-subject', subjectOptions(v.subject || '', 'General study')) +
+          rField({ label: 'What', name: 'title', id: 'pl-title', value: v.title, max: 80, placeholder: 'What you’ll do (optional)' })) + when
+      : seg + grp(rField({ label: 'Task', name: 'title', id: 'pl-title', value: v.title, max: 200, placeholder: 'Task (walk the dog, read chapter 3…)', autofocus: true }) +
+          rSelect('Subject', 'subject', 'pl-subject', subjectOptions(v.subject || '', 'None'))) + when + repPicker(preset.rep || [], null, v.date);
+    openDialog({
+      title: p ? 'Study Block' : 'Plan ' + fDay(v.date),
+      body: body,
+      submitLabel: p ? 'Save' : 'Add',
+      danger: p ? { label: 'Delete Study Block', act: 'plan-delete', id: p.id } : null,
+      onSubmit: function (fd) {
+        var date = fd.get('date'), at = fd.get('at'), len = cleanDur(fd.get('dur'), 60), sid = subj(fd.get('subject')) ? fd.get('subject') : null;
+        if (!DATE.test(date)) { fieldError('#pl-date', 'Pick a day.'); return false; }
+        if (!TIME.test(at)) { fieldError('#pl-at', 'Pick a time.'); return false; }
+        if (kind === 'task') {
+          var title = clip(fd.get('title'), 200);
+          if (!title) { fieldError('#pl-title', 'Write what the task is.'); return false; }
+          var nt = { id: uid('t'), title: title, subject: sid, due: date, at: at, event: null, est: len, notes: '', done: false, doneAt: null, created: today() }, rd = repFrom(fd);
+          if (rd.length) { nt.rep = rd; nt.until = DATE.test(fd.get('until')) && fd.get('until') >= date ? fd.get('until') : null; nt.doneOn = []; nt.skip = []; }
+          S.tasks.push(nt);
+          save(); render(); toast(rd.length ? repText(rd) + ' at ' + at : 'Task added at ' + at);
+          return;
+        }
+        var data = { date: date, at: at, dur: len, subject: sid, title: clip(fd.get('title'), 80) };
+        if (p) Object.assign(p, data); else S.plans.push(Object.assign({ id: uid('pl') }, data));
+        save(); render();
+        toast(p ? 'Study block saved' : 'Study block added: ' + at + '–' + hm(toMin(at) + len));
+      }
+    });
+  }
+  /* switching between Study Block and Task keeps what you typed */
+  function planKind(kind) {
+    var f = $('form', dlg);
+    if (!f) return;
+    var fd = new FormData(f);
+    openPlan(null, { kind: kind, date: fd.get('date'), at: fd.get('at'), dur: fd.get('dur'), subject: fd.get('subject'), title: clip(fd.get('title'), 80), rep: repFrom(fd) });
+  }
+  /* a study block's timer: what is left of the block, or the stopwatch for blocks over 4 hours */
+  function planStart(p) {
+    if (!p) return;
+    if (S.timer) { toast('A timer is already running'); return; }
+    var nm = now().getHours() * 60 + now().getMinutes(), endM = toMin(p.at) + p.dur;
+    var left = p.date === today() && nm >= toMin(p.at) ? endM - nm : p.dur;
+    if (left < 1) { toast('This study block is over'); return; }
+    if (S.pet && petGraveCheck(S.pet, nowMs())) save();
+    unlockAudio();
+    S.timer = left > 240 ? { subject: p.subject, len: 720, startedAt: nowMs(), pausedAt: null, pausedTotal: 0, up: true }
+      : { subject: p.subject, len: Math.max(5, left), startedAt: nowMs(), pausedAt: null, pausedTotal: 0 };
+    UI.focusSubject = p.subject;
+    saveUI(); save(); render();
+    toast(S.timer.up ? 'Stopwatch on for ' + nameOrGeneral(p.subject) : 'Timer on: ' + dur(S.timer.len) + ' of ' + nameOrGeneral(p.subject), null, { label: 'Open', fn: function () { go('today'); } });
+  }
+  /* when a study block starts, offer its timer once */
+  function planWatch() {
+    if (MODE !== 'app' || !ME || S.timer) return;
+    var t = today(), nm = now().getHours() * 60 + now().getMinutes();
+    var p = S.plans.filter(function (x) { var a = toMin(x.at); return x.date === t && a <= nm && nm < a + x.dur && nm - a <= 30; })[0];
+    if (!p) return;
+    var key = 'myib:nudge:' + ME.id, seen = sjson(key) || {};
+    if (seen.d !== t) seen = { d: t, ids: [] };
+    if (seen.ids.indexOf(p.id) >= 0) return;
+    seen.ids.push(p.id);
+    sset(key, JSON.stringify(seen));
+    toast('Study block: ' + planName(p) + ' until ' + hm(toMin(p.at) + p.dur), null, { label: 'Start Timer', fn: function () { planStart(planById(p.id)); } }, 15000);
+  }
+
+  /* ---------- drag and drop: tasks, events and study blocks between days and times ---------- */
+  var DRAG = null, eatClick = false;
+  function dragLabel(kind, id) {
+    var x = kind === 'task' ? taskById(id) : kind === 'event' ? evById(id) : kind === 'plan' ? planById(id) : null;
+    if (kind === 'new') return 'Study block';
+    return !x ? '' : kind === 'task' ? x.title : kind === 'event' ? evFull(x) : planName(x);
+  }
+  function dragItem(kind, id) { return kind === 'task' ? taskById(id) : kind === 'event' ? evById(id) : kind === 'plan' ? planById(id) : null; }
+  function dragDur(kind, id) {
+    var x = dragItem(kind, id);
+    return kind === 'new' ? 60 : !x ? 60 : kind === 'task' ? x.est || 30 : x.dur || 60;
+  }
+  function inRect(r, x, y) { return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; }
+  function dropAt(x, y) {
+    var sc = $('#tl-scroll'), tl = sc && $('.tl', sc);
+    if (tl && inRect(sc.getBoundingClientRect(), x, y)) {
+      var r = tl.getBoundingClientRect(), k = zoomOf(tl) || 1;
+      var m = Number(tl.dataset.t0) + (y - r.top) / k / PXM - DRAG.grab;
+      m = Math.max(0, Math.min(1440 - 15, Math.round(m / 15) * 15));
+      return { type: 'time', date: tl.dataset.date, min: m };
+    }
+    var ad = $('.dp-allday');
+    if (ad && inRect(ad.getBoundingClientRect(), x, y)) return { type: 'allday', date: ad.dataset.date };
+    var wks = $$('.month .wk');
+    for (var i = 0; i < wks.length; i++) {
+      var w = wks[i].getBoundingClientRect();
+      if (inRect(w, x, y)) return { type: 'day', date: addDays(wks[i].dataset.ws, Math.max(0, Math.min(6, Math.floor((x - w.left) / (w.width / 7))))) };
+    }
+    return null;
+  }
+  function dragShow(tg) {
+    $$('.mday.drop').forEach(function (b) { b.classList.remove('drop'); });
+    var ad = $('.dp-allday'); if (ad) ad.classList.toggle('drop', !!tg && tg.type === 'allday');
+    var tl = $('.tl'), box = tl && $('.tl-drop', tl);
+    if (tg && tg.type === 'day') { var b = $('.mday[data-date="' + tg.date + '"]'); if (b) b.classList.add('drop'); }
+    if (tg && tg.type === 'time' && tl) {
+      if (!box) { box = document.createElement('div'); box.className = 'tl-drop'; tl.appendChild(box); }
+      var len = DRAG.dur;
+      box.style.top = Math.round((tg.min - Number(tl.dataset.t0)) * PXM) + 'px';
+      box.style.height = Math.max(22, Math.round(len * PXM) - 2) + 'px';
+      box.textContent = hm(tg.min) + '–' + hm(tg.min + len);
+    } else if (box) box.remove();
+  }
+  function dragBegin() {
+    var D = DRAG;
+    D.on = true;
+    clearTimeout(D.timer);
+    document.body.classList.add('dragging');
+    if (D.src.isConnected) D.src.classList.add('is-dragging');
+    if (!D.grip) {
+      var g = D.ghost = document.createElement('div');
+      g.className = 'drag-ghost';
+      g.textContent = dragLabel(D.kind, D.id);
+      document.body.appendChild(g);
+    }
+    if (D.touch) { try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) { /* ignore */ } }
+    /* hold near the top or bottom edge of the hours to scroll them */
+    D.scroll = setInterval(function () {
+      var sc = $('#tl-scroll');
+      if (!sc || !DRAG) return;
+      var r = sc.getBoundingClientRect(), dir = 0;
+      if (DRAG.x >= r.left && DRAG.x <= r.right && DRAG.y >= r.top && DRAG.y <= r.bottom) dir = DRAG.y < r.top + 30 ? -1 : DRAG.y > r.bottom - 30 ? 1 : 0;
+      if (!dir) { DRAG.edge = 0; return; }
+      if (!DRAG.edge) { DRAG.edge = Date.now(); return; }
+      if (Date.now() - DRAG.edge < 250) return;
+      sc.scrollTop += dir * 10;
+      if (!DRAG.grip && DRAG.ghost) { DRAG.target = dropAt(DRAG.x, DRAG.y); dragShow(DRAG.target); }
+    }, 30);
+  }
+  function dragMove() {
+    var D = DRAG;
+    if (D.grip) {
+      var it = D.src, tl = $('.tl'), k = zoomOf(tl) || 1;
+      if (!it.isConnected || !tl) return;
+      var r = tl.getBoundingClientRect(), endM = Number(tl.dataset.t0) + (D.y - r.top) / k / PXM;
+      var len = Math.max(15, Math.min(720, Math.round((endM - D.start) / 15) * 15));
+      D.len = len;
+      it.style.height = Math.max(22, Math.round(len * PXM) - 2) + 'px';
+      var lab = $('.tl-t', it); if (lab) lab.textContent = hm(D.start) + '–' + hm(D.start + len);
+      return;
+    }
+    var z = zoomOf($('#view')) || 1;
+    D.ghost.style.left = (D.x / z) + 'px';
+    D.ghost.style.top = (D.y / z) + 'px';
+    D.target = dropAt(D.x, D.y);
+    dragShow(D.target);
+  }
+  function dragEnd() {
+    var D = DRAG;
+    DRAG = null;
+    if (!D) return;
+    clearTimeout(D.timer); clearInterval(D.scroll);
+    if (!D.on) return;
+    document.body.classList.remove('dragging');
+    if (D.ghost) D.ghost.remove();
+    if (D.src.isConnected) D.src.classList.remove('is-dragging');
+    dragShow(null);
+    eatClick = true;
+    setTimeout(function () { eatClick = false; }, 0);
+    return D;
+  }
+  function dragDrop(D) {
+    var x = dragItem(D.kind, D.id), tg = D.target, snap = snapshot();
+    if (D.grip) {
+      if (!x || !D.len || D.len === D.dur) return;
+      if (D.kind === 'task') x.est = D.len; else x.dur = D.len;
+      save(); render(); toast(hm(D.start) + '–' + hm(D.start + D.len), snap);
+      return;
+    }
+    if (!tg) return;
+    if (D.kind === 'new') {
+      if (tg.type === 'time') openPlan(null, { date: tg.date, at: hm(tg.min) });
+      else openPlan(null, { date: tg.date });
+      return;
+    }
+    if (!x) return;
+    var date = tg.date, at = tg.type === 'time' ? hm(tg.min) : null, was = D.kind === 'task' ? x.due : D.kind === 'event' ? x.start : x.date;
+    if (D.kind === 'event') {
+      if (date !== x.start && evLocked(x)) { toast('School dates stay on their day. Open it to change the date.'); render(); return; }
+      if (tg.type === 'allday' && !x.at) return;
+      if (tg.type === 'day' && date === x.start) return;
+      if (date !== x.start) { var n = diff(x.start, date); if (x.end) x.end = addDays(x.end, n); x.start = date; }
+      if (tg.type === 'time') { x.at = at; x.dur = x.dur || 60; } else if (tg.type === 'allday') { x.at = null; x.dur = null; }
+    } else if (D.kind === 'task' && isRep(x)) {
+      var from = D.src.dataset.date || '';
+      if (tg.type === 'day' || date !== from) { toast('A repeating task stays on its days. Open it to change them.'); render(); return; }
+      if (tg.type === 'time') { x.at = at; if (!x.est) x.est = 30; } else x.at = null;
+      save(); render();
+      toast(repText(x.rep) + (at ? ' · now at ' + at : ' · no set time'), snap);
+      return;
+    } else if (D.kind === 'task') {
+      if (tg.type === 'day' && date === x.due) return;
+      x.due = date;
+      if (tg.type === 'time') { x.at = at; if (!x.est) x.est = 30; } else if (tg.type === 'allday') x.at = null;
+    } else {
+      if (tg.type === 'allday') { toast('Study blocks need a time. Drag it onto the hours.'); return; }
+      if (tg.type === 'day' && date === x.date) return;
+      x.date = date;
+      if (tg.type === 'time') x.at = at;
+    }
+    save(); render();
+    toast((date !== was ? 'Moved to ' + fDay(date) : 'Moved') + (at ? ' · ' + at : tg.type === 'allday' ? ' · no set time' : ''), snap);
+  }
+  document.addEventListener('pointerdown', function (e) {
+    if (MODE !== 'app' || UI.tab !== 'calendar' || e.button > 0 || DRAG || dlg.open) return;
+    var src = e.target.closest && e.target.closest('[data-drag]');
+    if (!src || e.target.closest('.tl-go, .check, input, select, textarea')) return;
+    var sp = src.dataset.drag.split(':'), grip = !!e.target.closest('.tl-grip');
+    var D = DRAG = { src: src, kind: sp[0], id: sp[1], x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', on: false, grip: grip, grab: 0, target: null };
+    D.dur = dragDur(D.kind, D.id);
+    if (src.classList.contains('tl-item')) {
+      D.start = Number(src.dataset.start);
+      D.grab = Math.max(0, (e.clientY - src.getBoundingClientRect().top) / (zoomOf(src) || 1) / PXM);
+    }
+    if (grip) { dragBegin(); e.preventDefault(); return; }
+    if (D.touch) D.timer = setTimeout(function () { if (DRAG === D && !D.on) { dragBegin(); dragMove(); } }, 380);
+  }, true);
+  document.addEventListener('pointermove', function (e) {
+    var D = DRAG;
+    if (!D) return;
+    D.x = e.clientX; D.y = e.clientY;
+    var far = Math.hypot(D.x - D.x0, D.y - D.y0);
+    if (!D.on) {
+      if (D.touch) { if (far > 10) { clearTimeout(D.timer); DRAG = null; } return; }
+      if (far < 6) return;
+      dragBegin();
+    }
+    e.preventDefault();
+    dragMove();
+  }, true);
+  document.addEventListener('pointerup', function () { var D = dragEnd(); if (D) dragDrop(D); }, true);
+  document.addEventListener('pointercancel', function () { if (DRAG && DRAG.on) { dragEnd(); render(); } else dragEnd(); }, true);
+  /* once a touch drag starts, the page stops scrolling under your finger */
+  document.addEventListener('touchmove', function (e) { if (DRAG && DRAG.on) e.preventDefault(); }, { passive: false });
+  document.addEventListener('click', function (e) { if (eatClick) { eatClick = false; e.preventDefault(); e.stopPropagation(); } }, true);
+  document.addEventListener('contextmenu', function (e) { if (DRAG) e.preventDefault(); }, true);
   function agendaHTML(t) {
     var evs = S.events.filter(visible).filter(function (e) { return UI.showPast || evEnd(e) >= t; }).sort(byStart);
     var tools = '<div class="ag-tools"><label class="switch"><input type="checkbox" id="cal-past" data-change="cal-past"' + (UI.showPast ? ' checked' : '') + '>Show past dates</label></div>';
@@ -1640,8 +2290,9 @@
   VIEWS.tasks = function () {
     var t = today(), f = UI.taskFilter;
     if (f !== 'all' && f !== '_none' && !subj(f)) f = UI.taskFilter = 'all';
-    var all = S.tasks.filter(function (x) { return f === 'all' || x.subject === f || (f === '_none' && !x.subject); });
-    var open = all.filter(function (x) { return !x.done; });
+    function shown(x) { return f === 'all' || x.subject === f || (f === '_none' && !x.subject); }
+    var all = S.tasks.filter(shown);
+    var open = openTasks(t).filter(shown);
     var t1 = addDays(t, 1);
     var groups = [
       ['over', 'Overdue', function (x) { return x.due && x.due < t; }],
@@ -1656,7 +2307,7 @@
       var list = open.filter(g[2]).sort(taskSort);
       if (list.length) body += '<section class="tgroup ' + g[0] + '"><h2 class="eyebrow">' + g[1] + '<span class="n">' + list.length + '</span></h2><ul class="tasklist glass">' + list.map(function (x) { return taskRow(x, t); }).join('') + '</ul></section>';
     });
-    var done = all.filter(function (x) { return x.done; }).sort(function (a, b) { return (b.doneAt || '') < (a.doneAt || '') ? -1 : (b.doneAt || '') > (a.doneAt || '') ? 1 : 0; });
+    var done = all.filter(function (x) { return x.done && !isRep(x); }).sort(function (a, b) { return (b.doneAt || '') < (a.doneAt || '') ? -1 : (b.doneAt || '') > (a.doneAt || '') ? 1 : 0; });
     if (UI.showDone && done.length) body += '<section class="tgroup"><h2 class="eyebrow">Completed<span class="n">' + done.length + '</span></h2><ul class="tasklist glass">' + done.slice(0, 150).map(function (x) { return taskRow(x, t); }).join('') + '</ul></section>';
     if (!open.length) body = emptyTasks(t) + body;
     var dueWeek = open.filter(function (x) { return x.due && diff(t, x.due) <= 7; }).length;
@@ -1723,12 +2374,13 @@
       var list = S.subjects.filter(function (s) { return s.group === g; });
       return list.length ? '<section class="sgroup"><h2 class="eyebrow">' + label + '</h2><div class="sgrid">' + list.map(card).join('') + '</div></section>' : '';
     }
-    var tip = hasIBSubjects() ? '' : '<div class="card tip" role="note"><p><b>No IB subjects yet.</b> Pick yours from the list, then tap each one to set its level and teacher.</p>' +
-      '<button type="button" class="btn primary" data-act="guide-subjects">' + icon('plus') + 'Pick Subjects</button></div>';
-    return '<div class="page-head"><div><h1 class="display">Subjects</h1><p class="sub">Teachers, levels, dates and weekly study goals.</p></div>' +
-        '<div class="actions"><button type="button" class="btn" data-act="papers">' + icon('paper') + 'Past papers' + (papersNew() ? '<span class="tag-new">New</span>' : '') + '</button>' +
-        '<button type="button" class="btn" data-act="subj-new">' + icon('plus') + 'Add subject</button></div></div>' +
-      tip + group('ib', 'IB subjects') + group('core', 'Core') + group('other', 'Other');
+    var L = LV(), many = L.group.toLowerCase();
+    var tip = hasIBSubjects() ? '' : '<div class="card tip" role="note"><p><b>No ' + esc(many) + ' yet.</b> Pick yours from the list, then tap each one to set its ' + (L.sl ? 'level and ' : '') + 'teacher.</p>' +
+      '<button type="button" class="btn primary" data-act="guide-subjects">' + icon('plus') + 'Pick ' + esc(L.group.replace(/^IB /, '')) + '</button></div>';
+    return '<div class="page-head"><div><h1 class="display">' + (level() === 'uni' ? 'Courses' : 'Subjects') + '</h1><p class="sub">' + (L.sl ? 'Teachers, levels, dates and weekly study goals.' : 'Teachers, dates and weekly study goals.') + '</p></div>' +
+        '<div class="actions">' + (isIB() ? '<button type="button" class="btn" data-act="papers">' + icon('paper') + 'Past papers' + (papersNew() ? '<span class="tag-new">New</span>' : '') + '</button>' : '') +
+        '<button type="button" class="btn" data-act="subj-new">' + icon('plus') + 'Add ' + esc(L.one.replace(/^IB /, '').toLowerCase()) + '</button></div></div>' +
+      tip + group('ib', L.group) + group('core', 'Core') + group('other', 'Other');
   };
 
   /* =========================================================
@@ -1740,7 +2392,7 @@
     preset = preset || {};
     var e = id ? evById(id) : null;
     if (id && !e) return;
-    var v = e || { type: 'deadline', subject: preset.subject || '', title: '', detail: '', start: preset.date || UI.calSel || today(), end: null, note: '', done: false };
+    var v = e || { type: 'deadline', subject: preset.subject || '', title: '', detail: '', start: preset.date || UI.calSel || today(), end: null, at: null, dur: null, note: '', done: false };
     var t = today();
     var typeOpts = optionList([['deadline', 'Deadline'], ['exam', 'Exam'], ['mock', 'Mock exams'], ['holiday', 'Holiday'], ['grades', 'Grades'], ['other', 'Other']], v.type);
     var linked = e ? S.tasks.filter(function (x) { return x.event === e.id; }).sort(taskSort) : [];
@@ -1748,11 +2400,15 @@
       grp(rField({ label: 'Title', name: 'title', id: 'ev-title', value: v.title, max: 80, placeholder: 'Title (IA, Essay, Exam…)', autofocus: !e }) +
           rField({ label: 'Detail', name: 'detail', id: 'ev-detail', value: v.detail, max: 80, placeholder: 'Detail (Last draft, Paper 2…)' })) +
       grp(rSelect('Subject', 'subject', 'ev-subject', subjectOptions(v.subject || '', 'None (school date)')) +
-          rSelect('Type', 'type', 'ev-type', typeOpts)) +
+          rSelect('Type', 'type', 'ev-type', typeOpts, ' data-change="ev-type"'), '', 'A holiday with no subject cancels your classes on its days.') +
       grp(rPill('Date', 'date', 'start', 'ev-start', v.start, ' required') +
           rPill('Last day', 'date', 'end', 'ev-end', v.end || ''), '', 'Add a last day for dates that run over several days, like mock exams or holidays.') +
+      grp(rPill('Time', 'time', 'at', 'ev-at', v.at || '') +
+          rSelect('Length', 'dur', 'ev-dur', lengthOptions(v.dur || 60)), '', 'Optional. A time puts it on the day’s hourly plan.') +
+      evRemGroup(v) +
       grp(rField({ area: true, label: 'Notes', name: 'note', id: 'ev-note', value: v.note, max: 2000, placeholder: 'Notes' })) +
       grp(rSwitch('Done / handed in', 'done', 'ev-done', v.done)) +
+      (!e ? grp(rNav('download', 'Import from Calendar', 'import-open'), '', 'Bring in every date from Apple Calendar, Google Calendar or your school’s calendar at once.') : '') +
       (e && e.type !== 'holiday' ? grp(
         (linked.length ? '<ul class="tasklist">' + linked.map(function (x) { return taskRow(x, t); }).join('') + '</ul>' : '') +
         rButton(icon('plus') + 'Add a task for this', 'task-new', ' data-event="' + e.id + '"'),
@@ -1772,15 +2428,109 @@
           subject: subj(fd.get('subject')) ? fd.get('subject') : null,
           title: clip(fd.get('title'), 80), detail: clip(fd.get('detail'), 80),
           start: start, end: DATE.test(end) && end > start ? end : null,
+          at: TIME.test(fd.get('at')) ? fd.get('at') : null, dur: TIME.test(fd.get('at')) ? cleanDur(fd.get('dur'), 60) : null,
           note: clip(fd.get('note'), 2000, true), done: fd.get('done') === 'on'
         };
         if (!data.subject && !data.title && !data.detail) { fieldError('#ev-title', 'Add a title or pick a subject.'); return false; }
-        if (e) Object.assign(e, data); else S.events.push(Object.assign({ id: uid('ev') }, data));
+        var rm = fd.get('remmode');
+        if (rm === 'none') data.rem = [];
+        else if (rm === 'custom') data.rem = remOffs(fd.getAll('evrem'));
+        var handedIn = data.done && !(e && e.done);
+        if (e) { Object.assign(e, data); if (rm !== 'none' && rm !== 'custom') delete e.rem; }
+        else S.events.push(Object.assign({ id: uid('ev') }, data));
         save(); render();
+        if (handedIn) celebrate(null, data.type === 'deadline' || data.type === 'exam');
         toast(e ? 'Event saved' : 'Event added');
       }
     });
   }
+
+  /* an event's own reminders: the usual ones for its type, a timeline of its own, or none */
+  function evRemGroup(v) {
+    var own = Array.isArray(v.rem), mode = !own ? 'def' : v.rem.length ? 'custom' : 'none';
+    var offs = own && v.rem.length ? v.rem : cleanRem(S.settings.rem).ev[v.type] || [];
+    return '<div class="ev-rem">' + grp(
+      rSelect('Remind me', 'remmode', 'ev-remmode', optionList([['def', 'As usual'], ['custom', 'Pick days'], ['none', 'Never']], mode), ' data-change="ev-remmode"') +
+        '<div class="row rem-row ev-rem-custom"' + (mode === 'custom' ? '' : ' hidden') + '>' + remTrack('evrem', offs) + '</div>',
+      '', '<span class="ev-rem-foot">' + esc(evRemFoot(mode, mode === 'def' ? offs : own ? v.rem : [], v.type)) + '</span>') + '</div>';
+  }
+  var TYPE_MANY = { deadline: 'deadlines', exam: 'exams', mock: 'mocks', holiday: 'holidays', grades: 'grade days', other: 'events' };
+  function evRemFoot(mode, offs, type) {
+    if (mode === 'none') return 'No reminders for this one.';
+    if (mode === 'def') return offs.length ? remSay(offs) + ' Same as your other ' + TYPE_MANY[type] + '.' : 'Your ' + TYPE_MANY[type] + ' get no reminders. Pick days here, or change it in Settings.';
+    return offs.length ? remSay(offs) : 'Tap the days you want a reminder.';
+  }
+  function evRemLabel(w) {
+    w = w || $('.ev-rem', dlg);
+    if (!w) return;
+    var mode = ($('#ev-remmode', dlg) || {}).value || 'def', type = ($('#ev-type', dlg) || {}).value || 'other';
+    var picked = remOffs($$('input[name="evrem"]:checked', w).map(function (c) { return c.value; }));
+    var offs = mode === 'custom' ? picked : mode === 'none' ? [] : cleanRem(S.settings.rem).ev[type] || [];
+    var f = $('.ev-rem-foot', w); if (f) f.textContent = evRemFoot(mode, offs, type);
+  }
+
+  /* the weekday chips for a repeating task (0 = Monday) */
+  function repPicker(rep, until, start) {
+    rep = rep || [];
+    var chips = '<div class="rep-days" role="group" aria-label="Repeat on">' + DAYS_LONG.map(function (n, i) {
+      return '<label class="rep-day" title="' + n + '"><input type="checkbox" name="rep" value="' + i + '" data-change="rep-day"' + (rep.indexOf(i) >= 0 ? ' checked' : '') + '><span aria-hidden="true">' + n.charAt(0) + '</span><span class="sr">' + n + '</span></label>';
+    }).join('') + '</div>';
+    var presets = '<span class="rep-presets"><button type="button" class="link" data-act="rep-preset" data-days="0,1,2,3,4,5,6">Every day</button>' +
+      '<button type="button" class="link" data-act="rep-preset" data-days="0,1,2,3,4">Weekdays</button>' +
+      '<button type="button" class="link" data-act="rep-preset" data-days="">Never</button></span>';
+    return grp('<div class="row rep-row"><span class="row-label">Repeat</span><span class="row-meta rep-label" id="rep-label">' + esc(rep.length ? repText(rep) : 'Never') + '</span></div>' +
+        '<div class="row rep-chips">' + chips + '</div>' +
+        '<div class="row rep-tools">' + presets + '</div>' +
+        '<div class="rep-ends"' + (rep.length ? '' : ' hidden') + '>' + rPill('Ends', 'date', 'until', 'tk-until', until || '', start ? ' min="' + start + '"' : '') + '</div>',
+      '', 'Pick the days it comes back every week, starting on its date. Tick each day off on its own.');
+  }
+  /* the sheet's repeat label follows the chips */
+  function repLabel() {
+    var days = $$('input[name="rep"]:checked', dlg).map(function (c) { return Number(c.value); });
+    var l = $('#rep-label', dlg); if (l) l.textContent = days.length ? repText(days) : 'Never';
+    var e = $('.rep-ends', dlg); if (e) e.hidden = !days.length;
+    var dl = $('#tk-due-label', dlg); if (dl) dl.textContent = days.length ? 'Starts' : 'Due';
+  }
+  /* confetti from what you tapped (or the middle of the screen), and a tap you can feel on a phone */
+  var REDUCED = window.matchMedia ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+  function calm() { return !!REDUCED.matches; }
+  var CONFETTI = ['#D9501F', '#FFC24A', '#1E9E6A', '#E0527D', '#1597A8', '#F28C28', '#FFF4E2'];
+  function celebrate(el, big) {
+    toNative({ type: 'haptic', kind: 'success' });
+    try { if (navigator.vibrate && coarse.matches) navigator.vibrate(big ? [14, 60, 22] : 12); } catch (e) { /* ignore */ }
+    if (el && el.closest) { var row = el.closest('.task, .guide-step'); if (row) { row.classList.remove('pop'); void row.offsetWidth; row.classList.add('pop'); } }
+    if (calm()) return;
+    var r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+    var x = r && r.width ? r.left + r.width / 2 : innerWidth / 2, y = r && r.height ? r.top + r.height / 2 : innerHeight * .38;
+    var cv = document.createElement('canvas'), dpr = Math.min(2, window.devicePixelRatio || 1), W = innerWidth, H = innerHeight;
+    cv.className = 'confetti'; cv.width = W * dpr; cv.height = H * dpr; cv.setAttribute('aria-hidden', 'true');
+    (dlg.open ? dlg : document.body).appendChild(cv);
+    var ctx = cv.getContext('2d');
+    if (!ctx) { cv.remove(); return; }
+    ctx.scale(dpr, dpr);
+    var parts = [], n = big ? 120 : 46;
+    for (var i = 0; i < n; i++) {
+      var a = -Math.PI / 2 + (Math.random() - .5) * Math.PI * (big ? 1.6 : 1.1), sp = (big ? 8 : 5.5) + Math.random() * (big ? 9 : 6.5);
+      parts.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1.5, g: .3 + Math.random() * .14, w: 5 + Math.random() * 5, h: 8 + Math.random() * 7,
+        r: Math.random() * 6.28, vr: (Math.random() - .5) * .45, c: CONFETTI[i % CONFETTI.length], round: Math.random() < .28 });
+    }
+    var t0 = performance.now(), life = big ? 1.9 : 1.3;
+    (function frame(t) {
+      var k = (t - t0) / 1000;
+      ctx.clearRect(0, 0, W, H);
+      parts.forEach(function (p) {
+        p.vx *= .984; p.vy = p.vy * .984 + p.g; p.x += p.vx; p.y += p.vy; p.r += p.vr;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, 1 - Math.max(0, k - (life - .5)) / .5);
+        ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c;
+        if (p.round) { ctx.beginPath(); ctx.arc(0, 0, p.w / 2, 0, 6.3); ctx.fill(); }
+        else { ctx.scale(1, Math.cos(p.r * 2.2)); ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); }
+        ctx.restore();
+      });
+      if (k < life && cv.isConnected) requestAnimationFrame(frame); else cv.remove();
+    })(t0);
+  }
+  function repFrom(fd) { return fd.getAll('rep').map(Number).filter(function (d, i, a) { return d >= 0 && d <= 6 && a.indexOf(d) === i; }).sort(); }
 
   function openTask(id, preset) {
     preset = preset || {};
@@ -1793,41 +2543,60 @@
       due: preset.date || (pe ? addDays(pe.start, -1) : t), event: pe ? pe.id : '', est: null, notes: '', done: false
     };
     if (!x && pe && v.due < t) v.due = t;
+    var occ = x && isRep(x) && DATE.test(preset.occ) ? preset.occ : '';
     var evOpts = S.events.filter(function (e) { return e.type !== 'holiday' && (evEnd(e) >= t || e.id === v.event); }).sort(byStart).map(function (e) {
       return '<option value="' + e.id + '"' + (e.id === v.event ? ' selected' : '') + '>' + esc(fDay(e.start) + ' · ' + evFull(e)) + '</option>';
     }).join('');
     var ests = [['', 'Not set'], [15, '15 min'], [30, '30 min'], [45, '45 min'], [60, '1 hour'], [90, '1 h 30'], [120, '2 hours'], [180, '3 hours'], [240, '4 hours']];
     if (!ests.some(function (o) { return String(o[0]) === String(v.est || ''); })) ests.push([v.est, dur(v.est)]);
+    var rep = x && isRep(x) ? x.rep : [];
     var body =
       grp(rField({ label: 'Task', name: 'title', id: 'tk-title', value: v.title, max: 200, placeholder: 'Task', autofocus: !x }) +
           rField({ area: true, label: 'Notes', name: 'notes', id: 'tk-notes', value: v.notes, max: 2000, placeholder: 'Notes' })) +
       grp(rSelect('Subject', 'subject', 'tk-subject', subjectOptions(v.subject || '', 'None')) +
           rSelect('For deadline', 'event', 'tk-event', '<option value="">None</option>' + evOpts)) +
-      grp(rPill('Due', 'date', 'due', 'tk-due', v.due || '') +
-          rSelect('Time needed', 'est', 'tk-est', optionList(ests, v.est || ''))) +
-      (x ? grp(rSwitch('Done', 'done', 'tk-done', x.done)) : '');
+      grp('<label class="row"><span class="row-label" id="tk-due-label">' + (rep.length ? 'Starts' : 'Due') + '</span><input class="row-pill" type="date" name="due" id="tk-due" value="' + esc(v.due || '') + '"></label>' +
+          rPill('Time', 'time', 'at', 'tk-at', v.at || preset.at || '') +
+          rSelect('Time needed', 'est', 'tk-est', optionList(ests, v.est || '')), '', 'A time puts the task on the day’s hourly plan.') +
+      repPicker(rep, x && x.until, v.due) +
+      (occ ? grp(rButton(icon('skip') + 'Skip ' + esc(fDay(occ)) + ' Only', 'task-skip', ' data-id="' + x.id + '" data-date="' + occ + '"'), '', 'Takes this one day off the calendar. The other days stay.') : '') +
+      (x && !isRep(x) ? grp(rSwitch('Done', 'done', 'tk-done', x.done)) : '');
     openDialog({
-      title: x ? 'Edit Task' : 'New Task',
+      title: x ? (isRep(x) ? 'Repeating Task' : 'Edit Task') : 'New Task',
       body: body,
       submitLabel: x ? 'Save' : 'Add',
-      danger: x ? { label: 'Delete Task', act: 'task-delete', id: x.id } : null,
+      danger: x ? { label: isRep(x) ? 'Delete Every Day' : 'Delete Task', act: 'task-delete', id: x.id } : null,
       onSubmit: function (fd) {
         var title = clip(fd.get('title'), 200);
         if (!title) { fieldError('#tk-title', 'Write what the task is.'); return false; }
-        var due = fd.get('due'), est = parseInt(fd.get('est'), 10);
+        var due = fd.get('due'), est = parseInt(fd.get('est'), 10), at = fd.get('at'), days = repFrom(fd), until = fd.get('until');
+        if (days.length && !DATE.test(due)) due = t;
+        if (TIME.test(at) && !DATE.test(due)) { fieldError('#tk-due', 'Pick a day for the time.'); return false; }
+        if (days.length && DATE.test(until) && until < due) { fieldError('#tk-until', 'The last day can’t come before the first.'); return false; }
         var data = {
-          title: title, subject: subj(fd.get('subject')) ? fd.get('subject') : null, due: DATE.test(due) ? due : null,
+          title: title, subject: subj(fd.get('subject')) ? fd.get('subject') : null, due: DATE.test(due) ? due : null, at: DATE.test(due) && TIME.test(at) ? at : null,
           event: evById(fd.get('event')) ? fd.get('event') : null, est: est > 0 ? est : null, notes: clip(fd.get('notes'), 2000, true)
         };
-        if (x) {
-          var was = x.done;
-          Object.assign(x, data);
-          x.done = fd.get('done') === 'on';
-          if (x.done && !was) x.doneAt = t;
-          if (!x.done) x.doneAt = null;
-        } else S.tasks.push(Object.assign({ id: uid('t'), done: false, doneAt: null, created: t }, data));
+        var target = x || { id: uid('t'), done: false, doneAt: null, created: t };
+        var wasRep = isRep(target), was = target.done;
+        Object.assign(target, data);
+        if (days.length) {
+          target.rep = days;
+          target.until = DATE.test(until) ? until : null;
+          target.doneOn = wasRep ? target.doneOn : [];
+          target.skip = wasRep ? target.skip : [];
+          target.done = false; target.doneAt = null;
+        } else {
+          delete target.rep; delete target.until; delete target.doneOn; delete target.skip;
+          if (x && !wasRep) {
+            target.done = fd.get('done') === 'on';
+            if (target.done && !was) target.doneAt = t;
+            if (!target.done) target.doneAt = null;
+          }
+        }
+        if (!x) S.tasks.push(target);
         save(); render();
-        toast(x ? 'Task saved' : 'Task added');
+        toast(x ? 'Task saved' : days.length ? 'Repeating task added: ' + repText(days) : 'Task added');
       }
     });
   }
@@ -1920,8 +2689,8 @@
       grp(rField({ label: 'Name', name: 'name', id: 's-name', value: v.name, max: 60, placeholder: 'Name', autofocus: !s }) +
           rText('Short name', 'short', 's-short', v.short, 'Used where space is tight', 18)) +
       grp('<div class="swatches">' + sw + '</div>', 'Colour') +
-      grp(rSelect('Group', 'group', 's-group', optionList([['ib', 'IB subject'], ['core', 'Core'], ['other', 'Other']], v.group)) +
-          rSelect('Level', 'level', 's-level', optionList([['', 'Not set'], ['SL', 'SL'], ['HL', 'HL']], v.level)) +
+      grp(rSelect('Group', 'group', 's-group', optionList([['ib', LV().one]].concat(isIB() || v.group === 'core' ? [['core', 'Core']] : []).concat([['other', 'Other']]), v.group)) +
+          (LV().sl || v.level ? rSelect('Level', 'level', 's-level', optionList([['', 'Not set'], ['SL', 'SL'], ['HL', 'HL']], v.level)) : '') +
           rPill('Weekly goal (hours)', 'number', 'goal', 's-goal', v.goal ? String(+(v.goal / 60).toFixed(2)) : '', ' min="0" max="40" step="0.5" inputmode="decimal" placeholder="0"') +
           rText('Teacher', 'teacher', 's-teacher', v.teacher, 'Optional', 60)) +
       grp(rField({ area: true, label: 'Notes', name: 'notes', id: 's-notes', value: v.notes, max: 4000, placeholder: 'Notes: IA topic, research question, word counts…' })) +
@@ -1972,7 +2741,7 @@
         var sid = subj(fd.get('subject')) ? fd.get('subject') : null;
         logSession(sid, m, DATE.test(fd.get('date')) ? fd.get('date') : today());
         save(); render();
-        toast(dur(m) + ' of ' + nameOrGeneral(sid) + ' logged');
+        toast(dur(m) + ' of ' + nameOrGeneral(sid) + ' logged' + petNote());
       }
     });
   }
@@ -1981,7 +2750,7 @@
     curSheet = openSettings;
     settingsTouched = false;
     var lb = S.settings.lastBackup, p = plusOn(), free = isFree();
-    var who = (p ? plusLabel() : free ? 'Free account' : 'MyIB account') + (free ? ' · @' + ME.id : '');
+    var who = (p ? plusLabel() : free ? 'Free account' : 'Bloc account') + (free ? ' · @' + ME.id : '');
     var body =
       grp('<button type="button" class="row row-btn acct" data-act="pfp-open" aria-label="Profile picture">' + avatar(ME.id, ME.name, '', ME.avatar) +
             '<span class="two-line"><b>' + esc(ME.name) + '</b><span>' + esc(who) + '</span></span><span class="acct-edit">' + (ME.avatar ? 'Edit' : 'Add photo') + '</span>' + icon('chev') + '</button>' +
@@ -1989,15 +2758,17 @@
           '<button type="button" class="row row-btn danger-text" data-act="logout">' + icon('logout') + '<span class="row-label">Log Out</span></button>',
           'Account', syncText()) +
       shopGroup(p) +
+      (free ? grp(rNav('subjects', 'Studies', 'level-open', LV().name), '', 'Sets the subject list and a few words around ' + BRAND + '.') : '') +
       remindGroup() +
       grp('<div class="row wrap"><span class="row-label">Appearance</span><span class="row-value"><span class="seg" role="group" aria-label="Appearance">' +
         [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(function (o) {
           return '<button type="button" data-act="set-theme" data-theme="' + o[0] + '" aria-pressed="' + (S.settings.theme === o[0]) + '">' + o[1] + '</button>';
         }).join('') + '</span></span></div>') +
       accentGroup() +
+      grp(rNav('download', 'Import from Calendar', 'import-open', S.settings.feeds.length ? S.settings.feeds.length + ' linked' : '') +
+          rButton(icon('calendar') + 'Export to Calendar (.ics)', 'ics-export'), 'Apple and Google Calendar',
+          'Import brings in dates from Apple Calendar, Google Calendar or your school’s calendar. Export makes a one-time copy of your dates for them, with a reminder the day before each deadline and exam.') +
       liveCalGroup() +
-      grp(rButton(icon('calendar') + 'Export to Calendar (.ics)', 'ics-export'), 'Calendar file',
-          'A one-time copy of every date for Apple or Google Calendar, with a reminder at 09:00 the day before each deadline and exam.') +
       grp(rButton(icon('download') + 'Export Backup', 'backup-export') + rButton(icon('upload') + 'Import Backup', 'backup-import') +
           '<input type="file" id="import-file" accept="application/json,.json" hidden>', 'Backup',
           'Your planner already saves to your account. A backup is an extra copy you keep as a file. ' + (lb ? 'Last backup: ' + esc(fDay(lb)) + '.' : 'No backup yet.')) +
@@ -2011,14 +2782,27 @@
       (free ? grp(rNav('check', guideOn() ? 'Setup Guide' : 'Show Setup Guide', 'guide-show', guideOn() ? 'On Today' : '')) : '') +
       grp('<div class="row"><span class="row-label">Keyboard</span><span class="row-value"><span class="kbd">1</span>–<span class="kbd">5</span>&nbsp;sections · <span class="kbd">N</span>&nbsp;task · <span class="kbd">E</span>&nbsp;event</span></div>') +
       grp(rButton(free ? 'Start Over' : 'Reset to Starting Data', 'reset-all', '', 'danger'), '', free
-        ? 'Empties your timetable, dates and tasks and keeps only the IB core. Export a backup first if you want to keep your changes.'
+        ? 'Empties your timetable, dates and tasks' + (isIB() ? ' and keeps only the IB core' : '') + '. Export a backup first if you want to keep your changes.'
         : 'Puts back the starting timetable, calendar and tasks. Export a backup first if you want to keep your changes.') +
       grp(legalLinks(), 'About') +
-      (ME.admin ? '' : grp(rButton('Delete Account', 'account-delete', '', 'danger'), '', free ? 'Deletes your account, planner, photo and chats from MyIB for good.'
-        : 'Deletes your planner, photo, chats and password from MyIB for good. Your name stays on the class list, locked until Mauro gives you a setup code.'));
+      (ME.admin ? '' : grp(rButton('Delete Account', 'account-delete', '', 'danger'), '', free ? 'Deletes your account, planner, photo and chats from Bloc for good.'
+        : 'Deletes your planner, photo, chats and password from Bloc for good. Your name stays on the class list, locked until Mauro gives you a setup code.'));
     openDialog({ title: 'Settings', body: body });
   }
-  function plusLabel() { return ME.plus === 'admin' ? 'MyIB Plus · owner' : ME.plus === 'class' ? 'MyIB Plus · class code' : 'MyIB Plus'; }
+  function openLevel() {
+    curSheet = openLevel;
+    var cur = level();
+    openDialog({
+      title: 'Studies', back: openSettings, backLabel: 'Settings',
+      body: grp(LEVEL_IDS.map(function (k) {
+          var L = LEVELS[k];
+          return '<button type="button" class="row row-btn nav-row level-row" data-act="level-set" data-level="' + k + '" aria-pressed="' + (cur === k) + '">' +
+            '<span class="level-tile mini lv-' + k + '" aria-hidden="true">' + esc(LEVEL_TILE[k]) + '</span>' +
+            '<span class="two-line"><b>' + esc(L.name) + '</b><span>' + esc(L.sub) + '</span></span>' + (cur === k ? icon('check') : '') + '</button>';
+        }).join(''), 'What you study', 'Your subjects, dates and tasks stay as they are. The subject list and a few words change.')
+    });
+  }
+  function plusLabel() { return ME.plus === 'admin' ? 'Bloc Plus · owner' : ME.plus === 'class' ? 'Bloc Plus · class code' : 'Bloc Plus'; }
   function syncText() {
     if (!SYNC.online) return 'Offline. Changes are saved on this device and sync when you’re back online.';
     if (SYNC.pending || dirty) return 'Saving your changes…';
@@ -2029,7 +2813,7 @@
     var cur = plusOn() ? S.settings.accent || '' : '';
     return grp('<div class="swatches accents" role="group" aria-label="App colour">' + ACCENTS.map(function (a) {
         return '<button type="button" class="accent-sw" data-act="set-accent" data-accent="' + a[0] + '" style="--c:' + a[2] + '" aria-pressed="' + (cur === a[0]) + '" aria-label="' + a[1] + '" title="' + a[1] + '">' + icon('check') + '</button>';
-      }).join('') + '</div>', 'App colour', plusOn() ? '' : 'Colours come with MyIB Plus.');
+      }).join('') + '</div>', 'App colour', plusOn() ? '' : 'Colours come with Bloc Plus.');
   }
   function calUrl() { return CONF.cal && /^[A-Za-z0-9_-]{32}$/.test(CONF.cal) ? location.origin + '/api/cal/' + CONF.cal + '.ics' : ''; }
   function liveCalGroup() {
@@ -2044,7 +2828,7 @@
   function legacyGroup() {
     if (!legacyData() || legacyDone(ME.id)) return '';
     return grp(rButton(icon('upload') + 'Bring Back Old Planner', 'legacy-use') + rButton('Hide This', 'legacy-hide'), 'This browser',
-      'This browser still has a planner saved before MyIB had accounts. Bringing it back replaces your current planner.');
+      'This browser still has a planner saved before Bloc had accounts. Bringing it back replaces your current planner.');
   }
 
   function busyForm(form, on) {
@@ -2091,7 +2875,7 @@
           busyForm(form, false);
           if (e && e.quiet) return;
           if (e && e.sel) { if (e.clear && $(e.sel, dlg)) $(e.sel, dlg).value = ''; fieldError(e.sel, e.msg); }
-          else fieldError('#cp-cur', 'Can’t reach MyIB. Check your connection.');
+          else fieldError('#cp-cur', 'Can’t reach Bloc. Check your connection.');
         });
         return false;
       }
@@ -2134,7 +2918,7 @@
         }).catch(function (e) {
           busyForm(form, false);
           if (e && e.quiet) return;
-          fieldError('#da-pw', e && e.msg ? e.msg : 'Can’t reach MyIB. Check your connection.');
+          fieldError('#da-pw', e && e.msg ? e.msg : 'Can’t reach Bloc. Check your connection.');
         });
         return false;
       }
@@ -2151,7 +2935,7 @@
       grp(rButton(icon('camera') + (has ? 'Choose a New Photo' : 'Choose a Photo'), 'pfp-pick') +
           '<input type="file" id="pfp-file" accept="image/*" hidden>' +
           (has ? rButton('Remove Photo', 'pfp-remove', '', 'danger') : ''), '',
-          'Anyone logged in to MyIB can see your photo. Mauro can take down photos.');
+          'Anyone logged in to Bloc can see your photo. Mauro can take down photos.');
     openDialog({ title: 'Profile Picture', body: body, back: openSettings, backLabel: 'Settings' });
   }
   function pfpFile(input) {
@@ -2187,17 +2971,17 @@
     PFP.base = Math.max(PFP.S / PFP.w, PFP.S / PFP.h);
     PFP.z = 1; PFP.x = (PFP.S - PFP.w * PFP.base) / 2; PFP.y = (PFP.S - PFP.h * PFP.base) / 2;
     cropDraw();
-    var pts = new Map(), gap = 0;
+    var pts = new Map(), gap = 0, k = 1;
     stage.addEventListener('pointerdown', function (e) {
       e.preventDefault();
       try { stage.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-      pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); gap = 0;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); gap = 0; k = zoomOf(stage) || 1;
     });
     stage.addEventListener('pointermove', function (e) {
       var prev = pts.get(e.pointerId);
       if (!prev) return;
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pts.size === 1) { PFP.x += e.clientX - prev.x; PFP.y += e.clientY - prev.y; cropClamp(); cropDraw(); return; }
+      if (pts.size === 1) { PFP.x += (e.clientX - prev.x) / k; PFP.y += (e.clientY - prev.y) / k; cropClamp(); cropDraw(); return; }
       var a = Array.from(pts.values()), d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
       if (gap) cropZoomTo(PFP.z * d / gap);
       gap = d;
@@ -2250,7 +3034,7 @@
       if (r.status === 401) return sessionLost();
       if (r.status === 429) return toast('Too many changes. Try again in a while.');
       toast('Couldn’t save it (error ' + r.status + ')');
-    }, function () { busyForm(form, false); toast('Can’t reach MyIB. Check your connection.'); });
+    }, function () { busyForm(form, false); toast('Can’t reach Bloc. Check your connection.'); });
   }
 
   /* ---------- Welcome + subject picker (empty planners) ---------- */
@@ -2260,15 +3044,15 @@
     S.settings.guide = 'on'; save();
     var first = String(ME.name || '').split(' ')[0];
     var steps = guideSteps().map(function (x, i) {
-      return '<div class="row perk"><span class="perk-ic num" style="--c:' + ['#007AFF', '#34C759', '#FF9500', '#AF52DE'][i] + '">' + (i + 1) + '</span><span class="two-line"><b>' + esc(x.title) + '</b><span>' + esc(x.sub) + '</span></span></div>';
+      return '<div class="row perk"><span class="perk-ic num" style="--c:' + ['#D9501F', '#1E9E6A', '#E8930C', '#8C3B72'][i] + '">' + (i + 1) + '</span><span class="two-line"><b>' + esc(x.title) + '</b><span>' + esc(x.sub) + '</span></span></div>';
     }).join('');
     var body =
       '<div class="plus-hero"><img class="welcome-logo" src="icons/icon-192.png" alt="" width="64" height="64"><h3>Welcome' + (first ? ', ' + esc(first) : '') + '!</h3>' +
-        '<p>MyIB keeps your timetable, deadlines, exams and study time in one place. Your planner starts empty. Four steps get it ready:</p></div>' +
+        '<p>Bloc keeps your timetable, deadlines, exams and study time in one place. Your planner starts empty. Four steps get it ready:</p></div>' +
       grp(steps) +
       grp(rButton('Start With My Subjects', 'guide-subjects', '', 'center strong')) +
       '<p class="group-foot plus-fine">The steps stay on Today until you finish them.</p>';
-    openDialog({ title: 'Welcome to MyIB', body: body, doneLabel: 'Later' });
+    openDialog({ title: 'Welcome to Bloc', body: body, doneLabel: 'Later' });
   }
 
   /* Common IB subjects by group. [name, short name] */
@@ -2280,28 +3064,32 @@
     ['Mathematics', [['Math: Analysis and Approaches', 'Math AA'], ['Math: Applications and Interpretation', 'Math AI']]],
     ['The arts', [['Visual Arts', 'Visual Arts'], ['Music', 'Music'], ['Theatre', 'Theatre'], ['Film', 'Film'], ['Dance', 'Dance']]]
   ];
+  function pickList() { return isIB() ? IB_PICK : LV().pick || []; }
   function openSubjectPicker() {
     curSheet = openSubjectPicker;
-    var have = new Set(S.subjects.map(function (s) { return norm(s.name); }));
-    var body = IB_PICK.map(function (g, gi) {
+    var have = new Set(S.subjects.map(function (s) { return norm(s.name); })), L = LV(), list = pickList();
+    var one = L.one.replace(/^IB /, '').toLowerCase();
+    /* the first time, the ones everyone takes come ticked */
+    var tick = hasIBSubjects() ? [] : (L.common || []).map(norm);
+    var body = list.map(function (g, gi) {
       return grp('<div class="pick-chips">' + g[1].map(function (x, i) {
-        var got = have.has(norm(x[0]));
-        return '<button type="button" class="pick-chip' + (got ? ' have' : '') + '" data-act="pick-subj" data-i="' + gi + '.' + i + '" aria-pressed="' + got + '"' + (got ? ' disabled' : '') + '>' +
+        var got = have.has(norm(x[0])), on = got || tick.indexOf(norm(x[0])) >= 0;
+        return '<button type="button" class="pick-chip' + (got ? ' have' : '') + '" data-act="pick-subj" data-i="' + gi + '.' + i + '" aria-pressed="' + on + '"' + (got ? ' disabled' : '') + '>' +
           (got ? icon('check') : '') + esc(x[0]) + '</button>';
-      }).join('') + '</div>', 'Group ' + (gi + 1) + ' · ' + g[0]);
+      }).join('') + '</div>', isIB() ? 'Group ' + (gi + 1) + ' · ' + g[0] : g[0]);
     }).join('') +
-      grp(rField({ label: 'Another subject', name: 'other', id: 'sp-other', value: '', max: 60, placeholder: 'Another subject (type its name)' }), 'Not in the list?',
-          'After adding them, tap a subject on the Subjects page to set its level (SL or HL), teacher and colour.');
+      grp(rField({ label: 'Another ' + one, name: 'other', id: 'sp-other', value: '', max: 60, placeholder: 'Another ' + one + ' (type its name)', autofocus: !list.length }), list.length ? 'Not in the list?' : '',
+          'After adding them, tap ' + (level() === 'uni' ? 'a course on the Courses' : 'a subject on the Subjects') + ' page to set its ' + (L.sl ? 'level (SL or HL), ' : '') + 'teacher and colour.');
     openDialog({
-      title: 'Your Subjects', body: body, wide: true, submitLabel: 'Add',
+      title: level() === 'uni' ? 'Your Courses' : 'Your Subjects', body: body, wide: true, submitLabel: 'Add',
       onSubmit: function (fd) {
         var picked = $$('.pick-chip[aria-pressed="true"]:not(.have)', dlg).map(function (b) {
-          var ix = b.dataset.i.split('.').map(Number), x = IB_PICK[ix[0]] && IB_PICK[ix[0]][1][ix[1]];
+          var ix = b.dataset.i.split('.').map(Number), x = list[ix[0]] && list[ix[0]][1][ix[1]];
           return x ? { name: x[0], short: x[1] } : null;
         }).filter(Boolean);
         var other = clip(fd.get('other'), 60);
         if (other && !have.has(norm(other))) picked.push({ name: other, short: shortFrom(other) });
-        if (!picked.length) { fieldError('#sp-other', 'Tap the subjects you take, or type one here.'); return false; }
+        if (!picked.length) { fieldError('#sp-other', list.length ? 'Tap the ' + one + 's you take, or type one here.' : 'Type the name of a ' + one + ' you take.'); return false; }
         var used = new Set(S.subjects.map(function (s) { return s.color; }));
         var free = PALETTE.filter(function (c) { return !used.has(c) && c !== '#8E8E93'; });
         picked.forEach(function (x, i) {
@@ -2309,20 +3097,20 @@
         });
         save();
         var n = picked.length, toTimetable = guideOn() && !Object.keys(S.slots).length;
-        if (toTimetable) { closeDialog(); go('timetable'); toast(n + (n === 1 ? ' subject' : ' subjects') + ' added. Now tap a slot to add a class.'); }
-        else { render(); toast(n + (n === 1 ? ' subject' : ' subjects') + ' added'); }
+        if (toTimetable) { closeDialog(); go('timetable'); toast(n + ' ' + one + (n === 1 ? '' : 's') + ' added. Now tap a slot to add a class.'); celebrate(null); }
+        else { render(); toast(n + ' ' + one + (n === 1 ? '' : 's') + ' added'); celebrate(null); }
       }
     });
   }
 
-  /* ---------- MyIB Plus (price: Settings → Admin → Plus Price) ---------- */
+  /* ---------- Bloc Plus (price: Settings → Admin → Plus Price) ---------- */
   var PLUS_PERKS = [
-    ['calendar', '#FF3B30', 'Live calendar', 'Your deadlines and exams in Apple or Google Calendar, updating by themselves.'],
-    ['paper', '#007AFF', 'Past-paper tracker', 'Log every past paper you do and see your average per subject.'],
-    ['palette', '#AF52DE', 'App colours', 'Pick the colour MyIB uses for buttons and highlights.'],
-    ['timer', '#FF9500', 'Any timer length', 'Focus sessions from 5 to 180 minutes.'],
-    ['quiet', '#34C759', 'No more pop-ups', 'The support pop-up stops showing up.'],
-    ['pet', '#FF9500', 'More for your puppy', 'Dalmatian, Husky and Corgi, plus a scarf, sunglasses, headphones and a crown.']
+    ['calendar', '#E4572E', 'Live calendar', 'Your deadlines and exams in Apple or Google Calendar, updating by themselves.'],
+    ['paper', '#1597A8', 'Past-paper tracker', 'Log every past paper you do and see your average per subject.'],
+    ['palette', '#E0527D', 'App colours', 'Pick the colour Bloc uses for buttons and highlights.'],
+    ['timer', '#F28C28', 'Any timer length', 'Focus sessions from 5 to 180 minutes.'],
+    ['quiet', '#1E9E6A', 'No more pop-ups', 'The support pop-up stops showing up.'],
+    ['pet', '#E8930C', 'More for your puppy', 'Dalmatian, Husky and Corgi, plus a scarf, sunglasses, headphones and a crown.']
   ];
   var eggTaps = [];
   function openPlus(back) {
@@ -2342,7 +3130,7 @@
       grp('<div class="row"><span class="row-label">Price</span><span class="row-value price">' + esc(priceText()) + '</span></div>' +
           '<button type="button" class="row row-btn center" disabled>Pay with PayPal · coming soon</button>', 'Get Plus', how);
     var body =
-      '<div class="plus-hero"><span class="plus-badge">' + icon('star') + '</span><h3>MyIB Plus</h3><p>' + (p ? 'Plus is on. Everything below is unlocked.' : 'More tools for the IB year.') + '</p></div>' +
+      '<div class="plus-hero"><span class="plus-badge">' + icon('star') + '</span><h3>Bloc Plus</h3><p>' + (p ? 'Plus is on. Everything below is unlocked.' : 'More tools for your school year.') + '</p></div>' +
       grp(perks) + buy +
       (NATIVE ? '<p class="group-foot plus-fine">Questions about your subscription? Ask Mauro.</p>' :
       '<p class="group-foot plus-fine">Questions about your <span class="egg" data-act="egg">subscription</span>? Ask Mauro.</p>' +
@@ -2350,7 +3138,7 @@
         grp('<label class="row"><span class="sr">Class code</span><input class="row-field egg-field" type="text" name="code" id="egg-code" maxlength="120" placeholder="UNLOCK EVERYTHING" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"></label>' +
             rButton('Unlock', 'egg-unlock', '', 'center strong')) +
       '</div>');
-    openDialog({ title: 'MyIB Plus', body: body, back: back || null });
+    openDialog({ title: 'Bloc Plus', body: body, back: back || null });
   }
   /* Tap "subscription" five times and the class-code box shows up. */
   function eggTap() {
@@ -2377,7 +3165,7 @@
       var d = r.data || {};
       if (r.status === 200 && d.user) {
         applyMe(d); closeDialog(); render();
-        toast('Everything’s unlocked. Enjoy MyIB Plus!');
+        toast('Everything’s unlocked. Enjoy Bloc Plus!');
         return;
       }
       if (r.status === 401) return sessionLost();
@@ -2387,7 +3175,7 @@
       fieldError('#egg-code', 'Something went wrong. Try again.');
     }, function () {
       if (btn) btn.disabled = false;
-      fieldError('#egg-code', 'Can’t reach MyIB. Check your connection.');
+      fieldError('#egg-code', 'Can’t reach Bloc. Check your connection.');
     });
   }
 
@@ -2399,13 +3187,13 @@
     var b = CONF.bizum;
     var body =
       '<div class="plus-hero"><span class="plus-badge heart">' + icon('heart') + '</span><h3>Support the dev!</h3>' +
-        '<p>MyIB is free and has no ads. ' + (isFree() ? 'Mauro, an IB student, builds it in his spare time.' : 'Mauro builds it for your class in his spare time.') +
+        '<p>Bloc is free and has no ads. ' + (isFree() ? 'Mauro, an IB student, builds it in his spare time.' : 'Mauro builds it for your class in his spare time.') +
         ' If it saves you time, send him a Bizum. Any amount helps.</p></div>' +
       (b ? grp('<div class="row"><span class="row-label">Bizum</span><span class="row-value num">' + esc(b) + '</span></div>' + rButton(icon('copy') + 'Copy Number', 'copy-bizum'),
           'Send a Bizum', 'Open your bank app, tap Bizum, paste the number and send what you like.') : '') +
-      grp(rNav('star', plusOn() ? 'MyIB Plus' : 'See MyIB Plus', 'plus-open', plusOn() ? 'On' : ''), '', plusOn() ? '' : 'Plus turns this pop-up off and unlocks the extra tools.') +
+      grp(rNav('star', plusOn() ? 'Bloc Plus' : 'See Bloc Plus', 'plus-open', plusOn() ? 'On' : ''), '', plusOn() ? '' : 'Plus turns this pop-up off and unlocks the extra tools.') +
       (ME.admin ? '<p class="group-foot">This is what your classmates see.' + (b ? '' : ' Add your Bizum number in Settings → Admin.') + '</p>' : '');
-    openDialog({ title: 'Support MyIB', body: body, back: back || null, doneLabel: auto ? 'Not Now' : 'Done' });
+    openDialog({ title: 'Support Bloc', body: body, back: back || null, doneLabel: auto ? 'Not Now' : 'Done' });
   }
   /* The pop-up: 45 s after opening, then at most every NAG_HOURS per device. Plus turns it off. */
   function scheduleNag() {
@@ -2512,7 +3300,7 @@
       links +
       grp(rButton(icon('plus') + 'Add Link', 'pe-add', n >= 30 ? ' disabled' : ''), '', n ? '' : 'No links yet. Students then see only the intro and the text below.') +
       grp(rField({ area: true, label: 'Text under the links', name: 'foot', id: 'pe-foot', value: P.foot, max: 400, placeholder: 'Text under the links (optional)' }), 'Under the links',
-          'Students see changes the next time they open MyIB. Links open in a new tab. Turn on “New” for this month’s papers: the Past papers button then shows a New tag until each student opens the sheet.');
+          'Students see changes the next time they open Bloc. Links open in a new tab. Turn on “New” for this month’s papers: the Past papers button then shows a New tag until each student opens the sheet.');
     openDialog({
       title: 'Edit Past Papers', body: body, wide: true, submitLabel: 'Save',
       back: PE.back || openSettings, backLabel: PE.back === openPapers ? 'Papers' : 'Settings',
@@ -2561,7 +3349,7 @@
         return fieldError('#pe-' + (['title', 'intro', 'head', 'foot'].indexOf(e.field) >= 0 ? e.field : 'title'), 'Shorten this a little.');
       }
       fieldError('#pe-title', 'Couldn’t save it (error ' + r.status + '). Try again.');
-    }, function () { busyForm(form, false); fieldError('#pe-title', 'Can’t reach MyIB. Check your connection.'); });
+    }, function () { busyForm(form, false); fieldError('#pe-title', 'Can’t reach Bloc. Check your connection.'); });
   }
 
   /* ---------- Admin: Plus price ---------- */
@@ -2572,7 +3360,7 @@
       title: 'Plus Price', submitLabel: 'Save', back: openSettings, backLabel: 'Settings',
       body: grp(rPill('A month (€)', 'number', 'month', 'pr-month', String(p.month), ' min="0.5" max="50" step="0.5" inputmode="decimal"') +
                 rPill('Whole year, once (€)', 'number', 'once', 'pr-once', String(p.once), ' min="1" max="200" step="1" inputmode="decimal"'), '',
-                'Shows on the MyIB Plus sheet: “' + esc(priceText()) + '”. People still pay you by Bizum, so this changes the text only.'),
+                'Shows on the Bloc Plus sheet: “' + esc(priceText()) + '”. People still pay you by Bizum, so this changes the text only.'),
       onSubmit: function (fd, form) {
         var m = parseFloat(String(fd.get('month') || '').replace(',', '.')), o = parseFloat(String(fd.get('once') || '').replace(',', '.'));
         if (!(m >= 0.5 && m <= 50)) { fieldError('#pr-month', 'Pick between 0,50 € and 50 €.'); return false; }
@@ -2583,7 +3371,7 @@
           if (r.status === 200 && r.data) { setConf(Object.assign({ cal: CONF.cal }, r.data)); writeCache(); openSettings(); toast('Price saved: ' + priceText()); }
           else if (r.status === 401) sessionLost();
           else fieldError('#pr-month', 'Couldn’t save it. Try again.');
-        }, function () { busyForm(form, false); fieldError('#pr-month', 'Can’t reach MyIB. Check your connection.'); });
+        }, function () { busyForm(form, false); fieldError('#pr-month', 'Can’t reach Bloc. Check your connection.'); });
         return false;
       }
     });
@@ -2655,7 +3443,7 @@
       onSubmit: function (fd) {
         var m = parseInt(fd.get('minutes'), 10);
         if (!(m >= 5 && m <= 180)) { fieldError('#fl-min', 'Pick between 5 and 180 minutes.'); return false; }
-        UI.focusLen = m; saveUI(); render();
+        UI.focusLen = m; UI.focusUp = false; saveUI(); render();
       }
     });
   }
@@ -2681,7 +3469,7 @@
       if (r.status !== 200 || !r.data || !Array.isArray(r.data.users)) return sheetMessage('<p class="group-foot err">Couldn’t load the accounts. Try again.</p>');
       ADMIN_LIST = r.data.users; ADMIN_OTHERS = Array.isArray(r.data.others) ? r.data.others : [];
       sheetMessage(adminListHTML());
-    }, function () { if (curSheet === openAdmin) sheetMessage('<p class="group-foot err">Can’t reach MyIB. Check your connection.</p>'); });
+    }, function () { if (curSheet === openAdmin) sheetMessage('<p class="group-foot err">Can’t reach Bloc. Check your connection.</p>'); });
   }
   function adminRow(u) {
     var st = u.admin ? 'You' : u.reset ? (u.last_login ? 'Waiting for reset code' : 'Waiting for setup code') : !u.claimed ? 'No password yet' : 'Last login ' + ago(u.last_login);
@@ -2723,15 +3511,15 @@
       '<div class="row"><span class="row-label">Password</span><span class="row-value">' + (u.claimed ? 'Set' : u.reset ? 'Waiting for ' + codeWord : 'Not set yet') + '</span></div>' +
       '<div class="row"><span class="row-label">Last login</span><span class="row-value">' + esc(u.last_login ? ago(u.last_login) : 'Never') + '</span></div>' +
       '<div class="row"><span class="row-label">Planner saved</span><span class="row-value">' + esc(u.updated_at ? ago(u.updated_at) + ' · ' + kb(u.size) : 'Nothing yet') + '</span></div>' +
-      '<div class="row"><span class="row-label">MyIB Plus</span><span class="row-value">' + esc(plusTxt) + '</span></div>';
+      '<div class="row"><span class="row-label">Bloc Plus</span><span class="row-value">' + esc(plusTxt) + '</span></div>';
     var d = ' data-id="' + esc(u.id) + '"', code = RESET_CODES[u.id];
     var body = (u.avatar ? '<div class="pfp-hero">' + avatar(u.id, u.name, 'xxl', u.avatar) + '</div>' +
         grp(rButton('Remove Photo', 'admin-pfp-remove', d, 'danger'), '', 'Takes the photo down for everyone. ' + esc(u.name) + ' can upload a new one.') : '') +
       grp(info) +
       (code && u.reset ? grp('<div class="row"><span class="row-label">' + (u.last_login ? 'Reset code' : 'Setup code') + '</span><span class="row-value reset-code">' + esc(code) + '</span></div>' +
           rButton(icon('copy') + 'Copy Code', 'admin-copy-code', d), 'Give this to ' + esc(u.name),
-          (free ? 'They tap “I’m not in Sociales 2 IB”, then Log In with @' + esc(u.id) + '. MyIB asks for this code and a new password.'
-                : 'They pick their name, type this code and make a new password.') + ' It works once. Only you can see it, and only until you close MyIB.') : '') +
+          (free ? 'They tap “I’m not in Sociales 2 IB”, then Log In with @' + esc(u.id) + '. Bloc asks for this code and a new password.'
+                : 'They pick their name, type this code and make a new password.') + ' It works once. Only you can see it, and only until you close Bloc.') : '') +
       grp((u.updated_at ? rButton(icon('download') + 'Download Planner', 'admin-export', d) : '') +
           rButton(icon('upload') + 'Restore From File', 'admin-import', d) +
           '<input type="file" id="admin-file" accept="application/json,.json" hidden' + d + '>', 'Planner',
@@ -2759,13 +3547,13 @@
     reader.onload = function () {
       input.value = '';
       var obj;
-      try { obj = JSON.parse(String(reader.result)); } catch (e) { toast('That file isn’t a MyIB backup'); return; }
+      try { obj = JSON.parse(String(reader.result)); } catch (e) { toast('That file isn’t a Bloc backup'); return; }
       var data = obj && (obj.app === 'myib' || obj.app === 'ib-planner') && obj.data ? obj.data : obj;
-      if (!data || !Array.isArray(data.subjects) || !Array.isArray(data.events) || !Array.isArray(data.periods)) { toast('That file isn’t a MyIB backup'); return; }
+      if (!data || !Array.isArray(data.subjects) || !Array.isArray(data.events) || !Array.isArray(data.periods)) { toast('That file isn’t a Bloc backup'); return; }
       api('PUT', '/api/admin/import', { user: id, data: sanitize(data) }).then(function (r) {
         if (r.status === 200) { flash(btn, 'Restored'); reloadAdmin(null); }
         else toast('Couldn’t restore it (error ' + r.status + ')');
-      }, function () { toast('Can’t reach MyIB. Check your connection.'); });
+      }, function () { toast('Can’t reach Bloc. Check your connection.'); });
     };
     reader.onerror = function () { input.value = ''; toast('Could not read that file'); };
     reader.readAsText(file);
@@ -2785,7 +3573,7 @@
           busyForm(form, false);
           if (r.status === 200 && r.data) { setConf(Object.assign({ cal: CONF.cal }, r.data)); writeCache(); openSettings(); toast(CONF.bizum ? 'Bizum number saved' : 'Bizum number removed'); }
           else fieldError('#bz-num', 'Couldn’t save it. Try again.');
-        }, function () { busyForm(form, false); fieldError('#bz-num', 'Can’t reach MyIB. Check your connection.'); });
+        }, function () { busyForm(form, false); fieldError('#bz-num', 'Can’t reach Bloc. Check your connection.'); });
         return false;
       }
     });
@@ -2798,7 +3586,7 @@
     var t = today();
     S.settings.lastBackup = t;
     save(); flush();
-    download('myib-backup-' + t + '.json', JSON.stringify({ app: 'myib', version: 3, user: ME ? ME.id : null, exported: new Date().toISOString(), data: S }, null, 2), 'application/json');
+    download('bloc-backup-' + t + '.json', JSON.stringify({ app: 'myib', version: 3, user: ME ? ME.id : null, exported: new Date().toISOString(), data: S }, null, 2), 'application/json');
     toast('Backup downloaded');
   }
   function importFile(input) {
@@ -2818,7 +3606,7 @@
         closeDialog(); render();
         toast('Backup restored', snap);
       } catch (err) {
-        toast('That file isn’t a MyIB backup');
+        toast('That file isn’t a Bloc backup');
       }
     };
     reader.onerror = function () { input.value = ''; toast('Could not read that file'); };
@@ -2837,21 +3625,604 @@
   }
   function buildICS() {
     var stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-    var L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//MyIB//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:MyIB'];
+    var L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Bloc//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:Bloc'];
     S.events.slice().sort(byStart).forEach(function (e) {
-      L.push('BEGIN:VEVENT', 'UID:' + e.id + '@myib.app', 'DTSTAMP:' + stamp,
-        'DTSTART;VALUE=DATE:' + e.start.replace(/-/g, ''),
-        'DTEND;VALUE=DATE:' + addDays(evEnd(e), 1).replace(/-/g, ''),
-        'SUMMARY:' + icsText(evFull(e)));
+      L.push('BEGIN:VEVENT', 'UID:' + e.id + '@myib.app', 'DTSTAMP:' + stamp);
+      if (e.at && !e.end) {
+        /* a time of day: floating local time, so the calendar shows it at that hour wherever you are */
+        var endM = toMin(e.at) + (e.dur || 60), endD = addDays(e.start, Math.floor(endM / 1440));
+        L.push('DTSTART:' + e.start.replace(/-/g, '') + 'T' + e.at.replace(':', '') + '00',
+          'DTEND:' + endD.replace(/-/g, '') + 'T' + hm(endM % 1440).replace(':', '') + '00');
+      } else {
+        L.push('DTSTART;VALUE=DATE:' + e.start.replace(/-/g, ''), 'DTEND;VALUE=DATE:' + addDays(evEnd(e), 1).replace(/-/g, ''));
+      }
+      L.push('SUMMARY:' + icsText(evFull(e)));
       if (e.note) L.push('DESCRIPTION:' + icsText(e.note));
       var s = subj(e.subject);
       if (s) L.push('CATEGORIES:' + icsText(s.name));
       L.push('TRANSP:TRANSPARENT');
-      if ((e.type === 'deadline' || e.type === 'exam') && !e.done) L.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + icsText(evFull(e)), 'TRIGGER:-PT15H', 'END:VALARM');
+      if ((e.type === 'deadline' || e.type === 'exam') && !e.done) L.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + icsText(evFull(e)), 'TRIGGER:' + (e.at && !e.end ? '-P1D' : '-PT15H'), 'END:VALARM');
       L.push('END:VEVENT');
     });
     L.push('END:VCALENDAR');
     return L.map(icsFold).join('\r\n') + '\r\n';
+  }
+
+  /* =========================================================
+     Import from Apple Calendar, Google Calendar or any calendar file (iCalendar, .ics).
+     A file, a zip of them (Google's export) or a link the server fetches. Weekly and daily
+     repeats become repeating tasks; other repeats become separate dates. A linked calendar
+     can stay in sync: the app checks it again every 6 hours while it's open.
+     ========================================================= */
+  var ICS_PAST = 30, ICS_AHEAD = 400, ICS_MAX = 500, ICS_SERIES = 60, FEEDS_MAX = 5, FEED_EVERY = 6 * 3600000;
+  var ICS_DAYS = { MO: 0, TU: 1, WE: 2, TH: 3, FR: 4, SA: 5, SU: 6 };
+  /* Outlook writes Windows zone names; the common ones, as IANA names */
+  var WIN_TZ = {
+    'Romance Standard Time': 'Europe/Paris', 'W. Europe Standard Time': 'Europe/Berlin', 'Central Europe Standard Time': 'Europe/Budapest',
+    'Central European Standard Time': 'Europe/Warsaw', 'GMT Standard Time': 'Europe/London', 'Greenwich Standard Time': 'Atlantic/Reykjavik',
+    'E. Europe Standard Time': 'Europe/Bucharest', 'FLE Standard Time': 'Europe/Kiev', 'GTB Standard Time': 'Europe/Athens',
+    'Eastern Standard Time': 'America/New_York', 'Central Standard Time': 'America/Chicago', 'Mountain Standard Time': 'America/Denver',
+    'Pacific Standard Time': 'America/Los_Angeles', 'Canary Standard Time': 'Atlantic/Canary', 'UTC': 'UTC', 'Coordinated Universal Time': 'UTC'
+  };
+
+  function icsUnescape(v) { return String(v).replace(/\\([nN,;\\])/g, function (m, c) { return c === 'n' || c === 'N' ? '\n' : c; }); }
+  /* NAME;PARAM=x;PARAM="a:b":VALUE (the first colon outside quotes ends the name) */
+  function icsLine(line) {
+    var q = false, i = 0;
+    for (; i < line.length; i++) { var ch = line.charAt(i); if (ch === '"') q = !q; else if (ch === ':' && !q) break; }
+    if (i >= line.length) return null;
+    var parts = line.slice(0, i).match(/(?:[^;"]|"[^"]*")+/g) || [''], params = {};
+    parts.slice(1).forEach(function (p) { var k = p.indexOf('='); if (k > 0) params[p.slice(0, k).toUpperCase()] = p.slice(k + 1).replace(/^"|"$/g, ''); });
+    return { name: parts[0].toUpperCase(), params: params, value: line.slice(i + 1) };
+  }
+  function icsRaw(params, v) {
+    var m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/.exec(String(v).trim());
+    if (!m) return null;
+    var date = params.VALUE === 'DATE' || !m[4];
+    return { y: +m[1], mo: +m[2], d: +m[3], h: date ? 0 : +m[4], mi: date ? 0 : +m[5], s: date ? 0 : +(m[6] || 0), utc: !!m[7], tz: params.TZID || '', date: date };
+  }
+  function icsDur(v) {
+    var m = /^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(String(v).trim());
+    if (!m) return null;
+    var min = (+m[2] || 0) * 10080 + (+m[3] || 0) * 1440 + (+m[4] || 0) * 60 + (+m[5] || 0) + Math.round((+m[6] || 0) / 60);
+    return m[1] === '-' ? -min : min;
+  }
+  function icsRule(v) {
+    var r = {};
+    String(v).split(';').forEach(function (p) { var k = p.indexOf('='); if (k > 0) r[p.slice(0, k).toUpperCase()] = p.slice(k + 1); });
+    return {
+      freq: (r.FREQ || '').toUpperCase(), interval: Math.max(1, parseInt(r.INTERVAL, 10) || 1),
+      count: parseInt(r.COUNT, 10) || 0, until: r.UNTIL ? icsRaw({}, r.UNTIL) : null,
+      byday: r.BYDAY ? r.BYDAY.toUpperCase().split(',').map(function (x) { var m = /^([+-]?\d{1,2})?(MO|TU|WE|TH|FR|SA|SU)$/.exec(x.trim()); return m ? { n: m[1] ? parseInt(m[1], 10) : 0, d: ICS_DAYS[m[2]] } : null; }).filter(Boolean) : [],
+      bymonthday: r.BYMONTHDAY ? r.BYMONTHDAY.split(',').map(Number).filter(function (n) { return n && Math.abs(n) <= 31; }) : [],
+      bymonth: r.BYMONTH ? r.BYMONTH.split(',').map(Number).filter(function (n) { return n >= 1 && n <= 12; }) : [],
+      other: !!(r.BYSETPOS || r.BYWEEKNO || r.BYYEARDAY || r.BYHOUR || r.BYMINUTE)
+    };
+  }
+  function parseICS(text) {
+    var lines = String(text).replace(/\r\n?/g, '\n').replace(/\n[ \t]/g, '').split('\n');
+    var cal = { name: '', tz: '', events: [] }, stack = [], cur = null;
+    lines.forEach(function (raw) {
+      if (!raw) return;
+      var l = icsLine(raw);
+      if (!l) return;
+      if (l.name === 'BEGIN') {
+        var what = l.value.trim().toUpperCase();
+        stack.push(what);
+        if (what === 'VEVENT') cur = { ex: [], rd: [] };
+        return;
+      }
+      if (l.name === 'END') {
+        if (stack.pop() === 'VEVENT' && cur) { if (cal.events.length < 20000) cal.events.push(cur); cur = null; }
+        return;
+      }
+      var top = stack[stack.length - 1];
+      if (top === 'VCALENDAR') {
+        if (l.name === 'X-WR-CALNAME') cal.name = icsUnescape(l.value).trim();
+        else if (l.name === 'X-WR-TIMEZONE') cal.tz = l.value.trim();
+        return;
+      }
+      if (top !== 'VEVENT' || !cur) return;
+      var n = l.name;
+      if (n === 'UID') cur.uid = l.value.trim();
+      else if (n === 'SUMMARY') cur.summary = icsUnescape(l.value);
+      else if (n === 'DESCRIPTION') cur.desc = icsUnescape(l.value);
+      else if (n === 'LOCATION') cur.loc = icsUnescape(l.value);
+      else if (n === 'STATUS') cur.status = l.value.trim().toUpperCase();
+      else if (n === 'DTSTART') cur.start = icsRaw(l.params, l.value);
+      else if (n === 'DTEND' || n === 'DUE') cur.end = icsRaw(l.params, l.value);
+      else if (n === 'DURATION') cur.dur = icsDur(l.value);
+      else if (n === 'RRULE') cur.rule = icsRule(l.value);
+      else if (n === 'EXDATE' || n === 'RDATE') l.value.split(',').forEach(function (v) { var t = icsRaw(l.params, v); if (t) (n === 'EXDATE' ? cur.ex : cur.rd).push(t); });
+      else if (n === 'RECURRENCE-ID') cur.rid = icsRaw(l.params, l.value);
+    });
+    return cal;
+  }
+
+  /* a wall-clock time in a time zone, as epoch ms; null when the browser doesn't know the zone */
+  var TZ_FMT = {};
+  function tzOffset(ms, tz) {
+    var f = TZ_FMT[tz] || (TZ_FMT[tz] = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }));
+    var p = {};
+    f.formatToParts(new Date(ms)).forEach(function (x) { p[x.type] = x.value; });
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - Math.floor(ms / 1000) * 1000;
+  }
+  function zonedMs(t, tz) {
+    tz = String(tz).replace(/^\/[^/]+\/[^/]+\//, '').replace(/^"|"$/g, '');
+    tz = WIN_TZ[tz] || tz;
+    try {
+      var guess = Date.UTC(t.y, t.mo - 1, t.d, t.h, t.mi, t.s), off = tzOffset(guess, tz), ms = guess - off, off2 = tzOffset(ms, tz);
+      return off2 === off ? ms : guess - off2;
+    } catch (e) { return null; }
+  }
+  /* any calendar time as this device's local date and time */
+  function icsLocal(t, calTz) {
+    if (!t) return null;
+    if (t.date) return { date: t.y + '-' + pad(t.mo) + '-' + pad(t.d), time: null, ms: new Date(t.y, t.mo - 1, t.d).getTime() };
+    var ms = t.utc ? Date.UTC(t.y, t.mo - 1, t.d, t.h, t.mi, t.s) : null;
+    if (ms == null && (t.tz || calTz)) ms = zonedMs(t, t.tz || calTz);
+    if (ms == null) ms = new Date(t.y, t.mo - 1, t.d, t.h, t.mi, t.s).getTime();
+    var d = new Date(ms);
+    return { date: toISO(d), time: pad(d.getHours()) + ':' + pad(d.getMinutes()), ms: ms };
+  }
+  function icsHash(s) {
+    var h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); h1 = Math.imul(h1 ^ c, 16777619); h2 = Math.imul(h2 + c, 2246822519) ^ (h2 >>> 13); }
+    return ((h1 >>> 0).toString(36) + (h2 >>> 0).toString(36)).slice(0, 12);
+  }
+
+  /* best guesses from the title: the kind of date and the subject */
+  function icsType(text, allDay) {
+    var t = norm(text);
+    if (/\b(mock|mocks|simulacro)\b/.test(t)) return 'mock';
+    if (/\b(exam|exams|examen|examenes|test|prueba|quiz|parcial|midterm|paper [123])\b/.test(t)) return 'exam';
+    if (/\b(deadline|due|entrega|entregar|submit|submission|plazo|homework|deberes|tarea|assignment|essay|ensayo|trabajo|proyecto|project)\b/.test(t)) return 'deadline';
+    if (allDay && /\b(holiday|holidays|vacaciones|festivo|fiesta|no lectivo|puente|break|half term|vacation|navidad|semana santa)\b/.test(t)) return 'holiday';
+    if (/\b(notas|grades|boletin|evaluacion|report card)\b/.test(t)) return 'grades';
+    return 'other';
+  }
+  function icsSubject(text) {
+    var words = function (x) { return norm(x).replace(/[^\p{L}\p{N}]+/gu, ' ').trim(); };
+    var t = ' ' + words(text) + ' ', best = null;
+    S.subjects.forEach(function (s) {
+      [s.name, s.short].forEach(function (w) {
+        var k = words(w);
+        if (k.length >= 2 && t.indexOf(' ' + k + ' ') >= 0 && (!best || k.length > best.k.length)) best = { id: s.id, k: k, w: w };
+      });
+    });
+    return best;
+  }
+  function icsTitle(summary, sub) {
+    var title = String(summary || '').replace(/\s+/g, ' ').trim();
+    if (sub) {
+      var rest = title.replace(new RegExp('(^|[\\s:·,-])' + sub.w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=$|[\\s:·,-])', 'i'), '$1').replace(/^[\s:·,-]+|[\s:·,-]+$/g, '').replace(/\s{2,}/g, ' ');
+      if (rest) title = rest.charAt(0).toUpperCase() + rest.slice(1);
+      else title = '';
+    }
+    return title.slice(0, 80);
+  }
+  function icsNote(ev) {
+    var desc = String(ev.desc || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
+    var loc = String(ev.loc || '').trim();
+    return ((loc ? 'Where: ' + loc + (desc ? '\n\n' : '') : '') + desc).slice(0, 2000);
+  }
+
+  /* the dates a repeat lands on between from and to (and the COUNT-th last date, to tell where it ends) */
+  function icsDates(start, rule, from, to) {
+    var out = [], n = 0, guard = 0, d = start, untilD = rule.until ? icsLocal(rule.until, '').date : null;
+    function take(x) {
+      if (untilD && x > untilD) return false;
+      if (x < start) return true;
+      n++;
+      if (rule.count && n > rule.count) return false;
+      if (x >= from && x <= to) out.push(x);
+      return out.length < ICS_SERIES && x <= to;
+    }
+    var sp = start.split('-').map(Number), go = true;
+    if (rule.freq === 'DAILY') {
+      for (; go && guard < 4000; guard++) go = take(addDays(start, guard * rule.interval));
+    } else if (rule.freq === 'WEEKLY') {
+      var days = rule.byday.length ? rule.byday.map(function (b) { return b.d; }) : [dow(start)];
+      var wk = addDays(start, -dow(start));
+      for (; go && guard < 800; guard++) {
+        var w = addDays(wk, guard * 7 * rule.interval);
+        days.slice().sort().forEach(function (k) { if (go) go = take(addDays(w, k)); });
+      }
+    } else if (rule.freq === 'MONTHLY' || rule.freq === 'YEARLY') {
+      var yearly = rule.freq === 'YEARLY';
+      for (; go && guard < 600; guard++) {
+        var y = sp[0] + (yearly ? guard * rule.interval : 0), m0 = (sp[1] - 1) + (yearly ? 0 : guard * rule.interval);
+        y += Math.floor(m0 / 12); m0 = ((m0 % 12) + 12) % 12;
+        var months = yearly && rule.bymonth.length ? rule.bymonth.map(function (m) { return m - 1; }) : [m0];
+        months.forEach(function (mm) {
+          if (!go) return;
+          var len = new Date(y, mm + 1, 0).getDate(), list = [];
+          if (rule.byday.length) {
+            rule.byday.forEach(function (b) {
+              var hits = [];
+              for (var dd = 1; dd <= len; dd++) if ((new Date(y, mm, dd).getDay() + 6) % 7 === b.d) hits.push(dd);
+              if (!b.n) list = list.concat(hits); else { var h = b.n > 0 ? hits[b.n - 1] : hits[hits.length + b.n]; if (h) list.push(h); }
+            });
+          } else if (rule.bymonthday.length) {
+            rule.bymonthday.forEach(function (md) { var dd = md > 0 ? md : len + md + 1; if (dd >= 1 && dd <= len) list.push(dd); });
+          } else if (sp[2] <= len) list.push(sp[2]);
+          list.sort(function (a, b) { return a - b; }).forEach(function (dd) { if (go) go = take(y + '-' + pad(mm + 1) + '-' + pad(dd)); });
+        });
+      }
+    }
+    return out;
+  }
+  /* weekly or daily, every week, no fancy rules: a repeating task */
+  function icsWeekly(rule) {
+    return rule && !rule.other && rule.interval === 1 && (rule.freq === 'DAILY' && !rule.bymonth.length || rule.freq === 'WEEKLY' && !rule.bymonth.length && rule.byday.every(function (b) { return !b.n; }));
+  }
+  /* the last date of a weekly repeat with a COUNT */
+  function icsCountEnd(start, days, count) {
+    var n = 0;
+    for (var i = 0; i < 3700; i++) { var d = addDays(start, i); if (days.indexOf(dow(d)) >= 0 && ++n >= count) return d; }
+    return null;
+  }
+
+  /* everything in one or more calendars, as dates and repeating tasks for this planner */
+  function icsPlan(cals, prefix) {
+    var t = today(), from = addDays(t, -ICS_PAST), to = addDays(t, ICS_AHEAD);
+    var out = { events: [], tasks: [], skipped: 0, past: 0, names: [] };
+    cals.forEach(function (cal) {
+      if (cal.name) out.names.push(cal.name);
+      var masters = {}, overrides = [];
+      cal.events.forEach(function (ev) {
+        if (!ev.start) return;
+        if (ev.rid) overrides.push(ev); else masters[ev.uid || icsHash((ev.summary || '') + JSON.stringify(ev.start))] = ev;
+      });
+      function shape(ev) {
+        var s = icsLocal(ev.start, cal.tz), e = ev.end ? icsLocal(ev.end, cal.tz) : null;
+        if (!s) return null;
+        var all = !s.time, mins = e ? Math.round((e.ms - s.ms) / 60000) : ev.dur != null ? ev.dur : all ? 1440 : 60;
+        var o = { date: s.date, at: s.time, dur: null, end: null };
+        if (all) {
+          var last = addDays(s.date, Math.max(1, Math.round(mins / 1440)) - 1);
+          if (last > s.date) o.end = last;
+        } else if (mins > 720) {
+          /* a timed thing over 12 hours: shown as whole days */
+          o.at = null;
+          var lastT = toISO(new Date(s.ms + mins * 60000 - 1));
+          if (lastT > s.date) o.end = lastT;
+        } else o.dur = cleanDur(mins, 60);
+        return o;
+      }
+      function base(ev, key) {
+        var text = String(ev.summary || '').trim() || 'Untitled', sub = icsSubject(text), sh = shape(ev);
+        if (!sh) return null;
+        var title = icsTitle(text, sub), type = icsType(text, !sh.at);
+        return { key: key, sh: sh, title: title || (sub ? '' : text.slice(0, 80)), subject: sub ? sub.id : null, type: type, note: icsNote(ev) };
+      }
+      function pushEvent(b, date, key) {
+        var end = b.sh.end ? addDays(b.sh.end, diff(b.sh.date, date)) : null;
+        if ((end || date) < from || date > to) { out.past++; return; }
+        var ext = prefix + key;
+        out.events.push({ id: 'x' + icsHash(ext), ext: ext, type: b.type, subject: b.subject, title: b.title, detail: '', start: date, end: end, at: b.sh.at, dur: b.sh.at ? b.sh.dur : null, note: b.note, done: false });
+      }
+      Object.keys(masters).forEach(function (uid) {
+        var ev = masters[uid];
+        if (ev.status === 'CANCELLED') return;
+        var key = icsHash(uid), b = base(ev, key);
+        if (!b) return;
+        var mine = overrides.filter(function (o) { return (o.uid || '') === uid; });
+        var exd = ev.ex.map(function (x) { var l = icsLocal(x, cal.tz); return l && l.date; }).filter(Boolean);
+        mine.forEach(function (o) { var l = icsLocal(o.rid, cal.tz); if (l) exd.push(l.date); });
+        if (!ev.rule) { pushEvent(b, b.sh.date, key); }
+        else if (icsWeekly(ev.rule) && !b.sh.end) {
+          var days = ev.rule.freq === 'DAILY' ? (ev.rule.byday.length ? ev.rule.byday.map(function (x) { return x.d; }) : [0, 1, 2, 3, 4, 5, 6]) : ev.rule.byday.length ? ev.rule.byday.map(function (x) { return x.d; }) : [dow(b.sh.date)];
+          days = days.filter(function (d, i, a) { return a.indexOf(d) === i; }).sort();
+          var until = ev.rule.until ? icsLocal(ev.rule.until, cal.tz).date : ev.rule.count ? icsCountEnd(b.sh.date, days, ev.rule.count) : null;
+          if (until && until < from) { out.past++; }
+          else {
+            var ext = prefix + key, text = String(ev.summary || '').trim() || 'Untitled';
+            out.tasks.push({
+              id: 'x' + icsHash(ext), ext: ext, title: text.slice(0, 200), subject: b.subject, due: b.sh.date, at: b.sh.at, event: null,
+              est: b.sh.at ? b.sh.dur : null, notes: b.note, done: false, doneAt: null, created: t,
+              rep: days, until: until, doneOn: [], skip: exd.filter(function (d) { return d >= b.sh.date; }).sort().slice(-300)
+            });
+          }
+        } else {
+          icsDates(b.sh.date, ev.rule, from, to).forEach(function (d) { if (exd.indexOf(d) < 0) pushEvent(b, d, key + ':' + d.replace(/-/g, '')); });
+        }
+        ev.rd.forEach(function (x) { var l = icsLocal(x, cal.tz); if (l && exd.indexOf(l.date) < 0) pushEvent(b, l.date, key + ':' + l.date.replace(/-/g, '')); });
+        /* a changed or moved single day of a repeat */
+        mine.forEach(function (o) {
+          if (o.status === 'CANCELLED') return;
+          var l = icsLocal(o.rid, cal.tz), ob = base(o, key);
+          if (l && ob) pushEvent(ob, ob.sh.date, key + ':r' + l.date.replace(/-/g, ''));
+        });
+      });
+    });
+    /* the same event twice (two calendars, or a file and its zip) counts once */
+    var seen = {};
+    out.events = out.events.filter(function (e) { if (seen[e.ext]) return false; seen[e.ext] = 1; return true; }).sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; });
+    out.tasks = out.tasks.filter(function (x) { if (seen[x.ext]) return false; seen[x.ext] = 1; return true; });
+    if (out.events.length > ICS_MAX) { out.skipped += out.events.length - ICS_MAX; out.events = out.events.slice(0, ICS_MAX); }
+    if (out.tasks.length > 60) { out.skipped += out.tasks.length - 60; out.tasks = out.tasks.slice(0, 60); }
+    return out;
+  }
+
+  /* ---------- reading files: .ics, or a .zip of them (Google Calendar's export) ---------- */
+  function readFileBytes(file) {
+    return new Promise(function (resolve, reject) {
+      var r = new FileReader();
+      r.onload = function () { resolve(new Uint8Array(r.result)); };
+      r.onerror = function () { reject(new Error('read')); };
+      r.readAsArrayBuffer(file);
+    });
+  }
+  function utf8(bytes) { return new TextDecoder('utf-8').decode(bytes); }
+  function inflateRaw(bytes) {
+    if (typeof DecompressionStream !== 'function') return Promise.reject(new Error('nozip'));
+    var ds = new DecompressionStream('deflate-raw');
+    var out = new Response(new Blob([bytes]).stream().pipeThrough(ds));
+    return out.arrayBuffer().then(function (b) { return new Uint8Array(b); });
+  }
+  /* the .ics files inside a zip, read from its central directory */
+  function unzipICS(bytes) {
+    var v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), eocd = -1;
+    for (var i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) { if (v.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+    if (eocd < 0) return Promise.reject(new Error('zip'));
+    var count = v.getUint16(eocd + 10, true), at = v.getUint32(eocd + 16, true), jobs = [];
+    for (var k = 0; k < count && at + 46 <= bytes.length; k++) {
+      if (v.getUint32(at, true) !== 0x02014b50) break;
+      var method = v.getUint16(at + 10, true), size = v.getUint32(at + 20, true), nameLen = v.getUint16(at + 28, true),
+        extraLen = v.getUint16(at + 30, true), commentLen = v.getUint16(at + 32, true), local = v.getUint32(at + 42, true);
+      var name = utf8(bytes.subarray(at + 46, at + 46 + nameLen));
+      at += 46 + nameLen + extraLen + commentLen;
+      if (!/\.ics$/i.test(name) || /(^|\/)__MACOSX\//.test(name) || size > 8e6) continue;
+      var start = local + 30 + v.getUint16(local + 26, true) + v.getUint16(local + 28, true), data = bytes.subarray(start, start + size);
+      jobs.push(method === 0 ? Promise.resolve(data) : method === 8 ? inflateRaw(data) : Promise.reject(new Error('zip')));
+      if (jobs.length >= 20) break;
+    }
+    if (!jobs.length) return Promise.reject(new Error('empty'));
+    return Promise.all(jobs).then(function (list) { return list.map(utf8); });
+  }
+  function icsFromFile(file) {
+    if (file.size > 20e6) return Promise.reject(new Error('big'));
+    return readFileBytes(file).then(function (b) {
+      if (b[0] === 0x50 && b[1] === 0x4b) return unzipICS(b);
+      return [utf8(b)];
+    }).then(function (texts) {
+      var cals = texts.map(parseICS).filter(function (c) { return c.events.length; });
+      if (!cals.length) throw new Error(texts.some(function (x) { return /BEGIN:VCALENDAR/i.test(x); }) ? 'empty' : 'notics');
+      return cals;
+    });
+  }
+  function icsFromLink(url) {
+    return api('POST', '/api/ics', { url: url }, { timeout: 30000 }).then(function (r) {
+      if (r.status === 200 && r.data && typeof r.data.text === 'string') {
+        var cal = parseICS(r.data.text);
+        if (!cal.events.length) throw new Error('empty');
+        return [cal];
+      }
+      var code = r.data && r.data.error;
+      throw new Error(code === 'link' ? 'link' : code === 'gone' ? 'gone' : code === 'private' ? 'private' : code === 'not_ics' ? 'notics' : code === 'too_big' ? 'big' : code === 'slow' ? 'slow' : 'fetch');
+    }, function () { throw new Error('offline'); });
+  }
+  var ICS_ERR = {
+    big: 'That calendar is too big. Export a single calendar, or a shorter range.',
+    notics: 'That isn’t a calendar file. Look for a file that ends in .ics, or Google’s .zip.',
+    empty: 'That calendar has no events in it.',
+    zip: 'Couldn’t open that zip. Unzip it and pick the .ics file inside.',
+    nozip: 'This browser can’t open zip files. Unzip it and pick the .ics file inside.',
+    read: 'Couldn’t read that file.',
+    link: 'That link doesn’t work here. Use a webcal:// or https:// calendar link.',
+    gone: 'That calendar link no longer works. Get a new one from your calendar app.',
+    private: 'That calendar is private. Make it public, or use Google’s secret address in iCal format.',
+    slow: 'Too many tries. Wait a few minutes, then try again.',
+    offline: 'You’re offline. Connect to the internet and try again.',
+    fetch: 'Couldn’t get that calendar right now. Check the link and try again.'
+  };
+  function icsErr(e) { return ICS_ERR[e && e.message] || ICS_ERR.read; }
+
+  /* ---------- applying an import ---------- */
+  /* one-time imports skip what's already here; a linked calendar updates its own dates and
+     removes the ones that left it, and keeps what you changed: the kind, subject, done, reminders */
+  function icsApply(plan, feedId) {
+    var tag = feedId ? 'f:' + feedId + ':' : null, have = {}, res = { added: 0, updated: 0, removed: 0, tasks: 0 };
+    S.events.forEach(function (e) { if (e.ext) have[e.ext] = e; });
+    S.tasks.forEach(function (x) { if (x.ext) have[x.ext] = x; });
+    var keep = {};
+    /* linking a calendar you imported as a file before: its dates join the link instead of doubling */
+    function adopt(ext) {
+      var o = tag && have['i:' + ext.slice(tag.length)];
+      if (o) { o.ext = ext; have[ext] = o; }
+      return o || null;
+    }
+    plan.events.forEach(function (e) {
+      keep[e.ext] = 1;
+      var old = have[e.ext] || adopt(e.ext);
+      if (!old) { S.events.push(e); res.added++; return; }
+      if (!tag) return;
+      var before = JSON.stringify([old.title, old.start, old.end, old.at, old.dur, old.note]);
+      old.title = e.title; old.start = e.start; old.end = e.end; old.at = e.at; old.dur = e.dur; old.note = e.note;
+      if (before !== JSON.stringify([old.title, old.start, old.end, old.at, old.dur, old.note])) res.updated++;
+    });
+    plan.tasks.forEach(function (x) {
+      keep[x.ext] = 1;
+      var old = have[x.ext] || adopt(x.ext);
+      if (!old) { S.tasks.push(x); res.tasks++; return; }
+      if (!tag) return;
+      var before = JSON.stringify([old.title, old.due, old.at, old.est, old.rep, old.until, old.skip]);
+      old.title = x.title; old.due = x.due; old.at = x.at; old.est = x.est; old.rep = x.rep; old.until = x.until; old.skip = x.skip; old.notes = x.notes;
+      if (before !== JSON.stringify([old.title, old.due, old.at, old.est, old.rep, old.until, old.skip])) res.updated++;
+    });
+    if (tag) {
+      var t = addDays(today(), -ICS_PAST);
+      S.events = S.events.filter(function (e) { var gone = e.ext && e.ext.indexOf(tag) === 0 && !keep[e.ext] && evEnd(e) >= t; if (gone) res.removed++; return !gone; });
+      S.tasks = S.tasks.filter(function (x) { var gone = x.ext && x.ext.indexOf(tag) === 0 && !keep[x.ext]; if (gone) res.removed++; return !gone; });
+    }
+    return res;
+  }
+  function stateFits() {
+    var n = JSON.stringify(S).length;
+    return n < (isFree() ? 290000 : 580000);
+  }
+
+  /* ---------- the Import sheet ---------- */
+  var IMPORT = { how: 'iphone', link: '', keep: true };
+  var IMPORT_HOW = {
+    iphone: ['iPhone', [
+      'Open the Calendar app and tap <b>Calendars</b> at the bottom.',
+      'Tap <b>ⓘ</b> next to the calendar you want.',
+      'Turn on <b>Public Calendar</b>, tap <b>Share Link</b>, then <b>Copy</b>.',
+      'Paste the link above and tap <b>Get Events</b>.'
+    ], 'Only iCloud calendars can share a link. Leave Public Calendar on if you keep it updated here.'],
+    mac: ['Mac', [
+      'In the Calendar app, click the calendar in the sidebar.',
+      'Choose <b>File → Export → Export…</b> and save the file.',
+      'Tap <b>Choose a File</b> above and pick it.'
+    ], 'A file is a one-time copy. For updates, use a link from iPhone or Google instead.'],
+    google: ['Google', [
+      'On a computer, open <b>calendar.google.com</b>, click the gear, then <b>Settings</b>.',
+      'Click your calendar under <b>Settings for my calendars</b>.',
+      'Under <b>Integrate calendar</b>, copy the <b>Secret address in iCal format</b>.',
+      'Paste it above and tap <b>Get Events</b>.'
+    ], 'Want every calendar at once? Settings → Import & export → Export gives you a .zip. Choose that file above.']
+  };
+  function openImport() {
+    curSheet = openImport;
+    var h = IMPORT_HOW[IMPORT.how], feeds = S.settings.feeds;
+    var steps = '<ol class="how-steps">' + h[1].map(function (s) { return '<li>' + s + '</li>'; }).join('') + '</ol>';
+    var body = '<div class="plus-hero import-hero"><span class="plus-badge cal">' + icon('calendar') + '</span><h3>Bring Your Calendar</h3>' +
+        '<p>Exams, deadlines and plans from Apple Calendar, Google Calendar or your school’s calendar.</p></div>' +
+      grp(rButton(icon('upload') + 'Choose a File (.ics or .zip)', 'imp-file') +
+        '<input type="file" id="ics-file" accept=".ics,.ical,.icalendar,.zip,text/calendar,application/zip" hidden>', 'From a file') +
+      grp('<label class="row"><span class="sr">Calendar link</span><input class="row-field" type="url" id="ics-link" inputmode="url" autocapitalize="off" spellcheck="false" maxlength="600" placeholder="webcal:// or https:// link" value="' + esc(IMPORT.link) + '"></label>' +
+          rSwitch('Keep It Updated', 'keep', 'ics-keep', IMPORT.keep) +
+          rButton(icon('download') + 'Get Events', 'imp-link', '', 'accent-text'),
+        'From a link', 'Updated calendars refresh every 6 hours while ' + BRAND + ' is open.') +
+      (feeds.length ? grp(feeds.map(function (f) {
+          var info = f.err ? 'Couldn’t update · ' + (f.at ? agoText(f.at) : 'never') : f.at ? f.n + ' dates · updated ' + agoText(f.at) : 'Not updated yet';
+          return '<div class="row feed-row"><span class="two-line"><b>' + esc(f.name) + '</b><span>' + esc(info) + '</span></span>' +
+            '<button type="button" class="btn small" data-act="feed-sync" data-id="' + f.id + '">Update</button>' +
+            '<button type="button" class="btn small danger-text" data-act="feed-del" data-id="' + f.id + '" aria-label="Remove ' + esc(f.name) + '">Remove</button></div>';
+        }).join(''), 'Linked calendars', 'Remove takes out the link and the dates that came from it.') : '') +
+      '<p class="group-head">How to get it</p><div class="group how-card"><div class="row"><span class="seg how-seg" role="group" aria-label="Where your calendar is">' +
+        Object.keys(IMPORT_HOW).map(function (k) { return '<button type="button" data-act="imp-how" data-how="' + k + '" aria-pressed="' + (IMPORT.how === k) + '">' + IMPORT_HOW[k][0] + '</button>'; }).join('') +
+        '</span></div><div class="row how-body">' + steps + '</div></div><p class="group-foot">' + esc(h[2]) + '</p>' +
+      grp('<p class="row info-text">Weekly and daily repeats become repeating tasks. Other repeats become separate dates. ' + BRAND + ' guesses exams and deadlines from their titles; tap any date to change it.</p>', 'Good to know');
+    openDialog({ title: 'Import Calendar', body: body, back: openSettings, backLabel: 'Settings' });
+  }
+  function agoText(ms) {
+    var m = Math.round((Date.now() - ms) / 60000);
+    return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago';
+  }
+  /* step two: what's in it, then Import */
+  function openImportPreview(cals, src) {
+    var pre = src.feed ? 'f:' + src.feed.id + ':' : 'i:', plan = icsPlan(cals, pre), have = {};
+    S.events.forEach(function (e) { if (e.ext) have[e.ext] = 1; });
+    S.tasks.forEach(function (x) { if (x.ext) have[x.ext] = 1; });
+    function known(ext) { return have[ext] || (src.feed && have['i:' + ext.slice(pre.length)]); }
+    var newEv = plan.events.filter(function (e) { return !known(e.ext); }), newTk = plan.tasks.filter(function (x) { return !known(x.ext); });
+    var dup = plan.events.length - newEv.length + plan.tasks.length - newTk.length;
+    var kinds = {};
+    newEv.forEach(function (e) { kinds[e.type] = (kinds[e.type] || 0) + 1; });
+    var name = src.feed ? src.feed.name : plan.names.join(', ') || src.name || 'Calendar';
+    var rows = newEv.slice(0, 8).map(function (e) {
+      var s = subj(e.subject);
+      return '<li><span class="two-line"><b>' + esc(evFull(e)) + '</b><span>' + esc(fDay(e.start) + (e.at ? ' · ' + e.at : '')) + '</span></span><span class="type-chip t-' + e.type + '">' + esc(TYPE_ONE[e.type]) + '</span></li>';
+    }).concat(newTk.slice(0, 4).map(function (x) {
+      return '<li><span class="two-line"><b>' + esc(x.title) + '</b><span>' + esc(repText(x.rep) + (x.at ? ' · ' + x.at : '')) + '</span></span><span class="type-chip t-task">' + icon('repeat') + 'Repeats</span></li>';
+    })).join('');
+    var parts = [];
+    if (newEv.length) parts.push(newEv.length + (newEv.length === 1 ? ' date' : ' dates'));
+    if (newTk.length) parts.push(newTk.length + (newTk.length === 1 ? ' repeating task' : ' repeating tasks'));
+    var notes = [];
+    ['exam', 'mock', 'deadline', 'holiday'].forEach(function (k) { if (kinds[k]) notes.push(kinds[k] + ' ' + (kinds[k] === 1 ? TYPE_ONE[k].toLowerCase() : TYPE_MANY[k])); });
+    var foot = [notes.length ? 'Looks like ' + notes.join(', ') + '.' : '', dup ? dup + ' already in your planner.' : '', plan.past ? plan.past + ' too old or too far ahead, left out.' : '', plan.skipped ? plan.skipped + ' more left out (too many).' : ''].filter(Boolean).join(' ');
+    var nothing = !newEv.length && !newTk.length;
+    openDialog({
+      title: 'Import',
+      body: '<div class="plus-hero import-hero"><span class="plus-badge cal">' + icon('calendar') + '</span><h3>' + esc(name) + '</h3><p>' +
+          esc(nothing ? (src.feed ? 'It’s all here already. Linking keeps it up to date.' : 'Nothing new to add.') : parts.join(' and ') + ' to add.') + '</p></div>' +
+        (rows ? grp('<ul class="dlg-list import-list">' + rows + '</ul>', 'First ones', foot) : grp('<p class="row info-text">' + esc(foot || 'Everything in it is already here.') + '</p>')),
+      back: openImport, backLabel: 'Back',
+      submitLabel: src.feed ? 'Link and Import' : nothing ? 'Done' : 'Import',
+      onSubmit: function () {
+        var snap = snapshot();
+        if (src.feed) {
+          var f = S.settings.feeds.filter(function (x) { return x.url === src.feed.url; })[0];
+          if (!f) { f = src.feed; S.settings.feeds.push(f); }
+          f.at = Date.now(); f.err = ''; f.n = plan.events.length + plan.tasks.length;
+          src.feed = f;
+        }
+        var res = icsApply(plan, src.feed ? src.feed.id : null);
+        if (!stateFits()) { S = sanitize(JSON.parse(snap)); toast('That’s more than your planner can hold. Import a smaller calendar.'); return false; }
+        save(); render();
+        toast(res.added || res.tasks ? 'Imported ' + [res.added ? res.added + (res.added === 1 ? ' date' : ' dates') : '', res.tasks ? res.tasks + (res.tasks === 1 ? ' repeating task' : ' repeating tasks') : ''].filter(Boolean).join(' and ') : src.feed ? 'Calendar linked' : 'Nothing new', snap);
+        celebrate(null);
+      }
+    });
+  }
+  var TYPE_ONE = { deadline: 'Deadline', exam: 'Exam', mock: 'Mock', holiday: 'Holiday', grades: 'Grades', other: 'Event' };
+
+  function importPicked(input) {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    input.value = '';
+    toast('Reading ' + file.name + '…');
+    icsFromFile(file).then(function (cals) { openImportPreview(cals, { name: file.name.replace(/\.(ics|zip|ical)$/i, '') }); }, function (e) { toast(icsErr(e)); });
+  }
+  function importLink(btn) {
+    var inp = $('#ics-link', dlg), url = (inp && inp.value || '').trim();
+    IMPORT.link = url;
+    IMPORT.keep = !!($('#ics-keep', dlg) || {}).checked;
+    if (!/^(webcals?|https?):\/\/\S{4,}$/i.test(url)) { fieldError('#ics-link', 'Paste a webcal:// or https:// link.'); return; }
+    if (IMPORT.keep && S.settings.feeds.length >= FEEDS_MAX && !S.settings.feeds.some(function (f) { return f.url === normLink(url); })) { fieldError('#ics-link', 'You can link up to ' + FEEDS_MAX + ' calendars. Remove one first.'); return; }
+    if (btn) { btn.disabled = true; btn.classList.add('busy'); }
+    icsFromLink(normLink(url)).then(function (cals) {
+      var feed = IMPORT.keep ? S.settings.feeds.filter(function (f) { return f.url === normLink(url); })[0] || { id: uid('f'), url: normLink(url), name: (cals[0].name || hostOf(url)).slice(0, 60), at: 0, n: 0, err: '' } : null;
+      IMPORT.link = '';
+      openImportPreview(cals, { feed: feed, name: hostOf(url) });
+    }, function (e) {
+      if (btn && btn.isConnected) { btn.disabled = false; btn.classList.remove('busy'); }
+      toast(icsErr(e));
+    });
+  }
+  function normLink(u) { return String(u).trim().replace(/^webcals?:\/\//i, 'https://'); }
+  function hostOf(u) { try { return new URL(normLink(u)).hostname.replace(/^www\./, ''); } catch (e) { return 'Calendar'; } }
+
+  /* linked calendars: refresh one, or all that are due (every 6 hours while the app is open) */
+  var FEED_BUSY = {};
+  function feedSync(f, quiet) {
+    if (!f || FEED_BUSY[f.id] || !SYNC.online) return Promise.resolve(null);
+    FEED_BUSY[f.id] = true;
+    return icsFromLink(f.url).then(function (cals) {
+      var plan = icsPlan(cals, 'f:' + f.id + ':'), snap = snapshot();
+      var res = icsApply(plan, f.id);
+      if (!stateFits()) { S = sanitize(JSON.parse(snap)); throw new Error('big'); }
+      f.at = Date.now(); f.err = ''; f.n = plan.events.length + plan.tasks.length;
+      save();
+      if (idle()) render(); else SYNC.needRender = true;
+      if (!quiet) toast(res.added + res.updated + res.removed + res.tasks ? f.name + ' updated' : f.name + ' is up to date');
+      return res;
+    }, function (e) {
+      f.at = Date.now(); f.err = (e && e.message) || 'fetch';
+      save();
+      if (!quiet) toast(icsErr(e));
+      return null;
+    }).then(function (r) {
+      delete FEED_BUSY[f.id];
+      if (dlg.open && curSheet === openImport) openImport();
+      return r;
+    });
+  }
+  function feedsDue() {
+    if (MODE !== 'app' || !ME || !SYNC.online) return;
+    var n = Date.now();
+    S.settings.feeds.forEach(function (f) { if (n - (f.at || 0) > FEED_EVERY) feedSync(f, true); });
+  }
+  function cleanFeeds(v) {
+    return (Array.isArray(v) ? v : []).filter(function (f) {
+      return f && typeof f === 'object' && ID.test(f.id) && typeof f.url === 'string' && /^https?:\/\/\S{4,600}$/.test(f.url);
+    }).slice(0, FEEDS_MAX).map(function (f) {
+      return { id: f.id, url: f.url, name: str(f.name, 60).trim() || 'Calendar', at: Number(f.at) > 0 ? Math.round(Number(f.at)) : 0, n: Math.max(0, Math.round(Number(f.n)) || 0), err: typeof f.err === 'string' ? f.err.slice(0, 20) : '' };
+    });
   }
 
   /* =========================================================
@@ -2875,7 +4246,7 @@
   function refocus(sel) { var el = $(sel); if (el) el.focus(); }
 
   /* =========================================================
-     The iPhone app. MyIB for iOS shows this page and sets window.MyIBNative before it loads.
+     The iPhone app. Bloc for iOS shows this page and sets window.MyIBNative before it loads.
      This page sends it the timetable for the Home Screen widget and the dates for
      deadline reminders; the app sends back its answers through MyIBNativeReply.
      ========================================================= */
@@ -2925,10 +4296,12 @@
     };
     var R = remindPrefs();
     var reminders = {
-      on: R.on, time: R.time,
-      items: !R.on ? [] : soon.filter(function (e) { return diff(t, e.start) <= 120; }).slice(0, 60).map(function (e) {
-        var det = evDetail(e);
-        return { id: e.id, date: e.start, title: 'Tomorrow: ' + evTitle(e), body: (e.type === 'exam' ? 'Exam' : 'Deadline') + (det ? ' · ' + det : '') };
+      on: R.on, time: cleanRem(S.settings.rem).eve,
+      /* iOS keeps 64 at most: the soonest 60. An item with a date opens that day; the puppy's opens Pet. */
+      items: !R.on ? [] : remItems(60).slice(0, 60).map(function (x) {
+        var o = { id: x.id, at: x.at, title: x.title, body: x.body };
+        if (x.date) o.date = x.date;
+        return o;
       })
     };
     petImages();
@@ -2938,32 +4311,275 @@
     widget.updated = Date.now();
     toNative({ type: 'sync', widget: widget, reminders: reminders });
   }
+  /* =========================================================
+     Reminders. Each kind of date has a timeline (days before it), and any event can have its own.
+     The list below becomes notifications: the iPhone app schedules them itself, the server sends
+     them to browsers with Web Push, and an open app shows the ones that come due.
+     ========================================================= */
+  function remMs(d, hhmm) { var p = d.split('-').map(Number), q = hhmm.split(':').map(Number); return new Date(p[0], p[1] - 1, p[2], q[0], q[1]).getTime(); }
+  function remWhen(off, type) {
+    var due = type === 'deadline', n = off === 7 ? '1 week' : off === 14 ? '2 weeks' : off + ' days';
+    if (off === 0) return due ? 'Due today' : 'Today';
+    if (off === 1) return due ? 'Due tomorrow' : 'Tomorrow';
+    return due ? 'Due in ' + n : 'In ' + n;
+  }
+  function remOffsFor(e, R) { return Array.isArray(e.rem) ? e.rem : R.ev[e.type] || []; }
+  /* the reminders after 'from' (default: now) for the next 'days' days */
+  function remItems(days, from) {
+    var R = cleanRem(S.settings.rem), n = from || nowMs(), t = today(), last = addDays(t, days || 45), out = [];
+    S.events.forEach(function (e) {
+      if (e.done || e.start < t) return;
+      remOffsFor(e, R).forEach(function (off) {
+        var d = addDays(e.start, -off);
+        if (d > last) return;
+        var at = remMs(d, off === 0 ? R.morn : R.eve);
+        /* on the day of something early, 30 minutes before it */
+        if (off === 0 && e.at && remMs(d, e.at) - 1800000 < at) at = remMs(d, e.at) - 1800000;
+        if (at <= n) return;
+        var body = [remWhen(off, e.type), evDetail(e), e.at || ''].filter(Boolean).join(' · ');
+        out.push({ id: 'e-' + e.id + '-' + off, at: at, date: e.start, title: evTitle(e), body: body, url: '/?open=day&d=' + e.start });
+      });
+    });
+    if (R.plan >= 0) {
+      var lead = R.plan ? 'In ' + R.plan + ' min · ' : 'Starts now · ';
+      S.plans.forEach(function (p) {
+        if (p.date < t || diff(t, p.date) > 7) return;
+        var at = remMs(p.date, p.at) - R.plan * 60000;
+        if (at > n) out.push({ id: 'p-' + p.id, at: at, date: p.date, title: 'Study block: ' + planName(p), body: lead + p.at + '–' + hm(toMin(p.at) + p.dur), url: '/?open=day&d=' + p.date });
+      });
+      for (var i = 0; i <= 7; i++) {
+        var d = addDays(t, i);
+        tasksOn(d).forEach(function (x) {
+          if (x.done || !x.at) return;
+          var at = remMs(d, x.at) - R.plan * 60000;
+          if (at > n) out.push({ id: 't-' + x.id + '-' + d, at: at, date: d, title: x.title, body: lead + x.at + (x.est ? ' for ' + dur(x.est) : ''), url: '/?open=day&d=' + d });
+        });
+      }
+    }
+    var pr = petReminder();
+    if (pr && pr.at > n) out.push(Object.assign({ url: '/?open=pet' }, pr));
+    return out.sort(function (a, b) { return a.at - b.at; });
+  }
+  function remAtText(ms) {
+    var d = new Date(ms), day = toISO(d), n = diff(today(), day);
+    return (n === 0 ? 'Today' : n === 1 ? 'Tomorrow' : fDay(day)) + ' · ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  /* ---------- notifications in browsers (Web Push) ---------- */
+  var PUSH = { timer: null, key: null };
+  function pushAble() { return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && !!window.isSecureContext && !NATIVE; }
+  /* iPhone Safari gets notifications only from an app on the Home Screen */
+  function pushNeedsHome() { return !NATIVE && /iP(hone|ad|od)/.test(navigator.userAgent) && !navigator.standalone && !(window.matchMedia && matchMedia('(display-mode: standalone)').matches); }
+  function pushMine() { return ME ? sjson('myib:push:' + ME.id) : null; }
+  function b64uBytes(s) {
+    s = String(s).replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    var raw = atob(s), out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  function swReady() {
+    return new Promise(function (resolve, reject) {
+      if (!('serviceWorker' in navigator)) return reject(new Error('sw'));
+      var done = false;
+      navigator.serviceWorker.ready.then(function (r) { done = true; resolve(r); });
+      setTimeout(function () { if (!done) reject(new Error('sw')); }, 8000);
+    });
+  }
+  function pushOn() {
+    if (!pushAble()) return Promise.resolve(false);
+    var ask = Notification.permission === 'granted' ? Promise.resolve('granted') : Notification.requestPermission();
+    return Promise.resolve(ask).then(function (perm) {
+      if (perm !== 'granted') { toast('Notifications are blocked for this site. Allow them in your browser’s site settings, then try again.'); return false; }
+      return Promise.all([swReady(), api('GET', '/api/push/key')]).then(function (a) {
+        var reg = a[0], r = a[1];
+        if (r.status !== 200 || !r.data || !r.data.key) throw new Error('key');
+        var key = b64uBytes(r.data.key);
+        return reg.pushManager.getSubscription().then(function (sub) {
+          /* a subscription made with another key can't get our messages: make a new one */
+          if (sub && sub.options && sub.options.applicationServerKey) {
+            var old = new Uint8Array(sub.options.applicationServerKey);
+            if (old.length !== key.length || old.some(function (b, i) { return b !== key[i]; })) return sub.unsubscribe().then(function () { return null; });
+          }
+          return sub;
+        }).then(function (sub) {
+          return sub || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+        });
+      }).then(function (sub) {
+        var j = sub.toJSON ? sub.toJSON() : sub;
+        return api('POST', '/api/push/sub', { endpoint: j.endpoint, keys: j.keys }).then(function (r) {
+          if (r.status !== 200) throw new Error('sub ' + r.status);
+          sset('myib:push:' + ME.id, JSON.stringify({ endpoint: j.endpoint, at: Date.now() }));
+          sdel('myib:pushplan:' + ME.id);
+          pushPlan();
+          return true;
+        });
+      });
+    }).catch(function () { toast('Couldn’t turn on notifications in this browser. Try again later.'); return false; });
+  }
+  function pushOff() {
+    var mine = pushMine();
+    sdel('myib:push:' + ME.id);
+    var gone = mine ? api('POST', '/api/push/unsub', { endpoint: mine.endpoint }).catch(function () {}) : Promise.resolve();
+    return gone.then(function () {
+      return swReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) { return sub && sub.unsubscribe(); }).catch(function () {});
+    });
+  }
+  /* the server keeps each person's next reminders and sends them on time; this keeps that list fresh */
+  function pushPlanSoon() { if (!ME || MODE !== 'app') return; clearTimeout(PUSH.timer); PUSH.timer = setTimeout(pushPlan, 3000); }
+  function pushPlan() {
+    clearTimeout(PUSH.timer); PUSH.timer = null;
+    if (!ME || MODE !== 'app' || !SYNC.online) return;
+    var items = remItems(45).slice(0, 150).map(function (x) { return { id: x.id, at: x.at, title: x.title, body: x.body, url: x.url }; });
+    var text = JSON.stringify(items), h = 0;
+    for (var i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0;
+    var key = 'myib:pushplan:' + ME.id, mark = String(h) + ':' + today();
+    if (sget(key) === mark) return;
+    api('PUT', '/api/push/plan', { items: items }).then(function (r) { if (r.status === 200) sset(key, mark); }, function () {});
+  }
+  /* an open app shows what comes due: a toast on screen, a notification when it's in the background
+     (only where the server isn't sending them already) */
+  var REM_SEEN = { last: 0 };
+  function remWatch() {
+    if (MODE !== 'app' || !ME) return;
+    var n = nowMs(), from = Math.max(REM_SEEN.last || n - 60000, n - 10 * 60000);
+    REM_SEEN.last = n;
+    var key = 'myib:remseen:' + ME.id, seen = sjson(key) || [];
+    var due = remItemsCache().filter(function (x) { return x.at > from && x.at <= n && seen.indexOf(x.id) < 0; });
+    if (!due.length) return;
+    seen = seen.concat(due.map(function (x) { return x.id; })).slice(-200);
+    sset(key, JSON.stringify(seen));
+    var x = due[due.length - 1];
+    if (NATIVE || pushMine()) return;
+    if (!document.hidden) {
+      toast(x.title + (x.body ? ' · ' + x.body : ''), null, { label: 'Open', fn: function () { openUrl(x.url); } }, 9000);
+    } else if (!pushMine() && 'Notification' in window && Notification.permission === 'granted') {
+      try { new Notification(x.title, { body: x.body, tag: x.id, icon: 'icons/icon-192.png' }).onclick = function () { window.focus(); openUrl(x.url); this.close(); }; } catch (e) { /* ignore */ }
+    }
+  }
+  var REM_CACHE = { at: 0, list: [] };
+  /* includes the last 10 minutes, so one that just came due is still in the list */
+  function remItemsCache() {
+    if (Date.now() - REM_CACHE.at > 60000) REM_CACHE = { at: Date.now(), list: remItems(2, nowMs() - 10 * 60000) };
+    return REM_CACHE.list;
+  }
+  /* a link from a notification or a reminder: /?open=day&d=2026-11-06, /?open=pet */
+  function openUrl(u) {
+    var q;
+    try { q = new URL(u, location.origin).searchParams; } catch (e) { return; }
+    var what = q.get('open'), d = q.get('d');
+    if (MODE !== 'app' || !ME) return;
+    closeDialog();
+    if (what === 'day' && DATE.test(d || '')) { UI.calSel = d; UI.calMonth = d.slice(0, 7); go('calendar'); }
+    else if (what === 'pet') go('pet');
+    else if (what === 'today') go('today');
+  }
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', function (e) {
+      if (e.data && e.data.type === 'open' && typeof e.data.url === 'string') openUrl(e.data.url);
+    });
+  }
+
+  /* ---------- the Reminders sheet ---------- */
+  var REM_LABEL = { 14: '2 wk', 7: '1 wk', 3: '3 d', 2: '2 d', 1: '1 d', 0: 'Day' };
+  function remSay(offs) {
+    if (!offs.length) return 'No reminders.';
+    var parts = offs.map(function (o) { return o === 0 ? 'on the day' : (o === 1 ? '1 day' : o === 7 ? '1 week' : o === 14 ? '2 weeks' : o + ' days') + ' before'; });
+    return 'Reminds you ' + (parts.length > 1 ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] : parts[0]) + '.';
+  }
+  function remText(offs) {
+    if (!offs.length) return 'None';
+    return offs.map(function (o) { return o === 0 ? 'on the day' : o === 1 ? '1 day' : o === 7 ? '1 week' : o === 14 ? '2 weeks' : o + ' days'; }).join(', ');
+  }
+  /* a timeline you tap: two weeks before on the left, the day itself on the right */
+  function remTrack(name, offs, attrs) {
+    return '<div class="rem-track" role="group" aria-label="Remind me"' + (attrs || '') + '>' + REM_OFFS.map(function (o) {
+      return '<label class="rem-dot' + (o === 0 ? ' day' : '') + '"><input type="checkbox" name="' + name + '" value="' + o + '"' + (offs.indexOf(o) >= 0 ? ' checked' : '') + ' data-change="rem-dot">' +
+        '<span class="rem-pip" aria-hidden="true"></span><span class="rem-cap">' + REM_LABEL[o] + '</span><span class="sr">' + esc(o === 0 ? 'On the day' : remText([o]) + ' before') + '</span></label>';
+    }).join('') + '</div>';
+  }
+  function openReminders() {
+    curSheet = openReminders;
+    var R = cleanRem(S.settings.rem), next = remItems(45).slice(0, 6);
+    var kinds = [['exam', 'Exams and mocks'], ['deadline', 'Deadlines'], ['other', 'Other events']];
+    var body = '<div class="plus-hero rem-hero"><span class="plus-badge bell">' + icon('bell') + '</span><h3>Reminders</h3><p>Pick when ' + BRAND + ' reminds you before each date. It sends them to this device as notifications.</p></div>' +
+      deviceGroup() +
+      kinds.map(function (k) {
+        return grp('<div class="row rem-row">' + remTrack('rem-' + k[0], R.ev[k[0]], ' data-kind="' + k[0] + '"') + '</div>', k[1], esc(remSay(R.ev[k[0]])));
+      }).join('') +
+      grp('<div class="row wrap"><span class="row-label">Remind me</span><span class="row-value"><span class="seg" role="group" aria-label="Study blocks and timed tasks">' +
+        [[-1, 'Off'], [0, 'At start'], [5, '5 min'], [15, '15 min'], [30, '30 min']].map(function (o) {
+          return '<button type="button" data-act="rem-plan" data-v="' + o[0] + '" aria-pressed="' + (R.plan === o[0]) + '">' + o[1] + '</button>';
+        }).join('') + '</span></span></div>', 'Study blocks and timed tasks', R.plan > 0 ? 'Minutes before each one starts.' : '') +
+      grp(rSelect('Days before, at', 'eve', 'rem-eve', optionList(['16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00'].map(function (x) { return [x, x]; }), R.eve), ' data-change="rem-time"') +
+          rSelect('On the day, at', 'morn', 'rem-morn', optionList(['06:30', '07:00', '07:30', '08:00', '08:30', '09:00', '10:00'].map(function (x) { return [x, x]; }), R.morn), ' data-change="rem-time"'),
+        'Times', 'Something early on the day gets its reminder 30 minutes before it starts.') +
+      grp(next.length ? '<ul class="dlg-list rem-next">' + next.map(function (x) {
+          return '<li><span class="two-line"><b>' + esc(x.title) + '</b><span>' + esc(x.body) + '</span></span><span class="muted">' + esc(remAtText(x.at)) + '</span></li>';
+        }).join('') + '</ul>' : '<p class="row info-text">Nothing in the next 45 days.</p>', 'Coming up');
+    openDialog({ title: 'Reminders', body: body, back: openSettings, backLabel: 'Settings' });
+  }
+  function deviceGroup() {
+    if (NATIVE) {
+      var R = remindPrefs();
+      return grp(rSwitch('Notifications', 'remind', 's-remind', R.on), 'This iPhone', R.on ? 'On. Your iPhone shows them even when ' + BRAND + ' is closed.' : 'Off. Turn them on to get reminders on this iPhone.');
+    }
+    if (pushNeedsHome()) return grp('<p class="row info-text">On iPhone, notifications need the ' + BRAND + ' app, or this site added to your Home Screen (Share → Add to Home Screen).</p>', 'This device');
+    if (!pushAble()) return grp('<p class="row info-text">This browser can’t show notifications. ' + BRAND + ' still shows reminders here while it’s open.</p>', 'This device');
+    if (Notification.permission === 'denied') return grp('<p class="row info-text">Notifications are blocked for this site. Allow them in your browser’s site settings.</p>', 'This browser');
+    var on = !!pushMine() && Notification.permission === 'granted';
+    return grp(rSwitch('Notifications', 'push', 's-push', on) + (on ? rButton(icon('bell') + 'Send a Test', 'push-test') : ''), 'This browser',
+      on ? 'On. They arrive even when ' + BRAND + ' is closed, as long as the browser runs.' : 'Turn them on to get reminders on this computer or phone.');
+  }
+  function remSave(fn) {
+    var R = cleanRem(S.settings.rem);
+    fn(R);
+    S.settings.rem = R;
+    save();
+    REM_CACHE.at = 0;
+    pushPlanSoon(); nativeSoon();
+  }
+  function remRefresh() {
+    var b = $('.sheet-body', dlg), top = b ? b.scrollTop : 0;
+    openReminders();
+    var b2 = $('.sheet-body', dlg); if (b2) b2.scrollTop = top;
+  }
+
   /* the puppy for its widget: needs as saved (the widget counts down from 'at'), and pictures when its look changes */
   function petWidget() {
     var p = S.pet;
     if (!p) return null;
-    var s = petState(p);
+    var s = petState(p), c = petClock(p, s.t, true);
     return { name: p.name, breed: (petBreed(p.breed) || {}).name || '', stage: petStageName(s.stage), food: p.food, water: p.water, fun: p.fun, at: p.at,
-      rateFood: PET_RATE.food, rateWater: PET_RATE.water, rateFun: PET_RATE.fun, treats: s.treats };
+      rateFood: PET_RATE.food, rateWater: PET_RATE.water, rateFun: PET_RATE.fun, treats: s.treats,
+      sadAt: p.grave ? null : c.sadAt, graveAt: p.grave ? null : c.graveAt, grave: p.grave || 0, revive: PET_REVIVE - (p.grave ? p.rev : 0) };
+  }
+  /* a reminder when the puppy starts to miss you in exam season (at most every 10 minutes it moves) */
+  function petReminder() {
+    var p = S.pet;
+    if (!p || p.grave) return null;
+    var s = petState(p);
+    if (s.dead || !s.sadAt || s.sadAt <= s.t) return null;
+    return { id: 'pet', at: Math.round(s.sadAt / 600000) * 600000, title: p.name + ' misses you', body: 'Study in the next 12 hours, or ' + p.name + ' turns into a ghost.' };
   }
   var PET_IMG = { key: '', busy: false };
   function petImages() {
     var p = S.pet;
     if (!NATIVE || !p || !PETE || PET_IMG.busy) return;
-    var look = petLook(p), key = [look.breed, look.coat, look.stage, look.wear.neck, look.wear.head, look.wear.face].join('|');
+    var look = petLook(p), key = [look.breed, look.coat, look.stage, look.wear.neck, look.wear.head, look.wear.face, look.wear.mouth, p.name].join('|');
     if (key === PET_IMG.key) return;
     PET_IMG.busy = true;
     var out = {};
-    Promise.all(['happy', 'sad', 'sleep'].map(function (pose) { return petPNG(look, pose).then(function (u) { if (u) out[pose] = u; }); })).then(function () {
+    Promise.all(['happy', 'sad', 'sleep', 'grave'].map(function (pose) { return petPNG(look, pose, p.name).then(function (u) { if (u) out[pose] = u; }); })).then(function () {
       PET_IMG.busy = false;
-      if (Object.keys(out).length !== 3 || !S.pet) return;
+      if (Object.keys(out).length !== 4 || !S.pet) return;
       PET_IMG.key = key;
       toNative({ type: 'petimg', key: key, images: out });
     });
   }
-  function petPNG(look, pose) {
+  function petPNG(look, pose, name) {
     return new Promise(function (resolve) {
-      var svg = PETE.svg({ breed: look.breed, coat: look.coat, stage: look.stage, wear: look.wear, pose: pose, frame: 150, width: 360 });
+      var svg = PETE.svg({ breed: look.breed, coat: look.coat, stage: look.stage, wear: look.wear, pose: pose === 'grave' ? 'sit' : pose, grave: pose === 'grave', name: name || '', noCar: true, frame: 150, width: 360 });
       var m = /width="(\d+)" height="(\d+)"/.exec(svg), w = m ? Number(m[1]) : 360, h = m ? Number(m[2]) : 324;
       var img = new Image();
       img.onload = function () {
@@ -2987,8 +4603,9 @@
       saveRemind(R);
       nativeSync(true);
       if (m.ok === true) toast('Reminders are on');
-      else toast('Notifications are off for MyIB. Turn them on in the Settings app, then try again.');
+      else toast('Notifications are off for ' + BRAND + '. Turn them on in the Settings app, then try again.');
       if (dlg.open && curSheet === openSettings) openSettings();
+      else if (dlg.open && curSheet === openReminders) remRefresh();
     } else if (m.type === 'info' && m.info && typeof m.info === 'object') {
       if (typeof m.info.links === 'boolean') NATIVE.links = m.info.links;
       if (MODE === 'app' && ME) { if (dlg.open && curSheet === openSettings) openSettings(); else if (!dlg.open) softRender(); }
@@ -3014,29 +4631,26 @@
       openDialog({
         title: 'Reminders',
         body: '<div class="plus-hero"><span class="plus-badge bell">' + icon('bell') + '</span><h3>Never miss a deadline</h3>' +
-            '<p>MyIB can send you a notification the day before each deadline and exam. You pick the time in Settings.</p></div>' +
-          grp('<p class="row info-text">Add the MyIB widget too: touch and hold your Home Screen, tap Edit, then Add Widget, and pick MyIB. It shows your next class and the days left to your exams.</p>', 'Widget'),
+            '<p>' + BRAND + ' reminds you a week, a day and the morning before each exam, and before each deadline. You pick the days in Settings → Reminders.</p></div>' +
+          grp('<p class="row info-text">Add the ' + BRAND + ' widget too: touch and hold your Home Screen, tap Edit, then Add Widget, and pick ' + BRAND + '. It shows your next class and the days left to your exams.</p>', 'Widget'),
         submitLabel: 'Turn On',
         onSubmit: function () { remindTurnOn(); return true; }
       });
     }, 2500);
   }
   function remindGroup() {
-    if (!NATIVE) return '';
-    var R = remindPrefs();
-    return grp(rSwitch('Deadline Reminders', 'remind', 's-remind', R.on) +
-        '<div class="remind-time"' + (R.on ? '' : ' hidden') + '>' + rSelect('Time', 'rtime', 's-rtime', optionList(REMIND_TIMES, R.time)) + '</div>',
-      'Reminders', 'A notification the day before each deadline and exam.');
+    var on = NATIVE ? remindPrefs().on : !!pushMine();
+    return grp(rNav('bell', 'Reminders', 'rem-open', on ? 'On' : 'Off'), '', 'Exams, deadlines, study blocks: pick when ' + BRAND + ' reminds you.');
   }
   /* Plus and Support the Dev: in the app they open myib.app in Safari, where Apple allows it */
   function shopGroup(p) {
-    if (!NATIVE) return grp(rNav('star', p ? 'MyIB Plus' : 'Get MyIB Plus', 'plus-open', p ? 'On' : '') + rNav('heart', 'Support the Dev', 'support-open'));
+    if (!NATIVE) return grp(rNav('star', p ? 'Bloc Plus' : 'Get Bloc Plus', 'plus-open', p ? 'On' : '') + rNav('heart', 'Support the Dev', 'support-open'));
     var web = function (ic, label, act) {
       return '<button type="button" class="row row-btn nav-row" data-act="' + act + '">' + icon(ic) + '<span class="row-label">' + esc(label) + '</span><span class="row-meta">myib.app</span>' + icon('out') + '</button>';
     };
-    var rows = (p ? rNav('star', 'MyIB Plus', 'plus-open', 'On') : sellHere() ? web('star', 'Get MyIB Plus', 'plus-open') : '') +
+    var rows = (p ? rNav('star', 'Bloc Plus', 'plus-open', 'On') : sellHere() ? web('star', 'Get Bloc Plus', 'plus-open') : '') +
       (sellHere() ? web('heart', 'Support the Dev', 'support-open') : '');
-    return rows ? grp(rows, '', sellHere() ? 'Opens the MyIB website in Safari.' : '') : '';
+    return rows ? grp(rows, '', sellHere() ? 'Opens the Bloc website in Safari.' : '') : '';
   }
   function legalLinks() {
     return '<a class="row row-btn nav-row" href="/privacy" target="_blank" rel="noopener">' + icon('shield') + '<span class="row-label">Privacy Policy</span>' + icon('out') + '</a>' +
@@ -3047,7 +4661,7 @@
   var CHAT_RULES = [
     'Be kind. No bullying, insults, hate, threats or sexual content.',
     'Don’t share other people’s photos, phone numbers or private details.',
-    'MyIB blocks some offensive words.',
+    'Bloc blocks some offensive words.',
     'Report messages that break these rules. Mauro reads every report, deletes what breaks them and can turn off chat for anyone who does.',
     'Block anyone you don’t want to hear from.'
   ];
@@ -3055,7 +4669,7 @@
   function chatRulesHTML() {
     return '<section class="card chat-rules" aria-labelledby="cr-h"><span class="plus-badge">' + icon('chat') + '</span><h1 id="cr-h">Chat rules</h1>' +
       '<ul class="cr-list">' + CHAT_RULES.map(function (r) { return '<li>' + icon('check') + '<span>' + esc(r) + '</span></li>'; }).join('') + '</ul>' +
-      '<p class="cr-foot">MyIB has zero tolerance for objectionable content and abusive users.</p>' +
+      '<p class="cr-foot">Bloc has zero tolerance for objectionable content and abusive users.</p>' +
       '<button type="button" class="btn primary cr-go" data-act="chat-agree">I Agree</button>' +
       '<a class="link cr-more" href="/privacy#chat" target="_blank" rel="noopener">Read the full rules</a></section>';
   }
@@ -3064,11 +4678,11 @@
      Chat: direct messages, groups and the Suggestions channel.
      The server can't push, so the app asks for news: every 3 s in an open chat while
      people are talking, slower when it goes quiet, once a minute elsewhere (for the
-     badge), and never while MyIB is in the background.
+     badge), and never while Bloc is in the background.
      ========================================================= */
   var CHANNEL = 'suggestions';
   var CONV_RE = /^(dm:[a-z0-9_.]{1,20}:[a-z0-9_.]{1,20}|g:[A-Za-z0-9_-]{12}|suggestions)$/;
-  var OFFLINE_MSG = 'Can’t reach MyIB. Check your connection.';
+  var OFFLINE_MSG = 'Can’t reach Bloc. Check your connection.';
   var wideMq = window.matchMedia ? window.matchMedia('(min-width: 761px)') : { matches: true };
   var CHAT = freshChat(), tmpN = 0, MSG_SEL = null;
   function freshChat() {
@@ -3227,7 +4841,7 @@
       el.textContent = n > 99 ? '99+' : String(n);
     } else if (el) el.remove();
     b.setAttribute('aria-label', n ? 'Chats, ' + n + ' new' : 'Chats');
-    document.title = n ? '(' + n + ') MyIB' : 'MyIB';
+    document.title = n ? '(' + n + ') Bloc' : 'Bloc';
   }
   function chatLoadList() {
     if (CHAT.listing) return CHAT.listing;
@@ -3427,7 +5041,7 @@
         var ta = CHAT.open === id && $('#chat-input');
         if (ta && !ta.value) { ta.value = m.body; CHAT.drafts[id] = m.body; grow(ta); }
         if (CHAT.open === id) paintMsgs();
-        toast('MyIB doesn’t allow some words in that message. Keep it kind.');
+        toast('Bloc doesn’t allow some words in that message. Keep it kind.');
         return;
       }
       m.err = sendError(r, id);
@@ -3448,7 +5062,7 @@
     if (code === 'chat_off') return 'Mauro turned off chat for your account.';
     if (code === 'request') return 'Accept the request first.';
     if (code === 'long') return 'Too long. A message can have up to 2,000 characters.';
-    if (code === 'words') return 'Not sent: MyIB doesn’t allow some words in it. Keep it kind.';
+    if (code === 'words') return 'Not sent: Bloc doesn’t allow some words in it. Keep it kind.';
     return 'Not sent. Tap to try again.';
   }
 
@@ -3474,7 +5088,7 @@
       return (b.kind === 'channel') - (a.kind === 'channel') || (b.last_at || 0) - (a.last_at || 0);
     });
     var html = '';
-    if (ME.admin && CHAT.reports) html += '<button type="button" class="cl-alert" data-act="admin-reports">' + icon('flag') + '<span>' + CHAT.reports + (CHAT.reports === 1 ? ' reported message' : ' reported messages') + '</span>' + icon('chev') + '</button>';
+    if (ME.admin && CHAT.reports) html += '<button type="button" class="cl-alert" data-act="admin-reports">' + icon('flag') + '<span>' + CHAT.reports + (CHAT.reports === 1 ? ' report to review' : ' reports to review') + '</span>' + icon('chev') + '</button>';
     if (CHAT.off) html += '<p class="cl-note">Mauro turned off chat for your account. You can still read your chats.</p>';
     if (reqs.length) html += '<p class="cl-head">Requests</p>' + reqs.map(clItem).join('') + '<p class="cl-head">Chats</p>';
     html += rest.map(clItem).join('');
@@ -3503,7 +5117,7 @@
   }
   function roomHeadHTML(rm) {
     var c = convOf(rm.id), sub;
-    if (c.kind === 'channel') sub = 'Ideas for MyIB · everyone can read';
+    if (c.kind === 'channel') sub = 'Ideas for Bloc · everyone can read';
     else if (c.kind === 'dm') sub = who(c.partner).name === null ? 'Account deleted' : who(c.partner).free ? '@' + c.partner : 'Sociales 2 IB';
     else {
       var n = c.people.filter(function (p) { return p.state === 'in'; }).length + (c.state === 'in' ? 1 : 0);
@@ -3531,12 +5145,12 @@
     }
     return '<form class="cm-compose" data-form="chat-send" data-k="send" autocomplete="off">' +
       '<label class="sr" for="chat-input">Message</label>' +
-      '<textarea id="chat-input" rows="1" maxlength="2000" placeholder="' + (c.kind === 'channel' ? 'Share an idea for MyIB' : 'Message') + '">' + esc(CHAT.drafts[rm.id] || '') + '</textarea>' +
+      '<textarea id="chat-input" rows="1" maxlength="2000" placeholder="' + (c.kind === 'channel' ? 'Share an idea for Bloc' : 'Message') + '">' + esc(CHAT.drafts[rm.id] || '') + '</textarea>' +
       '<button type="submit" class="cm-send" aria-label="Send" title="Send">' + icon('up') + '</button></form>';
   }
   function emptyRoomHTML(c) {
     if (c.kind === 'channel') {
-      return '<div class="cm-hello">' + convAvatar(c, 'lg') + '<p><b>Suggestions</b></p><p>Got an idea for MyIB? Post it here. Everyone with an account can read it and reply, and Mauro reads them all.</p></div>';
+      return '<div class="cm-hello">' + convAvatar(c, 'lg') + '<p><b>Suggestions</b></p><p>Got an idea for Bloc? Post it here. Everyone with an account can read it and reply, and Mauro reads them all.</p></div>';
     }
     if (c.kind === 'dm') {
       var p = c.partner, req = who(p).free || isFree();
@@ -3612,7 +5226,7 @@
   function sizeChat() {
     var el = $('#chat');
     if (!el) return;
-    if (wideChat()) el.style.height = Math.max(440, Math.round(window.innerHeight - (el.getBoundingClientRect().top + window.scrollY) - 20)) + 'px';
+    if (wideChat()) el.style.height = Math.max(440, Math.floor((window.innerHeight - (el.getBoundingClientRect().top + window.scrollY)) / zoomOf(el) - 20)) + 'px';
     else el.style.height = '';
     chatViewport();
   }
@@ -3718,7 +5332,7 @@
       var code = r.data && r.data.error;
       toast(r.status === 429 ? 'Too many changes. Try again in ' + ((r.data && r.data.wait) || 1) + ' min.' :
         code === 'chat_off' ? 'Mauro turned off chat for your account.' : code === 'full' ? 'A group can have up to 50 people.' :
-        code === 'users' ? 'You can’t add those people.' : code === 'words' ? 'MyIB doesn’t allow some words in that name.' : 'Something went wrong. Try again.');
+        code === 'users' ? 'You can’t add those people.' : code === 'words' ? 'Bloc doesn’t allow some words in that name.' : 'Something went wrong. Try again.');
       return false;
     }, function () { toast(OFFLINE_MSG); return false; });
   }
@@ -3751,14 +5365,14 @@
     var body;
     if (c.kind === 'channel') {
       body = '<div class="pfp-hero">' + convAvatar(c, 'xl') + '<p class="hero-name">Suggestions</p></div>' +
-        grp('<p class="row info-text">Share ideas to make MyIB better. Everyone with a MyIB account can read them and reply. Keep it about MyIB and be kind. Mauro deletes messages that aren’t.</p>');
+        grp('<p class="row info-text">Share ideas to make Bloc better. Everyone with a Bloc account can read them and reply. Keep it about Bloc and be kind. Mauro deletes messages that aren’t.</p>');
     } else if (c.kind === 'dm') {
       var p = c.partner, nm = whoName(p), gone = who(p).name === null;
       body = '<div class="pfp-hero">' + avatar(p, nm, 'xxl', who(p).avatar) + '<p class="hero-name">' + esc(nm) + devTag(p) + '</p>' +
           '<p class="hero-sub">' + esc(gone ? 'Account deleted' : who(p).free ? '@' + p : 'Sociales 2 IB') + '</p></div>' +
         (gone ? '' : grp(c.blocked ? rButton('Unblock ' + esc(nm), 'chat-unblock', ' data-id="' + esc(p) + '"', 'center')
                                    : rButton(icon('block') + 'Block ' + esc(nm), 'chat-block', ' data-id="' + esc(p) + '"', 'danger-text'), '',
-          c.blocked ? '' : 'They can’t message you or add you to groups, and you stop seeing their messages in groups. MyIB doesn’t tell them.')) +
+          c.blocked ? '' : 'They can’t message you or add you to groups, and you stop seeing their messages in groups. Bloc doesn’t tell them.')) +
         grp(rButton('Delete Chat', 'chat-leave', '', 'danger'), '', 'Deletes the chat for you. ' + esc(nm) + ' keeps their copy.');
     } else {
       var inGroup = c.state === 'in' && !c.off;
@@ -3877,7 +5491,8 @@
   }
   function pickChanged() {
     var n = $$('input[name="u"]:checked', dlg).length, add = $('#cn-name', dlg) === null;
-    var b = $('.sheet-head [type="submit"]', dlg);
+    var b = $('.sheet-head [type="submit"]', dlg), pk = $('.chat-pick', dlg);
+    if (pk && pk.dataset.mode === 'garden') { if (b) { b.disabled = !n; b.textContent = 'Invite'; } return; }
     if (b) { b.disabled = !n; b.textContent = add ? 'Add' : n > 1 ? 'Create' : 'Chat'; }
     var nm = $('#cn-name', dlg);
     if (nm) nm.hidden = n < 2;
@@ -3938,27 +5553,30 @@
     }, function () { if (curSheet === mine) sheetMessage('<p class="group-foot err">' + esc(OFFLINE_MSG) + '</p>'); });
   }
   function reportsHTML(list) {
-    if (!list.length) return '<p class="group-foot">No reports. When someone reports a chat message, it shows up here.</p>';
+    if (!list.length) return '<p class="group-foot">No reports. When someone reports a chat message, a puppy’s name or a garden’s name, it shows up here.</p>';
     return list.map(function (x, i) {
       var s = x.sender || {}, nm = s.name || 'Deleted account';
-      var where = x.kind === 'channel' ? 'Suggestions' : x.kind === 'dm' ? 'a direct chat' : x.kind === 'group' ? (x.name ? '“' + x.name + '”' : 'a group') : 'a deleted chat';
+      var where = x.kind === 'channel' ? 'Suggestions' : x.kind === 'dm' ? 'a direct chat' : x.kind === 'group' ? (x.name ? '“' + x.name + '”' : 'a group') :
+        x.kind === 'pet' ? 'a puppy’s name' : x.kind === 'garden' ? 'a garden’s name' : 'a deleted chat';
+      var named = x.kind === 'pet' || x.kind === 'garden';
       var d = ' data-conv="' + esc(x.conv) + '" data-seq="' + esc(x.seq) + '"';
       var by = (x.by || []).map(function (p) { return p.name || 'Deleted account'; });
       return grp(
         (s.name ? '<button type="button" class="row row-btn acct-row" data-act="admin-user" data-id="' + esc(s.id) + '">' : '<div class="row acct-row">') + avatar(s.id || '?', nm, '', s.avatar) +
           '<span class="two-line"><b>' + esc(nm) + '</b><span>' + esc((s.free && s.name ? '@' + s.id + ' · ' : '') + 'in ' + where + ' · ' + ago(x.at)) + '</span></span>' + (s.name ? icon('chev') + '</button>' : '</div>') +
         '<p class="row rep-body">' + esc(x.body || '') + '</p>' +
-        (x.gone ? '' : rButton('Delete Message', 'admin-report-del', d, 'danger')) +
-        rButton(x.gone ? 'Clear' : 'Keep Message', 'admin-report-ok', d, 'center'),
+        (x.gone ? '' : rButton(named ? (x.kind === 'pet' ? 'Rename to Puppy' : 'Rename to Study Garden') : 'Delete Message', 'admin-report-del', d, 'danger')) +
+        rButton(x.gone ? 'Clear' : named ? 'Keep Name' : 'Keep Message', 'admin-report-ok', d, 'center'),
         i === 0 ? 'Reported · ' + list.length : '',
         'Reported by ' + esc(by.length < 2 ? by.join('') : by.slice(0, -1).join(', ') + ' and ' + by[by.length - 1]) + '.' +
-          (x.gone ? ' The message is already gone.' : '') + (s.off ? ' Chat is off for ' + esc(nm) + '.' : ''));
+          (x.gone ? (named ? ' The name already changed.' : ' The message is already gone.') : '') + (s.off ? ' Chat is off for ' + esc(nm) + '.' : ''));
     }).join('');
   }
   function adminReportAct(el, remove) {
-    if (remove && !arm(el, 'Press again to delete')) return;
+    var named = /^(pet|gdn):/.test(el.dataset.conv || '');
+    if (remove && !arm(el, named ? 'Press again to rename' : 'Press again to delete')) return;
     el.disabled = true;
-    chatPost('/api/admin/report', { conv: el.dataset.conv, seq: Number(el.dataset.seq), remove: remove }, remove ? 'Message deleted' : 'Report cleared', function () {
+    chatPost('/api/admin/report', { conv: el.dataset.conv, seq: Number(el.dataset.seq), remove: remove }, remove ? (named ? 'Name removed' : 'Message deleted') : 'Report cleared', function () {
       var rm = CHAT.rooms[el.dataset.conv];
       if (rm && remove) rm.msgs.forEach(function (m) { if (m.seq === Number(el.dataset.seq)) { m.del = 1; m.body = ''; } });
       if (rm && remove && CHAT.open === el.dataset.conv) paintMsgs();
@@ -3975,33 +5593,49 @@
   var PETE = window.MyIBPetEngine || null;
   var PET_RATE = { food: 5, water: 100 / 14, fun: 100 / 24 };   /* points lost per hour: empty after 20 h, 14 h, 24 h */
   var PET_DAY_CAP = 480;                                           /* study minutes a day that count */
+  /* Exam season: the 14 days before each exam or mock in the calendar, up to its last day.
+     In exam season the puppy needs study at least every 48 hours: very sad at 36, a ghost at 48.
+     25 minutes of study bring it back. Outside exam season nothing bad happens. */
+  var PET_SEASON = 14, PET_SAD_H = 36, PET_GRAVE_H = 48, PET_REVIVE = 25, HOUR = 3600000;
   var PET_NAMES = ['Biscuit', 'Luna', 'Coco', 'Milo', 'Nala', 'Toby', 'Mochi', 'Pepper', 'Oreo', 'Rosie', 'Bruno', 'Kiwi', 'Maple', 'Churro'];
-  var NEED_INFO = [['food', 'Food', '#FF9500'], ['water', 'Water', '#32ADE6'], ['fun', 'Fun', '#FF2D55']];
+  var NEED_INFO = [['food', 'Food', '#F28C28'], ['water', 'Water', '#3E9BD6'], ['fun', 'Fun', '#E0527D']];
+  var PET_SLOTS = ['neck', 'head', 'face', 'mouth', 'ride'];
   function petBreeds() { return PETE ? PETE.BREEDS : [{ id: 'golden', name: 'Golden Retriever', coats: [{ id: 'gold', name: 'Golden', base: '#EBA852' }] }]; }
   function petBreed(id) { var l = petBreeds(); for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
   function petStages() { return PETE ? PETE.STAGES : [{ id: 'newborn', name: 'Newborn', hours: 0 }]; }
   function petItems() { return PETE ? PETE.ITEMS : []; }
   function petItem(id) { var l = petItems(); for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function msTime(v, dflt) { v = Number(v); return v > 1.5e12 && v < 4e12 ? Math.round(v) : dflt; }
+  function cleanWear(w) {
+    w = w && typeof w === 'object' ? w : {};
+    var o = {};
+    PET_SLOTS.forEach(function (s) { var it = petItem(w[s]); o[s] = it && it.slot === s ? it.id : null; });
+    return o;
+  }
   function cleanPet(p) {
     if (!p || typeof p !== 'object' || !ID.test(p.id)) return null;
     var born = Number(p.born);
     if (!(born > 1.5e12 && born < 4e12)) return null;
     var br = petBreed(p.breed) || petBreeds()[0];
     var coat = br.coats.some(function (c) { return c.id === p.coat; }) ? p.coat : br.coats[0].id;
-    var w = p.wear && typeof p.wear === 'object' ? p.wear : {}, wear = {};
-    ['neck', 'head', 'face'].forEach(function (s) { var it = petItem(w[s]); wear[s] = it && it.slot === s ? it.id : null; });
+    var wear = cleanWear(p.wear);
     function need(v) { v = Number(v); return isFinite(v) ? Math.max(0, Math.min(100, Math.round(v * 10) / 10)) : 70; }
-    var at = Number(p.at);
+    var grave = msTime(p.grave, 0);
     return {
       id: p.id, name: str(p.name, 16).replace(/\s+/g, ' ').trim() || 'Buddy', breed: br.id, coat: coat,
       born: born, bornDate: DATE.test(p.bornDate) ? p.bornDate : toISO(new Date(born)), wear: wear,
-      food: need(p.food), water: need(p.water), fun: need(p.fun), at: isFinite(at) && at > 1.5e12 && at < 4e12 ? at : born,
-      lost: Math.max(0, Math.round((Number(p.lost) || 0) * 100) / 100), used: Math.max(0, Math.round(Number(p.used) || 0)),
+      food: need(p.food), water: need(p.water), fun: need(p.fun), at: msTime(p.at, born),
+      used: Math.max(0, Math.round(Number(p.used) || 0)),
       stage: Math.max(0, Math.min(petStages().length - 1, Math.round(Number(p.stage) || 0))),
-      skip: (Array.isArray(p.skip) ? p.skip : []).filter(function (x) { return typeof x === 'string' && ID.test(x); }).slice(-300)
+      /* last study; a puppy from before this rule starts counting now */
+      last: msTime(p.last, Math.max(born, nowMs())),
+      grave: grave, rev: grave ? Math.max(0, Math.min(PET_REVIVE, Math.round(Number(p.rev) || 0))) : 0,
+      /* Mauro's "Unlock Everything": the outfit to put back when he turns it off */
+      trial: p.trial && typeof p.trial === 'object' ? { wear: cleanWear(p.trial.wear), at: msTime(p.trial.at, born) } : null
     };
   }
-  /* both devices changed the pet: keep the most care (needs, as of the later of the two), the biggest penalty and treat use, and each side's look changes */
+  /* both devices changed the pet: keep the most care (needs, as of the later of the two), the latest study,
+     treat use and stage, and each side's look changes. A later ghost wins; study after the other side's ghost means it came back. */
   function mergePet(b, m, t) {
     if (same(m, b)) return t;
     if (same(t, b)) return m;
@@ -4011,72 +5645,131 @@
     if (o.coat !== m.coat && o.breed !== t.breed) o.coat = m.coat;
     o.wear = mergeMap(bb ? bb.wear : {}, m.wear, t.wear);
     o.food = Math.max(nm.food, nt.food); o.water = Math.max(nm.water, nt.water); o.fun = Math.max(nm.fun, nt.fun); o.at = tm;
-    o.lost = Math.max(m.lost, t.lost); o.used = Math.max(m.used, t.used); o.stage = Math.max(m.stage, t.stage);
-    o.skip = m.skip.concat(t.skip.filter(function (x) { return m.skip.indexOf(x) < 0; })).slice(-300);
+    o.used = Math.max(m.used, t.used); o.stage = Math.max(m.stage, t.stage);
+    o.last = Math.max(m.last, t.last);
+    var g = mergeGrave(m, t); o.grave = g[0]; o.rev = g[1];
+    o.trial = pick3(bb ? bb.trial : null, m.trial, t.trial);
     return o;
+  }
+  function mergeGrave(m, t) {
+    if (!m.grave && !t.grave) return [0, 0];
+    if (m.grave && t.grave) return m.grave === t.grave ? [m.grave, Math.max(m.rev, t.rev)] : m.grave > t.grave ? [m.grave, m.rev] : [t.grave, t.rev];
+    var dead = m.grave ? m : t, alive = m.grave ? t : m;
+    return alive.last > dead.grave ? [0, 0] : [dead.grave, dead.rev];
   }
 
   function petNeeds(p, t) {
-    var h = Math.max(0, ((t == null ? nowMs() : t) - p.at) / 3600000);
+    var h = Math.max(0, ((t == null ? nowMs() : t) - p.at) / HOUR);
     return { food: Math.max(0, p.food - PET_RATE.food * h), water: Math.max(0, p.water - PET_RATE.water * h), fun: Math.max(0, p.fun - PET_RATE.fun * h) };
   }
-  function petMood(p, t) {
-    var n = petNeeds(p, t);
+  /* needs only change the puppy's face: a hungry puppy looks sad, but needs never cost growth */
+  function needMood(n) {
     if (n.food <= 0 || n.water <= 0 || n.fun <= 0) return 'sad';
     var low = Math.min(n.food, n.water, n.fun);
     if (low < 25) return n.food === low ? 'hungry' : n.water === low ? 'thirsty' : 'bored';
     return 'happy';
   }
-  /* when the first need ran out, in ms */
-  function petZeroAt(p) { return p.at + Math.min(p.food / PET_RATE.food, p.water / PET_RATE.water, p.fun / PET_RATE.fun) * 3600000; }
-  /* study minutes since adoption, at most 8 hours a day. grow skips sessions logged while the puppy was sad. */
-  function petStudy(p) {
-    var day = {}, dayAll = {}, skip = new Set(p.skip), k;
-    S.sessions.forEach(function (x) {
-      if (x.date < p.bornDate) return;
-      dayAll[x.date] = (dayAll[x.date] || 0) + x.minutes;
-      if (!skip.has(x.id)) day[x.date] = (day[x.date] || 0) + x.minutes;
+  /* exam season windows in ms, joined when they overlap; each keeps its exams */
+  function examSeasons() {
+    var iv = [];
+    S.events.forEach(function (e) {
+      if ((e.type !== 'exam' && e.type !== 'mock') || !DATE.test(e.start)) return;
+      iv.push({ a: fromISO(addDays(e.start, -PET_SEASON)).getTime(), b: fromISO(addDays(evEnd(e), 1)).getTime(), ev: [e] });
     });
-    var grow = 0, all = 0;
-    for (k in day) grow += Math.min(PET_DAY_CAP, day[k]);
-    for (k in dayAll) all += Math.min(PET_DAY_CAP, dayAll[k]);
-    return { grow: grow, all: all };
+    iv.sort(function (x, y) { return x.a - y.a; });
+    var out = [];
+    iv.forEach(function (x) {
+      var l = out[out.length - 1];
+      if (l && x.a <= l.b) { if (x.b > l.b) l.b = x.b; l.ev.push(x.ev[0]); } else out.push(x);
+    });
+    return out;
+  }
+  /* the 48-hour rule at time t: the season you're in, the next one, and when the puppy gets very sad and turns into a ghost.
+     A running focus timer counts as studying. */
+  function petClock(p, t, noTimer) {
+    var last = Math.max(p.last || 0, p.born), st = S.timer && !noTimer ? timerState() : null;
+    if (st && st.running) last = Math.max(last, t - Math.max(0, st.elapsed - st.total));
+    var seasons = examSeasons(), cur = null, next = null, due = null;
+    for (var i = 0; i < seasons.length; i++) {
+      var w = seasons[i];
+      if (w.a <= t && t < w.b) cur = w;
+      if (!next && w.a > t) next = w;
+      if (!due && w.b > last) {
+        var c = Math.max(last, w.a), d = c + PET_GRAVE_H * HOUR;
+        if (d < w.b) due = { sadAt: c + PET_SAD_H * HOUR, graveAt: d };
+      }
+    }
+    return { season: cur, next: next, sadAt: due ? due.sadAt : null, graveAt: due ? due.graveAt : null };
+  }
+  /* write down the grave once the 48 hours ran out before the moment 'at' */
+  function petGraveCheck(p, at) {
+    if (!p || p.grave) return false;
+    var c = petClock(p, at);
+    if (c.graveAt && c.graveAt <= at) { p.grave = c.graveAt; p.rev = 0; return true; }
+    return false;
+  }
+  /* study minutes since adoption, at most 8 hours a day */
+  function petStudy(p) {
+    var day = {}, all = 0, k;
+    S.sessions.forEach(function (x) { if (x.date >= p.bornDate) day[x.date] = (day[x.date] || 0) + x.minutes; });
+    for (k in day) all += Math.min(PET_DAY_CAP, day[k]);
+    return { all: all };
   }
   function stageMin(i) { return (petStages()[i] || petStages()[0]).hours * 60; }
-  /* a neglected puppy loses a minute of growth for every 30 minutes, but never drops a stage */
-  function petPenalty(p, t, grow) {
-    var z = Math.max(p.at, petZeroAt(p));
-    if (z >= t) return 0;
-    return Math.min((t - z) / 1800000, Math.max(0, grow - p.lost - stageMin(p.stage)));
-  }
   function petState(p) {
-    var t = nowMs(), st = petStudy(p), pen = petPenalty(p, t, st.grow), stages = petStages();
-    var xp = Math.max(stageMin(p.stage), st.grow - p.lost - pen), si = p.stage;
+    var t = nowMs(), st = petStudy(p), stages = petStages(), c = petClock(p, t);
+    var dead = !!p.grave || !!(c.graveAt && c.graveAt <= t);
+    var xp = Math.max(stageMin(p.stage), st.all), si = p.stage;
     for (var i = 0; i < stages.length; i++) if (xp >= stages[i].hours * 60 && i > si) si = i;
-    return { t: t, needs: petNeeds(p, t), mood: petMood(p, t), xp: xp, stage: si, next: stages[si + 1] || null, all: st.all,
-      treats: Math.max(0, Math.floor(st.all / 20) - p.used), toTreat: 20 - st.all % 20, losing: pen > 0 };
+    var needs = petNeeds(p, t);
+    return { t: t, needs: needs, mood: dead ? 'grave' : c.sadAt && c.sadAt <= t ? 'lonely' : needMood(needs), dead: dead, rev: p.grave ? p.rev : 0,
+      xp: xp, stage: si, next: stages[si + 1] || null, all: st.all, season: c.season, nextSeason: c.next, sadAt: c.sadAt, graveAt: c.graveAt,
+      treats: Math.max(0, Math.floor(st.all / 20) - p.used), toTreat: 20 - st.all % 20 };
   }
-  /* write down the needs and any penalty as of now, before changing them */
+  /* write down the needs as of now, before changing them */
   function petSettle(p) {
-    var t = nowMs(), st = petStudy(p), pen = petPenalty(p, t, st.grow), n = petNeeds(p, t);
-    p.lost = Math.round((p.lost + pen) * 100) / 100;
+    var t = nowMs(), n = petNeeds(p, t);
     p.food = Math.round(n.food * 10) / 10; p.water = Math.round(n.water * 10) / 10; p.fun = Math.round(n.fun * 10) / 10; p.at = t;
   }
   function petStageName(i) { return (petStages()[i] || petStages()[0]).name; }
   function petLook(p) { return { breed: p.breed, coat: p.coat, stage: (petStages()[petState(p).stage] || petStages()[0]).id, wear: p.wear }; }
-  /* a study session was logged: a sad puppy doesn't grow from it (it still earns treats) */
+  /* a study session was logged: it counts as study now, or toward bringing a ghost back */
   function petOnSession(id) {
     var p = S.pet;
     if (!p) return;
-    if (petMood(p) === 'sad' && p.skip.indexOf(id) < 0) { p.skip.push(id); if (p.skip.length > 300) p.skip = p.skip.slice(-300); }
+    var ses = S.sessions.filter(function (x) { return x.id === id; })[0];
+    if (!ses) return;
+    var t = nowMs(), m = /^ss-t([0-9a-z]+)$/.exec(id), from = m ? parseInt(m[1], 36) : t - ses.minutes * 60000;
+    if (!(from > 1.5e12 && from <= t)) from = t;
+    petGraveCheck(p, from);
+    if (p.grave) {
+      p.rev = Math.min(PET_REVIVE, (p.rev || 0) + ses.minutes);
+      if (p.rev >= PET_REVIVE) petRevive(p, t);
+      else PETUI.note = ' · ' + (PET_REVIVE - p.rev) + ' more min to bring ' + p.name + ' back';
+    } else p.last = Math.max(p.last, t);
     var s = petState(p);
     if (s.stage > p.stage) { p.stage = s.stage; PETUI.levelUp = s.stage; }
   }
+  function petRevive(p, t) {
+    petSettle(p);
+    p.grave = 0; p.rev = 0; p.last = Math.max(p.last, t);
+    p.food = Math.max(p.food, 80); p.water = Math.max(p.water, 80); p.fun = Math.max(p.fun, 80);
+    PETUI.note = ' · ' + p.name + ' is back!';
+  }
+  /* added to the "logged" toast */
+  function petNote() { var n = PETUI.note || ''; PETUI.note = ''; return n; }
+  function hoursText(ms) { var h = Math.max(1, Math.ceil(ms / HOUR)); return h === 1 ? '1 hour' : h + ' hours'; }
+  function whenText(ms) {
+    var d = new Date(ms), iso = toISO(d), n = diff(today(), iso);
+    return (n === 0 ? 'today' : n === 1 ? 'tomorrow' : DAYS_LONG[dow(iso)]) + ' at ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
   function moodText(p, s) {
     var nm = p.name;
+    if (s.dead) return nm + ' turned into a ghost. Study ' + (PET_REVIVE - s.rev) + ' minutes to bring ' + nm + ' back.';
+    if (s.mood === 'lonely') return nm + ' misses you. Study in the next ' + hoursText(s.graveAt - s.t) + ', or ' + nm + ' turns into a ghost.';
     if (s.mood === 'sad') {
-      var n = s.needs, what = n.food <= 0 ? 'hungry' : n.water <= 0 ? 'thirsty' : 'lonely';
-      return nm + ' is sad and ' + what + (s.losing ? ', and losing growth.' : '.');
+      var n = s.needs;
+      return nm + ' is sad and ' + (n.food <= 0 ? 'hungry' : n.water <= 0 ? 'thirsty' : 'bored') + '.';
     }
     if (s.mood === 'hungry') return nm + ' is hungry.';
     if (s.mood === 'thirsty') return nm + ' is thirsty.';
@@ -4084,31 +5777,64 @@
     if (PETE && PETE.isNight(now().getHours())) return nm + ' is sleepy.';
     return nm + ' is happy.';
   }
+  /* one line about exam season, under the garden */
+  function seasonText(p, s) {
+    if (s.dead) return '';
+    if (s.season) {
+      var last = fShort(toISO(new Date(s.season.b - 1)));
+      return 'Exam season until ' + last + '. Study at least every 2 days' + (s.sadAt && s.sadAt > s.t ? '. Next study by ' + whenText(s.sadAt) + '.' : '.');
+    }
+    if (s.nextSeason) return 'No exams in the next 2 weeks, so ' + p.name + ' won’t miss you. Exam season starts on ' + fShort(toISO(new Date(s.nextSeason.a))) + '.';
+    return 'No exams coming up, so ' + p.name + ' won’t miss you.';
+  }
+  /* every minute: a puppy whose 48 hours ran out turns into a ghost */
+  function petWatch() {
+    var p = S.pet;
+    if (!p || MODE !== 'app') return;
+    var was = PETUI.mood;
+    if (petGraveCheck(p, nowMs())) {
+      save();
+      if (UI.tab === 'pet' && PETUI.ctl) petSync();
+      else if (idle()) render();
+      return;
+    }
+    var m = petState(p).mood;
+    PETUI.mood = m;
+    if (was && m !== was && idle()) { if (UI.tab === 'pet' && PETUI.ctl) { petSync(); petPaint(); } else if (UI.tab === 'today') render(); }
+  }
 
   /* ---------- the garden stays alive while other views redraw ---------- */
-  var PETUI = { ctl: null, stage: null, id: null, levelUp: null, playing: false, pend: 0, pendT: null, meterT: null, pick: null };
+  function freshPetUI() { return { ctl: null, stage: null, id: null, levelUp: null, playing: false, pend: 0, pendT: null, meterT: null, pick: null, note: '', mood: '', dead: null }; }
+  var PETUI = freshPetUI();
   function petStop() {
     if (PETUI.ctl) PETUI.ctl.destroy();
     if (typeof PET_IMG === 'object') PET_IMG.key = '';
     clearTimeout(PETUI.pendT); clearInterval(PETUI.meterT);
-    PETUI = { ctl: null, stage: null, id: null, levelUp: null, playing: false, pend: 0, pendT: null, meterT: null, pick: null };
+    PETUI = freshPetUI();
   }
   function petKeep() { var st = PETUI.stage; if (st && st.parentNode) st.parentNode.removeChild(st); }
+  /* the ghost this device last showed (0: it showed a live puppy), so each change gets its animation once */
+  function petSeen(p) { var v = Number(sget('myib:petseen:' + p.id)); return v > 0 ? v : 0; }
+  function petSeenSet(p, v) { var k = 'myib:petseen:' + p.id, s = String(v || 0); if (sget(k) !== s) sset(k, s); }
+  function engineMood(s) { return s.dead ? 'sad' : s.mood; }
   function petMounted() {
     var slot = $('#pet-slot'), p = S.pet;
     if (!slot || !p || !PETE) return;
     if (PETUI.ctl && PETUI.id !== p.id) petStop();
-    var grew = petState(p).stage;
-    if (grew > p.stage) { p.stage = grew; PETUI.levelUp = grew; save(); }
+    if (petGraveCheck(p, nowMs())) save();
+    var s = petState(p);
+    if (s.stage > p.stage) { p.stage = s.stage; PETUI.levelUp = s.stage; save(); }
     if (!PETUI.stage) {
       var st = document.createElement('div');
       st.className = 'pet-stage'; st.tabIndex = 0; st.setAttribute('role', 'img');
       slot.replaceWith(st);
       PETUI.stage = st; PETUI.id = p.id;
-      var s0 = petState(p);
+      /* a change this device hasn't shown yet plays now: the dust cloud, or the puppy coming back */
+      var seen = petSeen(p), start = s.dead ? seen === p.grave : seen > 0;
+      PETUI.dead = start;
       PETUI.ctl = PETE.mount(st, {
-        look: petLook(p), name: p.name, mood: s0.mood, needs: needsFrac(s0.needs), now: nowMs,
-        onPet: petPetted, onFetch: petFetched
+        look: petLook(p), name: p.name, mood: start ? 'sad' : engineMood(s), needs: needsFrac(s.needs), now: nowMs, grave: start, sign: gardenSign(),
+        onPet: petPetted, onFetch: petFetched, onGraveTap: function () { toast('Study ' + (PET_REVIVE - petState(p).rev) + ' minutes to bring ' + p.name + ' back'); }
       });
     } else {
       slot.replaceWith(PETUI.stage);
@@ -4116,13 +5842,15 @@
     }
     PETUI.stage.classList.toggle('playing', PETUI.playing);
     petSync();
+    petGuests();
     clearInterval(PETUI.meterT);
-    PETUI.meterT = setInterval(function () { if (UI.tab === 'pet' && S.pet && !document.hidden) { petSync(); petPaint(); } }, 20000);
-    if (PETUI.levelUp != null) {
+    PETUI.meterT = setInterval(function () { if (UI.tab === 'pet' && S.pet && !document.hidden) { petSync(); petPaint(); petGuests(); } }, 20000);
+    if (PETUI.levelUp != null && !s.dead) {
       var lv = PETUI.levelUp;
       PETUI.levelUp = null;
       setTimeout(function () { if (PETUI.ctl) PETUI.ctl.act('celebrate'); toast(p.name + ' grew into ' + (lv === 4 ? 'a Legend' : 'a ' + petStageName(lv)) + '!'); }, 450);
     }
+    gardenPoll('mount');
   }
   function needsFrac(n) { return { food: n.food / 100, water: n.water / 100, fun: n.fun / 100 }; }
   function petSync() {
@@ -4131,8 +5859,17 @@
     var s = petState(p);
     PETUI.ctl.setLook(petLook(p));
     PETUI.ctl.setName(p.name);
-    PETUI.ctl.setMood(s.mood, needsFrac(s.needs));
-    if (PETUI.stage) PETUI.stage.setAttribute('aria-label', p.name + ', a ' + (petBreed(p.breed) || {}).name + ' ' + petStageName(s.stage).toLowerCase() + '. ' + moodText(p, s) + ' Press Enter to pet.');
+    PETUI.ctl.setMood(engineMood(s), needsFrac(s.needs));
+    PETUI.mood = s.mood;
+    if (PETUI.dead !== s.dead) {
+      PETUI.dead = s.dead;
+      if (PETUI.playing) petPlay();
+      PETUI.ctl.setGrave(s.dead, true);
+      /* the page switches between the care buttons and the ghost card once the animation ends */
+      setTimeout(function () { if (UI.tab === 'pet' && idle()) render(); }, s.dead ? 3300 : 800);
+    }
+    petSeenSet(p, s.dead ? p.grave || 1 : 0);
+    if (PETUI.stage) PETUI.stage.setAttribute('aria-label', p.name + ', a ' + (petBreed(p.breed) || {}).name + ' ' + petStageName(s.stage).toLowerCase() + '. ' + moodText(p, s) + (s.dead ? '' : ' Press Enter to pet.'));
   }
   /* meters and numbers, redrawn in place */
   function petPaint() {
@@ -4148,6 +5885,7 @@
       m.classList.toggle('low', v < 25);
     });
     var mt = $('#pet-mood'); if (mt) mt.textContent = moodText(p, s);
+    var se = $('#pet-season'); if (se) se.textContent = seasonText(p, s);
     var tb = $('#pet-treats'); if (tb) tb.textContent = s.treats;
   }
   /* petting adds fun: a point every half second, saved once the rubbing stops */
@@ -4178,6 +5916,7 @@
     var p = S.pet;
     if (!p || !PETUI.ctl) return;
     var s = petState(p), nm = p.name;
+    if (s.dead) { toast('Study ' + (PET_REVIVE - s.rev) + ' minutes to bring ' + nm + ' back'); return; }
     if (kind === 'feed' || kind === 'water') {
       var k = kind === 'feed' ? 'food' : 'water';
       if (s.needs[k] >= 90) { toast(nm + (kind === 'feed' ? ' is full' : ' isn’t thirsty')); return; }
@@ -4194,6 +5933,7 @@
   }
   function petPlay() {
     if (!S.pet || !PETUI.ctl) return;
+    if (!PETUI.playing && petState(S.pet).dead) return;
     PETUI.playing = !PETUI.playing;
     PETUI.ctl.play(PETUI.playing);
     if (PETUI.stage) PETUI.stage.classList.toggle('playing', PETUI.playing);
@@ -4205,22 +5945,150 @@
       toast('Drag the ball and let go, or tap the grass to throw it');
     }
   }
+  /* a focus session from the Pet page (25 minutes brings a ghost back) */
+  function petFocus(len) {
+    if (S.timer) return;
+    var p = S.pet;
+    if (p && petGraveCheck(p, nowMs())) save();
+    unlockAudio();
+    S.timer = { subject: subj(UI.focusSubject) ? UI.focusSubject : null, len: len || UI.focusLen, startedAt: nowMs(), pausedAt: null, pausedTotal: 0 };
+    save(); render();
+  }
+
+  /* =========================================================
+     Gardens: friends' puppies play in one garden, each person looks after their own.
+     Each puppy is a small card on the server, sent when it changes.
+     ========================================================= */
+  function freshGarden() { return { list: null, invites: [], max: 8, err: false, loading: null, loadedAt: 0, view: '', pets: {}, pollT: null, polling: null, card: '', cardT: null, cardBusy: false }; }
+  var GARDEN = freshGarden();
+  function gardenStop() { clearTimeout(GARDEN.pollT); clearTimeout(GARDEN.cardT); GARDEN = freshGarden(); }
+  function gardenById(id) { return (GARDEN.list || []).filter(function (g) { return g.id === id; })[0] || null; }
+  function gardenSign() { var g = GARDEN.view && gardenById(GARDEN.view); return g ? g.name : ''; }
+  function gardenLoad() {
+    if (!ME) return Promise.resolve();
+    if (GARDEN.loading) return GARDEN.loading;
+    var me = ME.id;
+    GARDEN.loading = api('GET', '/api/garden', null, { timeout: 15000 }).then(function (r) {
+      GARDEN.loading = null;
+      if (!ME || ME.id !== me) return;
+      if (r.status === 401) return sessionLost();
+      if (r.status !== 200 || !r.data || !Array.isArray(r.data.gardens)) { GARDEN.err = true; return; }
+      GARDEN.err = false; GARDEN.loadedAt = Date.now();
+      GARDEN.list = r.data.gardens; GARDEN.invites = r.data.invites || []; GARDEN.max = r.data.max || 8;
+      if (!GARDEN.view) GARDEN.view = sget('myib:petview:' + me) || '';
+      if (GARDEN.view && !gardenById(GARDEN.view)) GARDEN.view = '';
+      renderNav();
+      if (GARDEN.list.length) petCardSoon(true);
+      if (UI.tab === 'pet' && idle()) render();
+    }, function () { GARDEN.loading = null; GARDEN.err = true; });
+    return GARDEN.loading;
+  }
+  /* friends' puppies in the open garden: every 30 seconds while you look at it */
+  function gardenPoll(now) {
+    clearTimeout(GARDEN.pollT); GARDEN.pollT = null;
+    if (!ME || UI.tab !== 'pet' || document.hidden) return;
+    if (!GARDEN.list || Date.now() - GARDEN.loadedAt > (now ? 20000 : 120000)) gardenLoad();
+    var id = GARDEN.view;
+    if (id && !GARDEN.polling) {
+      var box = GARDEN.pets[id];
+      if (now === true || !box || Date.now() - box.at > (now === 'mount' ? 8000 : 25000)) {
+        GARDEN.polling = api('GET', '/api/garden/pets?garden=' + encodeURIComponent(id), null, { timeout: 15000 }).then(function (r) {
+          GARDEN.polling = null;
+          if (r.status === 404) { gardenLoad(); return; }
+          if (r.status !== 200 || !r.data || !Array.isArray(r.data.pets)) return;
+          GARDEN.pets[id] = { at: Date.now(), list: r.data.pets };
+          (r.data.pets || []).forEach(learn);
+          if (UI.tab === 'pet' && GARDEN.view === id) { petGuests(); paintFriends(); }
+        }, function () { GARDEN.polling = null; });
+      }
+    }
+    GARDEN.pollT = setTimeout(function () { gardenPoll(false); }, 30000);
+  }
+  /* a friend's puppy card, as of now */
+  function cardState(cd, t) {
+    var needs = petNeeds({ food: cd.food, water: cd.water, fun: cd.fun, at: cd.at }, t);
+    var dead = !!cd.grave || !!(cd.graveAt && cd.graveAt <= t);
+    return { needs: needs, dead: dead, mood: dead ? 'grave' : cd.sadAt && cd.sadAt <= t ? 'lonely' : needMood(needs) };
+  }
+  function petGuests() {
+    if (!PETUI.ctl) return;
+    var id = GARDEN.view, box = id && gardenById(id) && GARDEN.pets[id], t = nowMs();
+    var list = box ? box.list.filter(function (x) { return x.card; }).map(function (x) {
+      var cd = x.card, st = cardState(cd, t);
+      return { id: x.id, name: cd.name, look: { breed: cd.breed, coat: cd.coat, stage: cd.stage, wear: cd.wear || {} }, mood: st.dead ? 'sad' : st.mood, needs: needsFrac(st.needs), grave: st.dead };
+    }) : [];
+    PETUI.ctl.setGuests(list);
+    PETUI.ctl.setSign(gardenSign());
+  }
+  /* my puppy's card for friends: its look, needs and the exam-season clock */
+  function petCard() {
+    var p = S.pet;
+    if (!p) return null;
+    var s = petState(p), c = petClock(p, s.t, true), look = petLook(p), min = function (v) { return v ? Math.round(v / 60000) * 60000 : null; };
+    return { name: p.name, breed: p.breed, coat: p.coat, stage: look.stage, wear: p.wear, food: p.food, water: p.water, fun: p.fun, at: p.at,
+      sadAt: p.grave ? null : min(c.sadAt), graveAt: p.grave ? null : min(c.graveAt), grave: p.grave || 0 };
+  }
+  function petCardSoon(now) {
+    if (!ME || !GARDEN.list || !GARDEN.list.length) return;
+    clearTimeout(GARDEN.cardT);
+    GARDEN.cardT = setTimeout(petCardSend, now ? 200 : 3000);
+  }
+  function petCardSend() {
+    if (!ME || !GARDEN.list || !GARDEN.list.length) return;
+    if (GARDEN.cardBusy) { petCardSoon(); return; }
+    var card = petCard(), key = card ? JSON.stringify(card) : 'none', me = ME.id;
+    if (key === GARDEN.card || key === sget('myib:petcard:' + me)) { GARDEN.card = key; return; }
+    GARDEN.cardBusy = true;
+    api(card ? 'PUT' : 'DELETE', '/api/pet/card', card ? { card: card } : null).then(function (r) {
+      GARDEN.cardBusy = false;
+      if (r.status === 200 && ME && ME.id === me) { GARDEN.card = key; sset('myib:petcard:' + me, key); }
+    }, function () { GARDEN.cardBusy = false; });
+  }
+  function gardenPost(path, body, okMsg, then) {
+    return api('POST', path, body).then(function (r) {
+      if (r.status === 200) { if (okMsg) toast(okMsg); if (then) then(r.data); return true; }
+      if (r.status === 401) { sessionLost(); return false; }
+      var code = r.data && r.data.error;
+      toast(r.status === 429 ? 'Too many changes. Try again in ' + ((r.data && r.data.wait) || 1) + ' min.' :
+        code === 'chat_off' ? 'Mauro turned off chat for your account, so you can’t invite people.' : code === 'full' ? 'A garden can have up to ' + GARDEN.max + ' people.' :
+        code === 'gardens' ? 'You can be in up to ' + ((r.data && r.data.max) || 5) + ' gardens. Leave one first.' :
+        code === 'users' ? 'You can’t invite those people.' : code === 'words' ? 'Bloc doesn’t allow some words in that name.' :
+        code === 'garden' ? 'That garden is gone.' : 'Something went wrong. Try again.');
+      if (code === 'garden') gardenLoad();
+      return false;
+    }, function () { toast(OFFLINE_MSG); return false; });
+  }
+  function gardenSetView(id) {
+    if (id && !gardenById(id)) id = '';
+    GARDEN.view = id;
+    if (ME) sset('myib:petview:' + ME.id, id);
+    render();
+    gardenPoll(true);
+  }
 
   /* ---------- the Pet view ---------- */
-  function petThumb(breed, coat, stage, pose, wear) {
-    return PETE ? PETE.svg({ breed: breed, coat: coat, stage: stage, pose: pose || 'sit', wear: wear || {}, frame: 118 }) : '';
+  function petThumb(breed, coat, stage, pose, wear, o) {
+    return PETE ? PETE.svg(Object.assign({ breed: breed, coat: coat, stage: stage, pose: pose || 'sit', wear: wear || {}, frame: 118 }, o || {})) : '';
   }
   function petAdoptHTML() {
     return '<div class="page-head"><div><h1 class="display">Pet</h1><p class="sub">A puppy that grows while you study</p></div></div>' +
       '<section class="card pet-adopt">' +
         '<div class="pet-adopt-art" aria-hidden="true">' + petThumb('golden', 'gold', 'newborn', 'happy') + petThumb('shiba', 'red', 'newborn', 'sit') + petThumb('beagle', 'tri', 'newborn', 'sit') + '</div>' +
         '<h2>Adopt a puppy</h2>' +
-        '<p>Your puppy grows with every minute you study. Feed it, give it water and play fetch, and it stays happy. Every 20 minutes of study earns a treat.</p>' +
+        '<p>Your puppy grows with every minute you study. Feed it, give it water and play fetch. In the 2 weeks before an exam, it needs you to study at least every 2 days. Every 20 minutes of study earns a treat.</p>' +
         '<button type="button" class="btn primary" data-act="pet-adopt">' + icon('pet') + 'Adopt a Puppy</button>' +
-      '</section>';
+      '</section>' + (GARDEN.invites.length ? '<div class="pet-cols">' + friendsHTML(null, null) + '</div>' : '');
+  }
+  function gardenSegHTML() {
+    var gs = GARDEN.list || [];
+    if (!gs.length) return '';
+    return '<div class="pet-gardens"><div class="seg" role="group" aria-label="Garden">' +
+      '<button type="button" data-act="pet-garden" data-id="" aria-pressed="' + !GARDEN.view + '">Just Me</button>' +
+      gs.map(function (g) { return '<button type="button" data-act="pet-garden" data-id="' + esc(g.id) + '" aria-pressed="' + (GARDEN.view === g.id) + '">' + esc(g.name) + '</button>'; }).join('') +
+      '</div></div>';
   }
   VIEWS.pet = function () {
-    if (!PETE) return '<div class="page-head"><div><h1 class="display">Pet</h1></div></div><section class="card"><p class="empty">Your pet couldn’t load. Reload MyIB to try again.</p></section>';
+    if (!PETE) return '<div class="page-head"><div><h1 class="display">Pet</h1></div></div><section class="card"><p class="empty">Your pet couldn’t load. Reload Bloc to try again.</p></section>';
     var p = S.pet;
     if (!p) return petAdoptHTML();
     var s = petState(p), br = petBreed(p.breed) || petBreeds()[0], st = timerState();
@@ -4234,47 +6102,104 @@
     var nextTxt = s.next ? dur(Math.max(1, Math.ceil(s.next.hours * 60 - s.xp))) + ' of study to ' + s.next.name : 'Fully grown. A Legend!';
     var from = stageMin(s.stage), pct = s.next ? Math.min(100, (s.xp - from) / (s.next.hours * 60 - from) * 100) : 100;
     var nextItem = petItems().filter(function (it) { return (!it.plus || plusOn()) && it.hours * 60 > s.all; }).sort(function (a, b) { return a.hours - b.hours; })[0];
-    var focus = st ? '<p class="pet-timer"><span class="pet-dot" aria-hidden="true"></span>' + esc(p.name) + ' is studying with you · <b id="pet-timer">' + fmtClock(Math.ceil(st.remaining / 1000)) + '</b> left</p>' +
-        '<button type="button" class="btn quiet" data-act="tab" data-tab="today">' + icon('timer') + 'Open Focus</button>'
-      : '<button type="button" class="btn primary" data-act="pet-focus">' + icon('timer') + 'Study ' + UI.focusLen + ' Minutes</button>';
+    var timing = st ? '<p class="pet-timer"><span class="pet-dot" aria-hidden="true"></span>' + esc(p.name) + (s.dead ? ' waits for you' : ' is studying with you') + ' · <b id="pet-timer">' + (st.up ? fmtWatch(st.elapsed / 1000) : fmtClock(Math.ceil(st.remaining / 1000))) + '</b>' + (st.up ? ' so far' : ' left') + '</p>' +
+        '<button type="button" class="btn quiet" data-act="tab" data-tab="today">' + icon('timer') + 'Open Focus</button>' : '';
+    var focus = timing || '<button type="button" class="btn primary" data-act="pet-focus">' + icon('timer') + 'Study ' + UI.focusLen + ' Minutes</button>';
+    var care = s.dead ?
+      '<div class="pet-revive"><div class="need-bar revive-bar" role="progressbar" aria-label="Study to bring ' + esc(p.name) + ' back" aria-valuemin="0" aria-valuemax="' + PET_REVIVE + '" aria-valuenow="' + s.rev + '"><i class="need-fill" style="width:' + (s.rev / PET_REVIVE * 100).toFixed(1) + '%"></i></div>' +
+        '<p class="revive-txt">' + s.rev + ' of ' + PET_REVIVE + ' minutes</p>' +
+        (timing || '<button type="button" class="btn primary" data-act="pet-revive">' + icon('timer') + 'Study ' + PET_REVIVE + ' Minutes</button>') + '</div>'
+      : '<div class="pet-actions">' +
+          '<button type="button" class="pet-act" data-act="pet-feed" style="--c:#F28C28">' + icon('n-food') + '<span>Feed</span></button>' +
+          '<button type="button" class="pet-act" data-act="pet-water" style="--c:#3E9BD6">' + icon('n-water') + '<span>Water</span></button>' +
+          '<button type="button" class="pet-act" data-act="pet-play" aria-pressed="' + PETUI.playing + '" style="--c:#1E9E6A">' + icon('n-ball') + '<span>' + (PETUI.playing ? 'Stop' : 'Play') + '</span></button>' +
+          '<button type="button" class="pet-act" data-act="pet-treat" style="--c:#8C3B72">' + icon('n-bone') + '<span>Treat</span><b class="pet-count" id="pet-treats">' + s.treats + '</b></button>' +
+        '</div>' +
+        '<button type="button" class="btn quiet pet-throw" data-act="pet-throw"' + (PETUI.playing ? '' : ' hidden') + '>Throw the Ball</button>';
+    var season = seasonText(p, s);
     return '<div class="page-head pet-head"><div><h1 class="display">' + esc(p.name) + '</h1><p class="sub">' + esc(br.name) + ' · ' + esc(petStageName(s.stage)) + '</p></div>' +
         '<div class="actions"><button type="button" class="btn" data-act="pet-wardrobe">' + icon('bow') + 'Wardrobe</button>' +
         '<button type="button" class="icon-btn" data-act="pet-more" aria-label="' + esc(p.name) + ' settings" title="Pet settings">' + icon('more') + '</button></div></div>' +
-      '<div class="pet-layout"><section class="card pet-card" aria-label="' + esc(p.name) + '’s garden">' +
+      '<div class="pet-layout"><section class="card pet-card' + (s.dead ? ' ghost' : '') + '" aria-label="' + esc(p.name) + '’s garden">' +
+        gardenSegHTML() +
         '<div id="pet-slot" class="pet-stage"></div>' +
         '<p class="pet-mood" id="pet-mood" aria-live="polite">' + esc(moodText(p, s)) + '</p>' +
-        '<div class="pet-actions">' +
-          '<button type="button" class="pet-act" data-act="pet-feed" style="--c:#FF9500">' + icon('n-food') + '<span>Feed</span></button>' +
-          '<button type="button" class="pet-act" data-act="pet-water" style="--c:#32ADE6">' + icon('n-water') + '<span>Water</span></button>' +
-          '<button type="button" class="pet-act" data-act="pet-play" aria-pressed="' + PETUI.playing + '" style="--c:#34C759">' + icon('n-ball') + '<span>' + (PETUI.playing ? 'Stop' : 'Play') + '</span></button>' +
-          '<button type="button" class="pet-act" data-act="pet-treat" style="--c:#AF52DE">' + icon('n-bone') + '<span>Treat</span><b class="pet-count" id="pet-treats">' + s.treats + '</b></button>' +
-        '</div>' +
-        '<button type="button" class="btn quiet pet-throw" data-act="pet-throw"' + (PETUI.playing ? '' : ' hidden') + '>Throw the Ball</button>' +
+        (season ? '<p class="pet-season' + (s.season ? ' on' : '') + '" id="pet-season">' + esc(season) + '</p>' : '') +
+        care +
       '</section>' +
       '<div class="pet-cols">' +
-        '<section class="card pet-needs" aria-labelledby="h-needs"><header class="card-head"><h2 id="h-needs">Needs</h2></header>' + needs +
-          '<p class="pet-note">Needs drop over the day. If one runs out, ' + esc(p.name) + ' gets sad, stops growing and slowly loses progress.</p></section>' +
+        '<section class="card pet-needs' + (s.dead ? ' paused' : '') + '" aria-labelledby="h-needs"><header class="card-head"><h2 id="h-needs">Needs</h2></header>' + needs +
+          '<p class="pet-note">' + (s.dead ? 'Needs wait while ' + esc(p.name) + ' is a ghost.' : 'Needs drop over the day. A hungry, thirsty or bored puppy looks sad, but still grows when you study.') + '</p></section>' +
         '<section class="card pet-grow" aria-labelledby="h-grow"><header class="card-head"><h2 id="h-grow">Growing up</h2><span class="hint">' + esc(dur(s.all)) + ' studied</span></header>' +
           '<div class="grow-stages" aria-hidden="true">' + petStages().map(function (x, i) { return '<span class="' + (i <= s.stage ? 'on' : '') + (i === s.stage ? ' cur' : '') + '">' + esc(x.name) + '</span>'; }).join('') + '</div>' +
           '<div class="need-bar grow-bar" role="progressbar" aria-label="Growth to the next stage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + Math.round(pct) + '"><i class="need-fill" style="width:' + pct.toFixed(1) + '%"></i></div>' +
           '<p class="grow-next">' + esc(nextTxt) + '</p>' +
           (nextItem ? '<p class="pet-note">Next in the wardrobe: ' + esc(nextItem.name) + ' at ' + nextItem.hours + ' hours. Every 20 minutes of study earns a treat' + (s.treats ? '' : ', the next one in ' + s.toTreat + ' min') + '.</p>'
             : '<p class="pet-note">Every 20 minutes of study earns a treat' + (s.treats ? '' : ', the next one in ' + s.toTreat + ' min') + '.</p>') +
-          '<div class="pet-focus">' + focus + '</div>' +
+          (s.dead ? '' : '<div class="pet-focus">' + focus + '</div>') +
         '</section>' +
+        friendsHTML(p, s) +
       '</div></div>';
   };
+  /* the Friends card: invites, the people in the open garden, and a way to start one */
+  function friendsHTML(p, s) {
+    var inv = GARDEN.invites.map(function (x) {
+      var who0 = x.from && x.from.name ? x.from.name : 'Someone';
+      return '<div class="row garden-invite"><span class="gi-ic" aria-hidden="true">' + icon('pet') + '</span><span class="two-line"><b>' + esc(who0) + ' invited you</b><span>' + esc(x.name) + '</span></span>' +
+        '<span class="gi-btns"><button type="button" class="btn small" data-act="garden-join" data-id="' + esc(x.id) + '">Join</button>' +
+        '<button type="button" class="btn small quiet" data-act="garden-decline" data-id="' + esc(x.id) + '">Decline</button></span></div>';
+    }).join('');
+    var body = '', head = 'Friends', more = '';
+    var g = GARDEN.view && gardenById(GARDEN.view);
+    if (GARDEN.list === null) body = GARDEN.err ? '<p class="pet-note">Can’t load your gardens. Check your connection.</p>' : '<p class="pet-note">Loading…</p>';
+    else if (g) {
+      head = g.name;
+      more = '<button type="button" class="icon-btn" data-act="garden-info" data-id="' + esc(g.id) + '" aria-label="About ' + esc(g.name) + '" title="Garden info">' + icon('more') + '</button>';
+      body = '<div id="friend-list">' + friendRows(g) + '</div>';
+    } else if (GARDEN.list.length) {
+      body = '<p class="pet-note">Open a garden to play with your friends’ puppies.</p><div class="friend-gardens">' + GARDEN.list.map(function (x) {
+        var n = x.people.filter(function (q) { return q.status === 'member'; }).length;
+        return '<button type="button" class="row row-btn" data-act="pet-garden" data-id="' + esc(x.id) + '"><span class="two-line"><b>' + esc(x.name) + '</b><span>' + n + ' ' + (n === 1 ? 'puppy' : 'puppies') + '</span></span>' + icon('chev') + '</button>';
+      }).join('') + '</div>';
+    } else if (p) body = '<p class="pet-note">Invite classmates, and your puppies play together in one garden. Everyone looks after their own puppy.</p>';
+    var btn = p && GARDEN.list !== null && !g ? '<button type="button" class="btn" data-act="garden-new">' + icon('plus') + 'Invite Friends</button>' : '';
+    if (!inv && !body && !btn) return '';
+    return '<section class="card pet-friends" id="pet-friends" aria-labelledby="h-friends"><header class="card-head"><h2 id="h-friends">' + esc(head) + '</h2>' + more + '</header>' +
+      (inv ? '<div class="garden-invites">' + inv + '</div>' : '') + body + (btn ? '<div class="pet-focus">' + btn + '</div>' : '') + '</section>';
+  }
+  function friendRows(g) {
+    var box = GARDEN.pets[g.id], t = nowMs();
+    if (!box) return '<p class="pet-note">Loading your friends’ puppies…</p>';
+    var rows = box.list.map(function (x) {
+      var nm = x.name || '@' + x.id, cd = x.card;
+      if (!cd) return '<button type="button" class="row row-btn friend-row" data-act="friend-pet" data-id="' + esc(x.id) + '">' + avatar(x.id, nm, '', x.avatar) +
+        '<span class="two-line"><b>' + esc(nm) + '</b><span>No puppy yet</span></span>' + icon('chev') + '</button>';
+      var st = cardState(cd, t);
+      var line = st.dead ? 'A ghost' : st.mood === 'lonely' ? 'Misses ' + nm.split(' ')[0] : st.mood === 'happy' ? 'Happy' : st.mood === 'sad' ? 'Sad' : st.mood === 'hungry' ? 'Hungry' : st.mood === 'thirsty' ? 'Thirsty' : 'Bored';
+      return '<button type="button" class="row row-btn friend-row" data-act="friend-pet" data-id="' + esc(x.id) + '"><span class="friend-art" aria-hidden="true">' +
+        petThumb(cd.breed, cd.coat, cd.stage, st.dead ? 'sit' : st.mood === 'happy' ? 'sit' : 'sad', cd.wear, { grave: st.dead, name: cd.name, noCar: true, frame: 110 }) + '</span>' +
+        '<span class="two-line"><b>' + esc(cd.name) + '</b><span>' + esc(nm + ' · ' + line) + '</span></span>' + icon('chev') + '</button>';
+    }).join('');
+    var inv = g.people.filter(function (q) { return q.status === 'invited'; }).length;
+    return (rows || '<p class="pet-note">Nobody else has joined yet.</p>') + (inv ? '<p class="pet-note">' + inv + ' invite' + (inv === 1 ? '' : 's') + ' waiting.</p>' : '');
+  }
+  function paintFriends() {
+    var box = $('#friend-list'), g = GARDEN.view && gardenById(GARDEN.view);
+    if (box && g) box.innerHTML = friendRows(g);
+  }
   /* Today: a nudge when the puppy needs you */
   function petNudge() {
     var p = S.pet;
     if (!p || !PETE) return '';
     var s = petState(p);
     var grew = PETUI.levelUp != null || s.stage > p.stage;
-    if (s.mood === 'happy' && !grew) return '';
-    var txt = grew && s.mood === 'happy' ? p.name + ' grew! Come and see.' : moodText(p, s);
-    return '<button type="button" class="pet-nudge' + (s.mood === 'sad' ? ' sad' : '') + '" data-act="tab" data-tab="pet">' +
-      '<span class="pet-nudge-art" aria-hidden="true">' + petThumb(p.breed, p.coat, petLook(p).stage, s.mood === 'sad' ? 'sad' : 'sit', p.wear) + '</span>' +
-      '<span class="two-line"><b>' + esc(txt) + '</b><span>Open ' + esc(p.name) + '’s garden</span></span>' + icon('chev') + '</button>';
+    if (s.mood === 'happy' && !grew && !s.dead) return '';
+    var txt = s.dead ? p.name + ' turned into a ghost' : grew && s.mood === 'happy' ? p.name + ' grew! Come and see.' : s.mood === 'lonely' ? p.name + ' misses you. Study in the next ' + hoursText(s.graveAt - s.t) + '.' : moodText(p, s);
+    var sub = s.dead ? 'Study ' + (PET_REVIVE - s.rev) + ' minutes to bring ' + p.name + ' back' : 'Open ' + p.name + '’s garden';
+    var sad = s.dead || s.mood === 'sad' || s.mood === 'lonely';
+    return '<button type="button" class="pet-nudge' + (sad ? ' sad' : '') + '" data-act="tab" data-tab="pet">' +
+      '<span class="pet-nudge-art" aria-hidden="true">' + petThumb(p.breed, p.coat, petLook(p).stage, sad ? 'sad' : 'sit', p.wear, { grave: s.dead, name: p.name, noCar: true }) + '</span>' +
+      '<span class="two-line"><b>' + esc(txt) + '</b><span>' + esc(sub) + '</span></span>' + icon('chev') + '</button>';
   }
 
   /* ---------- sheets: adopt, change look, wardrobe, settings ---------- */
@@ -4310,7 +6235,7 @@
         }
         var name = clip(fd.get('name'), 16) || suggest, t = nowMs();
         petStop();
-        S.pet = cleanPet({ id: uid('pt'), name: name, breed: pk.breed, coat: pk.coat, born: t, bornDate: today(), wear: { neck: 'collar' }, food: 80, water: 80, fun: 80, at: t, lost: 0, used: 0, stage: 0, skip: [] });
+        S.pet = cleanPet({ id: uid('pt'), name: name, breed: pk.breed, coat: pk.coat, born: t, bornDate: today(), wear: { neck: 'collar' }, food: 80, water: 80, fun: 80, at: t, used: 0, stage: 0, last: t, grave: 0, rev: 0 });
         PETUI.pick = null;
         save(); go('pet');
         toast('Say hi to ' + name + '!');
@@ -4340,24 +6265,44 @@
     var p = S.pet;
     $('#pet-preview', dlg).innerHTML = petThumb(pk.breed, pk.coat, pk.change && p ? petLook(p).stage : 'newborn', 'happy', pk.change && p ? p.wear : {});
   }
-  var SLOT_NAMES = [['neck', 'Neck'], ['head', 'Head'], ['face', 'Face']];
+  var SLOT_NAMES = [['street', 'Street Style'], ['neck', 'Neck'], ['head', 'Head'], ['face', 'Face']];
+  var STREET = ['snapback', 'chain', 'grillz', 'bucket', 'ice', 'car'];
+  /* Mauro can unlock every item to try them, then put the old outfit back */
+  function wardrobeFree() { return !!(ME && ME.admin && S.pet && S.pet.trial); }
+  function itemLocked(it, s) { return !wardrobeFree() && (it.hours * 60 > s.all || (it.plus && !plusOn())); }
+  function wearSub(it, p, s) {
+    var on = p.wear[it.slot] === it.id, free = wardrobeFree();
+    return on ? 'Wearing' : !free && it.plus && !plusOn() ? 'Plus' : !free && it.hours * 60 > s.all ? 'At ' + it.hours + ' h' : it.slot === 'ride' ? 'Tap to ride' : 'Tap to wear';
+  }
+  function petUnlock(on) {
+    var p = S.pet;
+    if (!p || !ME || !ME.admin) return;
+    if (on && !p.trial) { p.trial = { wear: clone(p.wear), at: nowMs() }; toast('Everything is unlocked'); }
+    else if (!on && p.trial) { p.wear = cleanWear(p.trial.wear); p.trial = null; toast('Outfit put back, and the items are locked again'); }
+    else return;
+    save(); petSync();
+    openWardrobe();
+  }
   function openWardrobe() {
     var p = S.pet;
     if (!p || !PETE) return;
     curSheet = openWardrobe;
     var s = petState(p), look = petLook(p);
     var groups = SLOT_NAMES.map(function (sl) {
-      var items = petItems().filter(function (it) { return it.slot === sl[0] && (!it.plus || plusOn() || sellHere()); });
+      var items = petItems().filter(function (it) { return (sl[0] === 'street' ? STREET.indexOf(it.id) >= 0 : it.slot === sl[0] && STREET.indexOf(it.id) < 0) && (!it.plus || plusOn() || sellHere()); });
+      if (!items.length) return '';
       return '<p class="group-head">' + sl[1] + '</p><div class="wear-grid">' + items.map(function (it) {
-        var on = p.wear[sl[0]] === it.id, needH = it.hours * 60 > s.all, needPlus = it.plus && !plusOn();
-        var sub = on ? 'Wearing' : needPlus ? 'Plus' : needH ? 'At ' + it.hours + ' h' : 'Tap to wear';
-        return '<button type="button" class="wear-item' + (needH || needPlus ? ' locked' : '') + '" data-act="pet-wear" data-id="' + it.id + '" aria-pressed="' + on + '">' +
-          '<span class="wi-art" aria-hidden="true">' + PETE.itemSVG(it.id) + '</span><b>' + esc(it.name) + '</b><span class="wi-sub">' + esc(sub) + '</span></button>';
+        var on = p.wear[it.slot] === it.id, locked = itemLocked(it, s);
+        return '<button type="button" class="wear-item' + (locked ? ' locked' : '') + (it.slot === 'ride' ? ' ride' : '') + '" data-act="pet-wear" data-id="' + it.id + '" aria-pressed="' + on + '">' +
+          '<span class="wi-art" aria-hidden="true">' + PETE.itemSVG(it.id) + '</span><b>' + esc(it.name) + '</b><span class="wi-sub">' + esc(wearSub(it, p, s)) + '</span></button>';
       }).join('') + '</div>';
     }).join('');
+    var admin = ME && ME.admin ? grp(rSwitch('Unlock Everything', 'unlock', 'pw-unlock', !!p.trial), 'Admin',
+      p.trial ? 'Everything is unlocked. Turn this off to put back the outfit ' + esc(p.name) + ' wore before, and lock the items again.'
+              : 'Try every item without the study hours. Turn it off later to put back the outfit ' + esc(p.name) + ' wears now.') : '';
     openDialog({
       title: 'Wardrobe',
-      body: '<div class="pet-preview" id="pet-preview">' + petThumb(p.breed, p.coat, look.stage, 'happy', p.wear) + '</div>' + groups +
+      body: '<div class="pet-preview" id="pet-preview">' + petThumb(p.breed, p.coat, look.stage, 'happy', p.wear) + '</div>' + admin + groups +
         '<p class="group-foot">You’ve studied ' + esc(dur(s.all)) + ' with ' + esc(p.name) + '. More study time unlocks more to wear.</p>'
     });
   }
@@ -4365,18 +6310,21 @@
     var p = S.pet, it = petItem(id);
     if (!p || !it) return;
     var s = petState(p);
-    if (it.plus && !plusOn()) { openPlus(openWardrobe); return; }
-    if (it.hours * 60 > s.all) { toast(it.name + ' unlocks after ' + it.hours + ' hours of study'); return; }
+    if (!wardrobeFree()) {
+      if (it.plus && !plusOn()) { openPlus(openWardrobe); return; }
+      if (it.hours * 60 > s.all) { toast(it.name + ' unlocks after ' + it.hours + ' hours of study'); return; }
+    }
     p.wear[it.slot] = p.wear[it.slot] === id ? null : id;
     save();
     petSync();
+    if (it.slot === 'ride' && p.wear.ride && PETUI.ctl && !s.dead) PETUI.cruise = true;
     /* redraw the sheet in place, so it keeps its scroll position */
     $$('.wear-item', dlg).forEach(function (b) {
       var x = petItem(b.dataset.id);
       if (!x) return;
-      var on = p.wear[x.slot] === x.id;
-      b.setAttribute('aria-pressed', on);
-      b.querySelector('.wi-sub').textContent = on ? 'Wearing' : x.plus && !plusOn() ? 'Plus' : x.hours * 60 > s.all ? 'At ' + x.hours + ' h' : 'Tap to wear';
+      b.setAttribute('aria-pressed', p.wear[x.slot] === x.id);
+      b.classList.toggle('locked', itemLocked(x, s));
+      b.querySelector('.wi-sub').textContent = wearSub(x, p, s);
     });
     var pv = $('#pet-preview', dlg);
     if (pv) pv.innerHTML = petThumb(p.breed, p.coat, petLook(p).stage, 'happy', p.wear);
@@ -4385,23 +6333,148 @@
     var p = S.pet;
     if (!p) return;
     curSheet = openPetSettings;
-    var s = petState(p);
+    var s = petState(p), nm = esc(p.name);
     var body =
       grp(rField({ label: 'Name', name: 'name', id: 'ps-name', max: 16, value: p.name, placeholder: 'Name' }), 'Name') +
       grp(rNav('palette', 'Change Look', 'pet-look', (petBreed(p.breed) || {}).name)) +
-      grp('<div class="row wrap pet-howto"><p><b>Growing up.</b> Every minute you log with the focus timer, or by hand, helps ' + esc(p.name) + ' grow, up to 8 hours a day. Newborn, then Puppy at 3 hours, Junior at 12, Adult at 30 and Legend at 80.</p>' +
-          '<p><b>Needs.</b> Food lasts about 20 hours, water about 14 and fun about a day. Petting and fetch add fun, and a treat helps both food and fun.</p>' +
-          '<p><b>Sad days.</b> When a need runs out, ' + esc(p.name) + ' stops growing and loses a little progress each hour, but never a whole stage.</p></div>', 'How it works') +
-      '<div class="group"><button type="button" class="row row-btn danger" data-act="pet-goodbye">Say Goodbye to ' + esc(p.name) + '</button></div>' +
-      '<p class="group-foot">' + esc(p.name) + ' goes away for good, with ' + esc(dur(s.all)) + ' of growth. A new puppy starts as a newborn.</p>';
+      grp('<div class="row wrap pet-howto"><p><b>Growing up.</b> Every minute you log with the focus timer, or by hand, helps ' + nm + ' grow, up to 8 hours a day. Newborn, then Puppy at 3 hours, Junior at 12, Adult at 30 and Legend at 80.</p>' +
+          '<p><b>Exam season.</b> In the 2 weeks before any exam or mock in your calendar, ' + nm + ' needs you to study at least every 2 days. After 36 hours without study ' + nm + ' misses you, and at 48 hours ' + nm + ' turns into a ghost. Study 25 minutes to bring ' + nm + ' back, with all its growth. Outside exam season nothing bad happens.</p>' +
+          '<p><b>Needs.</b> Food lasts about 20 hours, water about 14 and fun about a day. Petting and fetch add fun, and a treat helps both food and fun. A hungry puppy looks sad, but needs never stop growth.</p>' +
+          '<p><b>Friends.</b> Invite classmates to a garden, and your puppies play there together. Everyone looks after their own puppy.</p></div>', 'How it works') +
+      '<div class="group"><button type="button" class="row row-btn danger" data-act="pet-goodbye">Say Goodbye to ' + nm + '</button></div>' +
+      '<p class="group-foot">' + nm + ' goes away for good, with ' + esc(dur(s.all)) + ' of growth. A new puppy starts as a newborn.</p>';
     openDialog({
       title: 'Pet Settings', body: body, submitLabel: 'Save',
       onSubmit: function (fd) {
-        var nm = clip(fd.get('name'), 16);
-        if (!nm) { fieldError('#ps-name', 'Give your puppy a name.'); return false; }
-        if (nm !== p.name) { p.name = nm; save(); render(); toast('Name saved'); }
+        var n2 = clip(fd.get('name'), 16);
+        if (!n2) { fieldError('#ps-name', 'Give your puppy a name.'); return false; }
+        if (n2 !== p.name) { p.name = n2; save(); render(); toast('Name saved'); }
       }
     });
+  }
+
+  /* ---------- sheets: gardens and friends' puppies ---------- */
+  function pickerHTML(mode, placeholder) {
+    return '<div class="chat-pick" data-mode="' + mode + '">' +
+      grp('<label class="row"><span class="sr">Search your class</span><input class="row-field" type="search" id="cn-q" placeholder="Search your class" autocomplete="off" autocapitalize="off" spellcheck="false"></label>') +
+      '<div id="cn-people"><div class="sheet-loading" role="status"><span class="spinner" aria-hidden="true"></span><span class="sr">Loading</span></div></div>' +
+      '<p class="group-head">Other students</p><div class="group" id="cn-found">' +
+        '<div class="row cn-find"><span class="sr">Username</span><input class="row-field" type="text" id="cn-find" placeholder="Their username" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="21">' +
+        '<button type="button" class="btn small" data-act="chat-find">Find</button></div></div>' +
+      '<p class="group-foot" id="cn-find-msg">' + esc(placeholder) + '</p></div>';
+  }
+  function fillPicker(skip, emptyMsg) {
+    var gen = CHAT.gen;
+    loadDir().then(function (list) {
+      var box = gen === CHAT.gen && dlg.open && $('#cn-people', dlg);
+      if (!box) return;
+      var ppl = list.filter(function (p) { return !skip[p.id]; });
+      box.innerHTML = ppl.length ? grp(ppl.map(function (p) { return pickRow(p, false); }).join(''), 'Sociales 2 IB') : '<p class="group-head">Sociales 2 IB</p><p class="group-foot">' + esc(emptyMsg) + '</p>';
+      var q = $('#cn-q', dlg);
+      if (q && q.value) filterPick(q.value);
+    }, function () {
+      var box = dlg.open && $('#cn-people', dlg);
+      if (box) box.innerHTML = '<p class="group-foot err">' + esc(OFFLINE_MSG) + '</p>';
+    });
+  }
+  function openGardenNew() {
+    curSheet = openGardenNew;
+    openDialog({
+      title: 'Invite Friends', submitLabel: 'Invite',
+      body: grp(rField({ label: 'Garden name', name: 'gname', id: 'gd-name', max: 30, value: '', placeholder: 'Garden name, like Study Squad' }), 'Garden') +
+        pickerHTML('garden', 'Find someone outside Sociales 2 IB by their exact username.'),
+      onSubmit: function (fd, form) {
+        var users = fd.getAll('u').map(String);
+        if (!users.length || busyForm(form, true)) return false;
+        gardenPost('/api/garden/new', { name: clip(fd.get('gname'), 30) || 'Study Garden', users: users }, users.length === 1 ? 'Invite sent' : 'Invites sent', function (d) {
+          closeDialog();
+          GARDEN.view = d.id; if (ME) sset('myib:petview:' + ME.id, d.id);
+          gardenLoad();
+        }).then(function () { busyForm(form, false); });
+        return false;
+      }
+    });
+    pickChanged();
+    fillPicker({}, 'Nobody else from the class has an account yet.');
+  }
+  function openGardenInvite(id) {
+    var g = gardenById(id);
+    if (!g) return;
+    curSheet = function () { openGardenInvite(id); };
+    var skip = {};
+    g.people.forEach(function (p) { skip[p.id] = 1; });
+    openDialog({
+      title: 'Invite Friends', submitLabel: 'Invite', back: function () { openGardenInfo(id); }, backLabel: 'Garden',
+      body: pickerHTML('garden', 'Find someone outside Sociales 2 IB by their exact username.'),
+      onSubmit: function (fd, form) {
+        var users = fd.getAll('u').map(String);
+        if (!users.length || busyForm(form, true)) return false;
+        gardenPost('/api/garden/invite', { garden: id, users: users }, users.length === 1 ? 'Invite sent' : 'Invites sent', function () { closeDialog(); gardenLoad(); }).then(function () { busyForm(form, false); });
+        return false;
+      }
+    });
+    pickChanged();
+    fillPicker(skip, 'Everyone from the class with an account is already here.');
+  }
+  function openGardenInfo(id) {
+    var g = gardenById(id);
+    if (!g) return;
+    curSheet = function () { openGardenInfo(id); };
+    var ppl = g.people.slice().sort(function (a, b) { return (a.me ? -1 : b.me ? 1 : 0) || (a.status === b.status ? whoName(a.id).localeCompare(whoName(b.id)) : a.status === 'member' ? -1 : 1); });
+    var rows = ppl.map(function (x) {
+      var nm = x.me ? 'You' : x.name || '@' + x.id;
+      return '<div class="row acct-row">' + avatar(x.id, x.me ? ME.name : nm, '', x.me ? ME.avatar : x.avatar) + '<span class="two-line"><b>' + esc(nm) + '</b><span>' +
+        esc(x.status === 'invited' ? 'Invited' : x.pet ? 'In the garden' : 'No puppy yet') + '</span></span></div>';
+    }).join('');
+    openDialog({
+      title: 'Garden',
+      body: '<div class="pfp-hero"><span class="garden-hero" aria-hidden="true">' + icon('pet') + '</span><p class="hero-name">' + esc(g.name) + '</p></div>' +
+        grp(rNav('', 'Garden Name', 'garden-rename', g.name)) +
+        grp(rows, 'People · ' + ppl.length) +
+        (ppl.length < GARDEN.max ? grp(rButton(icon('plus') + 'Invite Friends', 'garden-invite', ' data-id="' + esc(id) + '"')) : '') +
+        grp(rButton('Leave Garden', 'garden-leave', ' data-id="' + esc(id) + '"', 'danger'), '', 'Your puppy leaves this garden. Someone in it can invite you back.') +
+        grp(rButton(icon('flag') + 'Report Garden Name', 'garden-report', ' data-id="' + esc(id) + '"', 'danger-text'), '', 'Report sends the name to Mauro. Nobody else finds out.')
+    });
+  }
+  function openGardenRename(id) {
+    var g = gardenById(id);
+    if (!g) return;
+    openDialog({
+      title: 'Garden Name', back: function () { openGardenInfo(id); }, backLabel: 'Garden', submitLabel: 'Save',
+      body: grp(rField({ label: 'Garden name', name: 'gname', id: 'gd-rename', max: 30, value: g.name, placeholder: 'Garden name', autofocus: true }), '', 'Everyone in the garden sees the new name.'),
+      onSubmit: function (fd, form) {
+        var name = clip(fd.get('gname'), 30);
+        if (!name) { fieldError('#gd-rename', 'Give the garden a name.'); return false; }
+        if (busyForm(form, true)) return false;
+        gardenPost('/api/garden/rename', { garden: id, name: name }, 'Name saved', function (d) {
+          g.name = d && d.name || name;
+          if (PETUI.ctl && GARDEN.view === id) PETUI.ctl.setSign(g.name);
+          openGardenInfo(id);
+          if (UI.tab === 'pet') render();
+        }).then(function () { busyForm(form, false); });
+        return false;
+      }
+    });
+  }
+  function openFriendPet(uid) {
+    var g = GARDEN.view && gardenById(GARDEN.view), box = g && GARDEN.pets[g.id];
+    var x = box && box.list.filter(function (y) { return y.id === uid; })[0];
+    if (!x) return;
+    curSheet = function () { openFriendPet(uid); };
+    var nm = x.name || '@' + x.id, cd = x.card, first = nm.split(' ')[0], body;
+    if (cd) {
+      var st = cardState(cd, nowMs()), br = petBreed(cd.breed), sg = petStages().filter(function (q) { return q.id === cd.stage; })[0];
+      var txt = st.dead ? cd.name + ' turned into a ghost. When ' + first + ' studies 25 minutes, ' + cd.name + ' comes back.' :
+        st.mood === 'lonely' ? cd.name + ' misses ' + first + '. It’s exam season, and ' + first + ' hasn’t studied for a while.' :
+        st.mood === 'happy' ? cd.name + ' is happy.' : st.mood === 'bored' ? cd.name + ' wants to play.' : cd.name + ' is ' + (st.mood === 'sad' ? 'sad' : st.mood) + '.';
+      body = '<div class="pet-preview">' + petThumb(cd.breed, cd.coat, cd.stage, st.dead ? 'sit' : st.mood === 'happy' ? 'happy' : 'sad', cd.wear, { grave: st.dead, name: cd.name }) + '</div>' +
+        grp('<div class="row"><span class="two-line"><b>' + esc(cd.name) + '</b><span>' + esc(nm + '’s ' + (br ? br.name : 'puppy') + (sg ? ' · ' + sg.name : '')) + '</span></span></div>' +
+          '<p class="row info-text">' + esc(txt) + '</p>');
+    } else body = '<p class="group-foot">' + esc(nm) + ' hasn’t adopted a puppy yet.</p>';
+    body += grp(rButton(icon('block') + 'Block ' + esc(first), 'garden-block', ' data-id="' + esc(x.id) + '"', 'danger-text') +
+        (cd ? rButton(icon('flag') + 'Report Name', 'garden-report', ' data-id="' + esc(g.id) + '" data-user="' + esc(x.id) + '"', 'danger-text') : ''), '',
+      'Blocking hides ' + esc(first) + '’s puppy from you and stops their messages. Report sends the puppy’s name to Mauro. Nobody else finds out.');
+    openDialog({ title: cd ? cd.name : nm, body: body });
   }
   var PET_ACT = {
     'pet-adopt': function () { openAdopt(false); },
@@ -4418,16 +6491,71 @@
     'pet-more': function () { openPetSettings(); },
     'pet-focus': function () {
       if (S.timer) return;
-      ACT['focus-start']();
+      petFocus(UI.focusLen);
       toast(S.pet ? S.pet.name + ' grows when the session ends' : 'Focus timer started');
+    },
+    'pet-revive': function () {
+      if (S.timer) return;
+      petFocus(PET_REVIVE);
+      toast(S.pet ? S.pet.name + ' comes back when the session ends' : 'Focus timer started');
     },
     'pet-goodbye': function (el) {
       if (!arm(el, 'Press again to say goodbye')) return;
       var nm = S.pet ? S.pet.name : '';
       petStop(); S.pet = null;
       closeDialog(); save(); render();
+      petCardSoon(true);
       toast('You said goodbye to ' + nm);
-    }
+    },
+    'pet-garden': function (el) { gardenSetView(el.dataset.id || ''); },
+    'garden-new': function () { openGardenNew(); },
+    'garden-info': function (el) { openGardenInfo(el.dataset.id); },
+    'garden-invite': function (el) { openGardenInvite(el.dataset.id); },
+    'garden-rename': function () { var g = GARDEN.view && gardenById(GARDEN.view); if (g) openGardenRename(g.id); },
+    'garden-join': function (el) {
+      var id = el.dataset.id;
+      el.disabled = true;
+      gardenPost('/api/garden/answer', { garden: id, join: true }, 'You joined the garden', function () {
+        GARDEN.view = id; if (ME) sset('myib:petview:' + ME.id, id);
+        gardenLoad().then(function () { gardenPoll(true); });
+      }).then(function () { if (el.isConnected) el.disabled = false; });
+    },
+    'garden-decline': function (el) {
+      var id = el.dataset.id;
+      el.disabled = true;
+      gardenPost('/api/garden/answer', { garden: id, join: false }, 'Invite declined', function () {
+        GARDEN.invites = GARDEN.invites.filter(function (x) { return x.id !== id; });
+        renderNav(); if (UI.tab === 'pet') render();
+      }).then(function () { if (el.isConnected) el.disabled = false; });
+    },
+    'garden-leave': function (el) {
+      var id = el.dataset.id;
+      if (!id || !arm(el, 'Press again to leave')) return;
+      gardenPost('/api/garden/leave', { garden: id }, 'You left the garden', function () {
+        closeDialog();
+        delete GARDEN.pets[id];
+        if (GARDEN.view === id) { GARDEN.view = ''; if (ME) sset('myib:petview:' + ME.id, ''); }
+        gardenLoad();
+      });
+    },
+    'garden-report': function (el) {
+      if (!arm(el, 'Press again to report')) return;
+      var body = { garden: el.dataset.id };
+      if (el.dataset.user) body.user = el.dataset.user;
+      gardenPost('/api/garden/report', body, 'Reported. Thanks for telling Mauro.', function () { closeDialog(); });
+    },
+    'garden-block': function (el) {
+      var id = el.dataset.id;
+      if (!id || !arm(el, 'Press again to block')) return;
+      gardenPost('/api/chat/block', { user: id }, 'Blocked', function () {
+        if (typeof CHAT === 'object' && CHAT.blocked && !blockedId(id)) CHAT.blocked.push({ id: id, name: who(id).name, avatar: who(id).avatar, free: who(id).free });
+        closeDialog();
+        Object.keys(GARDEN.pets).forEach(function (k) { GARDEN.pets[k].list = GARDEN.pets[k].list.filter(function (x) { return x.id !== id; }); });
+        petGuests(); paintFriends();
+        gardenLoad();
+      });
+    },
+    'friend-pet': function (el) { openFriendPet(el.dataset.id); }
   };
 
   var ACT = {
@@ -4467,7 +6595,77 @@
       S.tasks.forEach(function (x) { if (x.event === id) x.event = null; });
       closeDialog(); save(); render(); toast('Event deleted', snap);
     },
-    'task-open': function (el) { openTask(el.dataset.id); },
+    'task-open': function (el) { openTask(el.dataset.id, { occ: el.dataset.date }); },
+    'rem-open': function () { openReminders(); },
+    'import-open': function () { openImport(); },
+    'imp-file': function () { var f = $('#ics-file', dlg); if (f) f.click(); },
+    'imp-link': function (el) { importLink(el); },
+    'imp-how': function (el) {
+      var l = $('#ics-link', dlg), k = $('#ics-keep', dlg), b = $('.sheet-body', dlg), top = b ? b.scrollTop : 0;
+      if (l) IMPORT.link = l.value;
+      if (k) IMPORT.keep = k.checked;
+      IMPORT.how = IMPORT_HOW[el.dataset.how] ? el.dataset.how : 'iphone';
+      openImport();
+      var b2 = $('.sheet-body', dlg); if (b2) b2.scrollTop = top;
+    },
+    'feed-sync': function (el) {
+      var f = S.settings.feeds.filter(function (x) { return x.id === el.dataset.id; })[0];
+      if (!f) return;
+      el.disabled = true; el.textContent = 'Updating…';
+      feedSync(f, false);
+    },
+    'feed-del': function (el) {
+      if (!arm(el, 'Remove?')) return;
+      var id = el.dataset.id, tag = 'f:' + id + ':', snap = snapshot(), n = 0;
+      S.settings.feeds = S.settings.feeds.filter(function (x) { return x.id !== id; });
+      S.events = S.events.filter(function (e) { var mine = e.ext && e.ext.indexOf(tag) === 0; if (mine) n++; return !mine; });
+      S.tasks = S.tasks.filter(function (x) { var mine = x.ext && x.ext.indexOf(tag) === 0; if (mine) n++; return !mine; });
+      save(); render(); openImport();
+      toast('Calendar removed' + (n ? ' with ' + n + (n === 1 ? ' date' : ' dates') : ''), snap);
+    },
+    'rem-plan': function (el) {
+      var v = Number(el.dataset.v);
+      remSave(function (R) { R.plan = v; });
+      remRefresh();
+    },
+    'push-test': function (el) {
+      el.disabled = true;
+      api('POST', '/api/push/test', {}).then(function (r) {
+        el.disabled = false;
+        if (r.status === 200 && r.data && r.data.sent) toast('Sent. It shows up in a few seconds.');
+        else if (r.status === 429) toast('Wait a minute before the next test.');
+        else { toast('That didn’t go through. Turn notifications off and on, then try again.'); }
+      }, function () { el.disabled = false; toast('You’re offline.'); });
+    },
+    'rep-preset': function (el) {
+      var days = el.dataset.days ? el.dataset.days.split(',') : [];
+      $$('input[name="rep"]', dlg).forEach(function (c) { c.checked = days.indexOf(c.value) >= 0; });
+      repLabel();
+    },
+    'task-skip': function (el) {
+      var x = taskById(el.dataset.id), d = el.dataset.date;
+      if (!isRep(x) || !DATE.test(d)) return;
+      var snap = snapshot();
+      if (x.skip.indexOf(d) < 0) { x.skip.push(d); x.skip.sort(); }
+      closeDialog(); save(); render(); toast('Skipped on ' + fDay(d), snap);
+    },
+    'tl-open': function (el) { var k = el.dataset.kind, id = el.dataset.id; if (k === 'task') openTask(id, { occ: el.dataset.date }); else if (k === 'event') openEvent(id); else openPlan(id); },
+    'tl-add': function (el, e) {
+      var r = el.getBoundingClientRect(), k = zoomOf(el) || 1;
+      var m = Math.floor((Number(el.dataset.t0) + (e.clientY - r.top) / k / PXM) / 15) * 15;
+      openPlan(null, { date: el.dataset.date, at: hm(Math.max(0, Math.min(1425, m))) });
+    },
+    'plan-new': function (el) { openPlan(null, { date: el.dataset.date }); },
+    'plan-open': function (el) { openPlan(el.dataset.id); },
+    'plan-kind': function (el) { planKind(el.dataset.kind); },
+    'plan-start': function (el) { planStart(planById(el.dataset.id)); },
+    'plan-delete': function (el) {
+      if (!arm(el)) return;
+      var id = el.dataset.id, snap = snapshot();
+      S.plans = S.plans.filter(function (x) { return x.id !== id; });
+      closeDialog(); save(); render(); toast('Study block deleted', snap);
+    },
+    'toast-act': function () { var a = toastAct; hideToast(); if (a && a.fn) a.fn(); },
     'task-new': function (el) { openTask(null, { date: el.dataset.date, event: el.dataset.event, subject: el.dataset.subject }); },
     'task-delete': function (el) {
       if (!arm(el)) return;
@@ -4499,12 +6697,19 @@
       S.sessions.forEach(function (x) { if (x.subject === id) x.subject = null; });
       S.papers.forEach(function (x) { if (x.subject === id) x.subject = null; });
       if (S.timer && S.timer.subject === id) S.timer.subject = null;
+      S.plans.forEach(function (x) { if (x.subject === id) x.subject = null; });
       closeDialog(); save(); render(); toast('Subject deleted', snap);
     },
-    'focus-len': function (el) { var m = Number(el.dataset.len); UI.focusLen = [25, 45, 60].indexOf(m) >= 0 ? m : 25; saveUI(); render(); },
+    'focus-len': function (el) {
+      if (el.dataset.len === 'up') UI.focusUp = true;
+      else { var m = Number(el.dataset.len); UI.focusLen = [25, 45, 60].indexOf(m) >= 0 ? m : 25; UI.focusUp = false; }
+      saveUI(); render();
+    },
     'focus-start': function () {
+      if (S.pet && petGraveCheck(S.pet, nowMs())) save();
       unlockAudio();
-      S.timer = { subject: subj(UI.focusSubject) ? UI.focusSubject : null, len: UI.focusLen, startedAt: nowMs(), pausedAt: null, pausedTotal: 0 };
+      S.timer = { subject: subj(UI.focusSubject) ? UI.focusSubject : null, len: UI.focusUp ? 720 : UI.focusLen, startedAt: nowMs(), pausedAt: null, pausedTotal: 0 };
+      if (UI.focusUp) S.timer.up = true;
       save(); render();
     },
     'focus-pause': function () { if (!S.timer || S.timer.pausedAt != null) return; S.timer.pausedAt = nowMs(); save(); render(); },
@@ -4519,7 +6724,7 @@
       if (!st) return;
       var m = Math.floor(st.elapsed / 60000);
       S.timer = null;
-      if (m >= 1) { logSession(st.subject, m, toISO(new Date(st.startedAt)), timerId(st)); toast(dur(m) + ' of ' + nameOrGeneral(st.subject) + ' logged'); }
+      if (m >= 1) { logSession(st.subject, m, toISO(new Date(st.startedAt)), timerId(st)); toast(dur(m) + ' of ' + nameOrGeneral(st.subject) + ' logged' + petNote()); if (m >= 10) celebrate(null, m >= 25); }
       else toast('Under a minute, so nothing was logged');
       save(); render();
     },
@@ -4527,7 +6732,7 @@
     'focus-log': function () { openLog(); },
     'backup-export': function () { exportBackup(); },
     'backup-import': function () { var f = $('#import-file'); if (f) f.click(); },
-    'ics-export': function () { download('myib.ics', buildICS(), 'text/calendar;charset=utf-8'); toast('Calendar file downloaded'); },
+    'ics-export': function () { download('bloc.ics', buildICS(), 'text/calendar;charset=utf-8'); toast('Calendar file downloaded'); },
     'reset-all': function (el) {
       if (!arm(el, isFree() ? 'Press again to empty your planner' : 'Press again to reset')) return;
       var snap = snapshot(), keep = { theme: S.settings.theme, accent: S.settings.accent, pet: S.pet };
@@ -4541,7 +6746,7 @@
       api('GET', '/api/starter').then(function (r) {
         if (r.status === 200 && r.data) apply(r.data.starter || clone(DEFAULTS));
         else toast('Couldn’t load your starting data. Try again.');
-      }, function () { toast('Can’t reach MyIB. Check your connection.'); });
+      }, function () { toast('Can’t reach Bloc. Check your connection.'); });
     },
     'dlg-close': function () { closeDialog(); },
     'dlg-back': function () { var b = dlgBack; dlgBack = null; if (b) b(); else closeDialog(); },
@@ -4566,7 +6771,29 @@
       AUTH.pick = el.dataset.id; AUTH.step = 'password'; AUTH.err = ''; AUTH.reason = ''; AUTH.show = false;
       renderAuth(true);
     },
-    'auth-back': function () { AUTH.step = 'names'; AUTH.pick = null; AUTH.err = ''; AUTH.reason = ''; renderAuth(); },
+    'auth-back': function () {
+      AUTH.step = AUTH.step === 'other' && deviceLevel() !== 'ib' ? 'level' : 'names';
+      AUTH.pick = null; AUTH.err = ''; AUTH.reason = ''; renderAuth();
+    },
+    'auth-levels': function () { AUTH.step = 'level'; AUTH.pick = null; AUTH.err = ''; AUTH.reason = ''; renderAuth(); },
+    'auth-level': function (el) {
+      var l = LEVEL_IDS.indexOf(el.dataset.level) >= 0 ? el.dataset.level : 'ib';
+      sset('myib:level', l);
+      AUTH.err = ''; AUTH.reason = '';
+      if (l === 'ib') AUTH.step = 'names';
+      else { AUTH.step = 'other'; AUTH.mode = sget('myib:last') && KNOWN.indexOf(sget('myib:last')) < 0 ? 'login' : 'join'; }
+      renderAuth(true);
+    },
+    'level-open': function () { openLevel(); },
+    'level-set': function (el) {
+      var l = LEVEL_IDS.indexOf(el.dataset.level) >= 0 ? el.dataset.level : 'ib';
+      if (l === level()) { openSettings(); return; }
+      S.settings.level = l; sset('myib:level', l);
+      save(); render();
+      var bs = $('.brand-sub'); if (bs) bs.textContent = LV().short + ' · 2026–27';
+      openSettings();
+      toast('Set to ' + LV().name);
+    },
     'auth-show': function (el) {
       AUTH.show = !AUTH.show;
       $$('#au-pw, #au-pw2').forEach(function (i) { i.type = AUTH.show ? 'text' : 'password'; });
@@ -4601,7 +6828,7 @@
           if (c) c.scrollIntoView({ block: 'center' });
         } else if (r.status === 401) sessionLost();
         else toast('Couldn’t make a link. Try again.');
-      }, function () { toast('Can’t reach MyIB. Check your connection.'); });
+      }, function () { toast('Can’t reach Bloc. Check your connection.'); });
     },
     'cal-copy': function (el) { var u = calUrl(); if (u) copyText(u, el, 'Link copied'); },
     'legacy-use': function (el) {
@@ -4621,7 +6848,7 @@
         if (r.status === 200) { ME.avatar = null; writeCache(); renderNav(); settingsTouched = true; openPfp(); toast('Photo removed'); }
         else if (r.status === 401) sessionLost();
         else toast('Couldn’t remove it (error ' + r.status + ')');
-      }, function () { toast('Can’t reach MyIB. Check your connection.'); });
+      }, function () { toast('Can’t reach Bloc. Check your connection.'); });
     },
     'admin-pfp-remove': function (el) {
       if (!arm(el, 'Press again to take the photo down')) return;
@@ -4629,7 +6856,7 @@
       api('POST', '/api/admin/avatar', { user: id }).then(function (r) {
         if (r.status === 200) { reloadAdmin(id); toast('Photo taken down'); }
         else toast('Couldn’t remove it (error ' + r.status + ')');
-      }, function () { toast('Can’t reach MyIB. Check your connection.'); });
+      }, function () { toast('Can’t reach Bloc. Check your connection.'); });
     },
 
     /* setup guide */
@@ -4691,7 +6918,7 @@
         if (r.status === 200 && r.data) { setConf(Object.assign({ cal: CONF.cal }, r.data)); writeCache(); openPapersEditor(null); toast('Past Papers are back to the default'); }
         else if (r.status === 401) sessionLost();
         else toast('Couldn’t reset it (error ' + r.status + ')');
-      }, function () { toast('Can’t reach MyIB. Check your connection.'); });
+      }, function () { toast('Can’t reach Bloc. Check your connection.'); });
     },
     'admin-delete': function (el) {
       if (!arm(el, 'Press again to delete for good')) return;
@@ -4700,16 +6927,16 @@
         if (r.status === 200) { delete RESET_CODES[id]; toast('@' + id + ' deleted'); openAdmin(); }
         else if (r.status === 401) sessionLost();
         else toast('Couldn’t delete it (error ' + r.status + ')');
-      }, function () { toast('Can’t reach MyIB. Check your connection.'); });
+      }, function () { toast('Can’t reach Bloc. Check your connection.'); });
     },
     'admin-user': function (el) { if (adminUser(el.dataset.id)) openAdminUser(el.dataset.id); else reloadAdmin(el.dataset.id); },
     'admin-export': function (el) {
       var id = el.dataset.id;
       api('GET', '/api/admin/export?user=' + encodeURIComponent(id)).then(function (r) {
-        if (r.status === 200 && r.data) { download('myib-' + id + '-' + today() + '.json', JSON.stringify(r.data, null, 2), 'application/json'); flash(el, 'Downloaded'); }
+        if (r.status === 200 && r.data) { download('bloc-' + id + '-' + today() + '.json', JSON.stringify(r.data, null, 2), 'application/json'); flash(el, 'Downloaded'); }
         else if (r.status === 404) toast('There’s no saved planner yet');
         else toast('Couldn’t download it (error ' + r.status + ')');
-      }, function () { toast('Can’t reach MyIB. Check your connection.'); });
+      }, function () { toast('Can’t reach Bloc. Check your connection.'); });
     },
     'admin-import': function () { var f = $('#admin-file', dlg); if (f) f.click(); },
     'admin-copy-code': function (el) { var c = RESET_CODES[el.dataset.id]; if (c) copyText(c, el, 'Copied'); },
@@ -4718,7 +6945,7 @@
       api('POST', '/api/admin/plus', { user: id, on: on }).then(function (r) {
         if (r.status === 200) { reloadAdmin(id); toast(on ? 'Plus is on for them' : 'Plus removed'); }
         else toast('Couldn’t change it (error ' + r.status + ')');
-      }, function () { toast('Can’t reach MyIB. Check your connection.'); });
+      }, function () { toast('Can’t reach Bloc. Check your connection.'); });
     },
     'admin-reset': function (el) {
       var fresh = /Setup Code/.test(el.textContent);
@@ -4727,7 +6954,7 @@
       api('POST', '/api/admin/reset', { user: id }).then(function (r) {
         if (r.status === 200 && r.data && r.data.code) { RESET_CODES[id] = r.data.code; reloadAdmin(id); toast(fresh ? 'Setup code made. Give it to them.' : 'Password reset. Give them the code.'); }
         else toast('Couldn’t reset it (error ' + r.status + ')');
-      }, function () { toast('Can’t reach MyIB. Check your connection.'); });
+      }, function () { toast('Can’t reach Bloc. Check your connection.'); });
     },
     'admin-erase': function (el) {
       if (!arm(el, 'Press again to erase for good')) return;
@@ -4735,7 +6962,7 @@
       api('POST', '/api/admin/erase', { user: id }).then(function (r) {
         if (r.status === 200) { reloadAdmin(id); toast('Planner erased'); }
         else toast('Couldn’t erase it (error ' + r.status + ')');
-      }, function () { toast('Can’t reach MyIB. Check your connection.'); });
+      }, function () { toast('Can’t reach Bloc. Check your connection.'); });
     },
     'chat-open': function (el) { chatOpen(el.dataset.id); },
     'chat-agree': function () { if (ME) { sset('myib:chatok:' + ME.id, '1'); render(); chatWake(60); } },
@@ -4850,7 +7077,9 @@
     undo: function () {
       if (!undoSnap) return;
       try { S = sanitize(JSON.parse(undoSnap)); } catch (e) { return; }
-      undoSnap = null; save(); render(); toast('Undone');
+      undoSnap = null; save(); render();
+      if (dlg.open && (curSheet === openImport || curSheet === openReminders)) curSheet();
+      toast('Undone');
     }
   };
 
@@ -4870,28 +7099,60 @@
     if (k === 'task-done') {
       var x = taskById(el.dataset.id);
       if (!x) return;
-      var snap = snapshot();
-      x.done = el.checked;
-      x.doneAt = x.done ? today() : null;
+      var snap = snapshot(), od = el.dataset.date;
+      if (isRep(x)) {
+        if (!DATE.test(od)) od = nextOcc(x, today(), !el.checked) || today();
+        var i = x.doneOn.indexOf(od);
+        if (el.checked && i < 0) { x.doneOn.push(od); x.doneOn.sort(); }
+        if (!el.checked && i >= 0) x.doneOn.splice(i, 1);
+        if (x.doneOn.length > 500) x.doneOn = x.doneOn.slice(-500);
+      } else {
+        x.done = el.checked;
+        x.doneAt = x.done ? today() : null;
+      }
       save();
-      if (x.done) toast('Nice, task done', snap);
-      setTimeout(render, 260);
+      if (el.checked) {
+        var tl = tasksOn(today()), all = tl.length > 1 && tl.every(function (y) { return y.done; });
+        celebrate(el, all);
+        toast(all ? 'Everything for today is done' : isRep(x) ? 'Done for ' + (od === today() ? 'today' : fDay(od)) : 'Nice, task done', snap);
+      }
+      setTimeout(render, 420);
     } else if (k === 'focus-subject') { UI.focusSubject = el.value || null; saveUI(); }
     else if (k === 'tt-weekend') { S.settings.weekend = el.checked; save(); render(); }
+    else if (k === 'rep-day') repLabel();
     else if (k === 'cal-past') { UI.showPast = el.checked; saveUI(); render(); }
     else if (k === 'tasks-done') { UI.showDone = el.checked; saveUI(); render(); }
     else if (el.id === 'import-file') importFile(el);
+    else if (el.id === 'ics-file') importPicked(el);
     else if (el.id === 'admin-file') adminImportFile(el);
     else if (el.id === 'pfp-file') pfpFile(el);
     else if (el.name === 'u' && el.closest('.chat-pick')) pickChanged();
+    else if (el.id === 'pw-unlock') petUnlock(el.checked);
     else if (el.id === 's-remind') {
-      var R = remindPrefs(), tr = $('.remind-time', dlg);
+      var R = remindPrefs();
       if (el.checked) { el.checked = R.on; remindTurnOn(); }
-      else { R.on = false; saveRemind(R); if (tr) tr.hidden = true; nativeSync(true); }
-    } else if (el.id === 's-rtime') {
-      var R2 = remindPrefs();
-      R2.time = el.value; saveRemind(R2); nativeSync(true);
-    }
+      else { R.on = false; saveRemind(R); nativeSync(true); if (curSheet === openReminders) remRefresh(); }
+    } else if (el.id === 's-push') {
+      el.disabled = true;
+      (el.checked ? pushOn() : pushOff().then(function () { return true; })).then(function (ok) {
+        if (ok && el.checked) toast('Notifications are on');
+        if (curSheet === openReminders) remRefresh();
+      });
+    } else if (k === 'rem-dot') {
+      var tr2 = el.closest('.rem-track'), kind = tr2 && tr2.dataset.kind;
+      if (kind) remSave(function (R) {
+        R.ev[kind] = remOffs($$('input:checked', tr2).map(function (c) { return Number(c.value); }));
+        if (kind === 'exam') R.ev.mock = R.ev.exam.slice();
+      });
+      if (kind) remRefresh();
+      else { var w = el.closest('.ev-rem'); if (w) evRemLabel(w); }
+    } else if (k === 'rem-time') {
+      remSave(function (R) { if (TIME.test(el.value)) R[el.name === 'eve' ? 'eve' : 'morn'] = el.value; });
+      remRefresh();
+    } else if (k === 'ev-remmode') {
+      var box = $('.ev-rem-custom', dlg); if (box) box.hidden = el.value !== 'custom';
+      evRemLabel();
+    } else if (k === 'ev-type') evRemLabel();
   });
 
   document.addEventListener('input', function (e) {
@@ -4984,7 +7245,7 @@
   function idle() {
     var a = document.activeElement;
     var typing = a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'checkbox' && $('#view').contains(a);
-    return !dlg.open && !typing;
+    return !dlg.open && !typing && !DRAG;
   }
   function tick() {
     if (MODE !== 'app') return;
@@ -4997,10 +7258,18 @@
       lastDay = day;
       UI.todayWhich = null;
       if (prev && UI.calSel === prev) UI.calSel = day;
-      if (prev && idle()) render();
+      REM_CACHE.at = 0;
+      if (prev) pushPlanSoon();
+      /* a new day always repaints: now if you're not typing, otherwise as soon as you stop */
+      if (prev) { if (idle()) render(); else SYNC.needRender = true; }
     }
     if (m !== lastMinute) {
       lastMinute = m;
+      petWatch();
+      planWatch();
+      remWatch();
+      feedsDue();
+      if (UI.tab === 'calendar') tlNow();
       if ((UI.tab === 'today' || UI.tab === 'timetable') && idle()) render();
     }
   }
@@ -5019,7 +7288,7 @@
     b.classList.add('mode-' + m);
   }
   function brandHTML() {
-    return '<div class="auth-brand"><img class="auth-logo" src="icons/icon-192.png" alt="" width="64" height="64"><p class="auth-name">MyIB</p><p class="auth-tag">IB planner · 2026–27</p></div>';
+    return '<div class="auth-brand"><img class="auth-logo" src="icons/icon-192.png" alt="" width="64" height="64"><p class="auth-name">' + BRAND + '</p><p class="auth-tag">Your school planner</p></div>';
   }
   function showSplash() {
     setMode('boot');
@@ -5033,10 +7302,10 @@
       (action ? '<button type="button" class="btn primary auth-go" data-act="auth-retry">' + esc(action) + '</button>' : '') + '</section>';
   }
   function setupNeeded() {
-    showNotice('MyIB isn’t connected to its database yet',
-      'If you run MyIB: in Cloudflare, open this Pages project → Settings → Bindings, add a D1 database with the variable name <b>DB</b>, then deploy again.', 'Try Again');
+    showNotice('Bloc isn’t connected to its database yet',
+      'If you run Bloc: in Cloudflare, open this Pages project → Settings → Bindings, add a D1 database with the variable name <b>DB</b>, then deploy again.', 'Try Again');
   }
-  function serverDown() { showNotice('Can’t reach MyIB right now', 'Check your connection and try again in a moment.', 'Try Again'); }
+  function serverDown() { showNotice('Can’t reach Bloc right now', 'Check your connection and try again in a moment.', 'Try Again'); }
 
   /* Leave the app: save what's pending to this browser's copy, then clear the screen. */
   function stopApp() {
@@ -5047,12 +7316,12 @@
     closeDialog(); hideToast();
     ME = null; CONF = blankConf();
     clearTimeout(CHAT.timer); CHAT = freshChat();
-    petStop();
+    petStop(); gardenStop();
     document.body.classList.remove('chat-conv', 'kb-open');
     paintBadge();
     S = sanitize(clone(DEFAULTS));
     document.documentElement.removeAttribute('data-accent');
-    document.title = 'MyIB';
+    document.title = 'Bloc';
     $('#view').innerHTML = '';
     renderBanner();
   }
@@ -5063,25 +7332,37 @@
     if (fresh) { UI.tab = 'today'; try { history.replaceState(null, '', '#today'); } catch (e) { /* ignore */ } }
     else if (h === 'chat' || h.indexOf('chat/') === 0) { UI.tab = 'chat'; CHAT.open = parseHash(h).conv; }
     else UI.tab = TABS.some(function (x) { return x[0] === h; }) ? h : UI.tab && UI.tab !== 'chat' ? UI.tab : 'today';
-    UI.calMonth = t.slice(0, 7); UI.calSel = t; UI.todayWhich = null;
+    UI.calMonth = t.slice(0, 7); UI.calSel = t; UI.todayWhich = null; UI.enter = true;
     if (!subj(UI.focusSubject)) {
       var nx = S.events.filter(function (e) { return e.subject && (e.type === 'deadline' || e.type === 'exam') && !e.done && e.start >= t; }).sort(byStart)[0];
       UI.focusSubject = nx ? nx.subject : null;
     }
     var bs = $('.brand-sub');
-    if (bs) bs.textContent = isFree() ? 'IB · 2026–27' : '2º BI · 2026–27';
+    if (bs) bs.textContent = isFree() ? LV().short + ' · 2026–27' : '2º BI · 2026–27';
+    /* an older planner from outside the class takes the level picked on this device */
+    if (!S.settings.level && isFree() && deviceLevel()) { S.settings.level = deviceLevel(); save(); }
     render();
     $('#view').focus({ preventScroll: true });
     scheduleNag();
     welcomeIfNew();
     chatWake(UI.tab === 'chat' ? 100 : 1500);
+    setTimeout(gardenLoad, 1200);
     openFromLink();
     remindAsk();
+    REM_SEEN.last = 0;
+    pushPlanSoon();
+    setTimeout(feedsDue, 4000);
   }
   /* myib.app/?open=plus or ?open=support: the iPhone app sends people here to pay or support */
   function openFromLink() {
     var want = null;
     try { want = new URLSearchParams(location.search).get('open'); } catch (e) { want = null; }
+    if (want === 'day' || want === 'pet' || want === 'today') {
+      var u = location.href;
+      try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) { /* ignore */ }
+      setTimeout(function () { openUrl(u); }, 300);
+      return;
+    }
     if (want !== 'plus' && want !== 'support') return;
     try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) { /* ignore */ }
     setTimeout(function () { if (MODE === 'app' && ME && !dlg.open) (want === 'plus' ? openPlus : openSupport)(null); }, 700);
@@ -5102,10 +7383,12 @@
     stopApp();
     setMode('auth');
     /* a username from outside the class goes to its own log in form */
-    var outside = o.pick && KNOWN.indexOf(o.pick) < 0;
-    AUTH.step = outside ? 'other' : o.pick ? 'password' : 'names';
+    var outside = o.pick && KNOWN.indexOf(o.pick) < 0, lv = deviceLevel();
+    /* first time on this device: what do you study? IB shows the class; the rest get their own account */
+    AUTH.step = outside ? 'other' : o.pick ? 'password' : !lv ? 'level' : lv === 'ib' ? 'names' : 'other';
     AUTH.pick = outside ? null : o.pick || null;
     if (outside) { AUTH.mode = 'login'; AUTH.uname = o.pick; }
+    else if (AUTH.step === 'other') AUTH.mode = sget('myib:last') ? 'login' : 'join';
     AUTH.reason = o.reason || ''; AUTH.err = ''; AUTH.busy = false; AUTH.show = false; AUTH.offline = false;
     renderAuth();
     loadUsers();
@@ -5125,6 +7408,7 @@
   }
   function renderAuth(fromTap) {
     if (MODE !== 'auth') return;
+    if (AUTH.step === 'level') { authBox.innerHTML = authLevelHTML(); return; }
     if (AUTH.step === 'other') {
       authBox.innerHTML = authOtherHTML();
       var first = AUTH.mode === 'join' ? ['#au-name', '#au-user', '#au-pw'] : AUTH.mode === 'reset' ? ['#au-code'] : ['#au-user', '#au-pw'];
@@ -5150,22 +7434,37 @@
           '<span class="who-name">' + esc(u.name) + '</span>' + (u.claimed ? '' : '<span class="who-new">New</span>') + '</button></li>';
       }).join('') + '</ul>';
     } else if (AUTH.offline) {
-      body = '<p class="auth-note">Can’t reach MyIB. Check your connection.</p><button type="button" class="btn primary auth-go" data-act="auth-retry">Try Again</button>';
+      body = '<p class="auth-note">Can’t reach Bloc. Check your connection.</p><button type="button" class="btn primary auth-go" data-act="auth-retry">Try Again</button>';
     } else {
       body = '<div class="sheet-loading" role="status"><span class="spinner" aria-hidden="true"></span><span class="sr">Loading</span></div>';
     }
-    return '<section class="auth-card" aria-labelledby="auth-h">' + brandHTML() +
-        '<h1 class="auth-q" id="auth-h">Who’s using MyIB?</h1>' + body +
+    return '<section class="auth-card" aria-labelledby="auth-h">' +
+        '<button type="button" class="auth-back" data-act="auth-levels">' + icon('left') + '<span>Back</span></button>' + brandHTML() +
+        '<h1 class="auth-q" id="auth-h">Who’s using ' + BRAND + '?</h1>' + body +
         '<button type="button" class="auth-alt" data-act="auth-other"><span class="two-line"><b>I’m not in Sociales 2 IB</b><span>Make your own free account</span></span>' + icon('chev') + '</button>' +
         '<p class="auth-foot">Your planner is private. Only you can open it, with your own password. <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></p>' +
       '</section>';
   }
 
+  /* the first screen: four big buttons */
+  function authLevelHTML() {
+    var cur = deviceLevel();
+    return '<section class="auth-card level-card" aria-labelledby="auth-h">' + brandHTML() +
+        '<h1 class="auth-q" id="auth-h">What do you study?</h1>' +
+        '<ul class="levels">' + LEVEL_IDS.map(function (k, i) {
+          var L = LEVELS[k];
+          return '<li style="--i:' + i + '"><button type="button" class="level-btn lv-' + k + '" data-act="auth-level" data-level="' + k + '" aria-pressed="' + (cur === k) + '">' +
+            '<span class="level-tile" aria-hidden="true">' + esc(LEVEL_TILE[k]) + '</span>' +
+            '<span class="two-line"><b>' + esc(L.name) + '</b><span>' + esc(L.sub) + '</span></span>' + icon('chev') + '</button></li>';
+        }).join('') + '</ul>' +
+        '<p class="auth-foot">' + BRAND + ' sets up your planner for it. You can change it later in Settings. <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></p>' +
+      '</section>';
+  }
   /* Students outside the class: New Account, Log In, or (after Mauro resets it) a new password with his code. */
   function authOtherHTML() {
     var m = AUTH.mode, join = m === 'join', reset = m === 'reset', type = AUTH.show ? 'text' : 'password';
-    var title = join ? 'Your own MyIB' : reset ? 'New password' : 'Welcome back';
-    var sub = join ? 'Free for every IB student. Your planner starts empty, and a short guide helps you fill it in.'
+    var title = join ? 'Create Your Account' : reset ? 'New password' : 'Welcome back';
+    var sub = join ? 'Free, with no ads. A short guide helps you set up your planner.'
             : reset ? 'Enter the code Mauro gave you, then pick a new password.'
             : AUTH.reason || 'Log in with your username.';
     function field(label, name, id, auto, max, value, extra) {
@@ -5177,10 +7476,12 @@
         '" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="' + label + '">' +
         (withShow ? '<button type="button" class="show-pw" data-act="auth-show" aria-pressed="' + AUTH.show + '" aria-controls="' + id + '">' + (AUTH.show ? 'Hide' : 'Show') + '</button>' : '') + '</label>';
     }
+    var lv = deviceLevel() || 'ib';
     return '<form class="auth-card" data-form="auth-other" novalidate aria-labelledby="auth-h">' +
-        '<button type="button" class="auth-back" data-act="auth-back">' + icon('left') + '<span>Names</span></button>' +
+        '<button type="button" class="auth-back" data-act="auth-back">' + icon('left') + '<span>' + (lv === 'ib' ? 'Names' : 'Back') + '</span></button>' +
         '<img class="auth-logo small" src="icons/icon-192.png" alt="" width="52" height="52">' +
         '<h1 class="auth-hi" id="auth-h">' + title + '</h1>' +
+        (reset ? '' : '<button type="button" class="level-chip" data-act="auth-levels"><span class="level-tile mini lv-' + lv + '" aria-hidden="true">' + esc(LEVEL_TILE[lv]) + '</span>' + esc(LEVELS[lv].name) + '<span class="level-change">Change</span></button>') +
         '<p class="auth-sub">' + esc(sub) + '</p>' +
         (reset ? '' : '<div class="seg auth-seg" role="group" aria-label="Account">' +
           '<button type="button" data-act="auth-mode" data-mode="join" aria-pressed="' + join + '">New Account</button>' +
@@ -5201,7 +7502,7 @@
   function otherSubmit(form) {
     if (AUTH.busy) return;
     var fd = new FormData(form), m = AUTH.mode;
-    /* MyIB shows usernames as @name, so people may type the @ too */
+    /* Bloc shows usernames as @name, so people may type the @ too */
     var uname = String(fd.get('username') || '').trim().toLowerCase().replace(/^@+/, ''), pw = String(fd.get('password') || ''), name = '';
     AUTH.uname = uname;
     var au = $('#au-user'); if (au) au.value = uname;
@@ -5237,7 +7538,7 @@
       }
       if (r.status === 400 && d.error === 'username') return authError('Pick a username with 3 to 20 lowercase letters, numbers, dots or underscores.', '#au-user');
       if (r.status === 400 && d.error === 'name') return authError('Enter your first name.', '#au-name');
-      if (r.status === 400 && d.error === 'words') return authError('MyIB doesn’t allow that name or username. Pick another one.', '#au-user');
+      if (r.status === 400 && d.error === 'words') return authError('Bloc doesn’t allow that name or username. Pick another one.', '#au-user');
       if (r.status === 400 && d.error === 'user') return authError('Check your username.', '#au-user');
       if (r.status === 400 && d.error === 'common') return authError('That password is too easy to guess. Try another.', '#au-pw', true);
       if (r.status === 400 && (d.error === 'weak' || d.error === 'long')) return authError(d.error === 'weak' ? 'Use at least 6 characters.' : 'That password is too long.', '#au-pw');
@@ -5250,14 +7551,14 @@
       }
       if (r.status === 401 && d.error === 'wrong') { markFailed(uname, pw); return authError(wrongText(d, filled), '#au-pw', true); }
       if (r.status === 403 && d.error === 'reset_code') return authError('That code isn’t right. Ask Mauro for it again.', '#au-code', true);
-      if (r.status === 429 && d.error === 'busy') return authError('Lots of people joined MyIB today. Try again in ' + (d.wait > 90 ? Math.round(d.wait / 60) + ' hours.' : d.wait + ' min.'), '#au-user');
+      if (r.status === 429 && d.error === 'busy') return authError('Lots of people joined Bloc today. Try again in ' + (d.wait > 90 ? Math.round(d.wait / 60) + ' hours.' : d.wait + ' min.'), '#au-user');
       if (r.status === 429) return authError(d.error === 'slow' ? 'Too many new accounts from this network. Try again in ' + d.wait + ' min.' : 'Too many tries. Wait ' + d.wait + ' min, then try again.', m === 'join' ? '#au-user' : '#au-pw', m !== 'join');
-      if (r.status === 503 && d.error === 'full') return authError('MyIB has no room for new accounts right now. Ask Mauro.', '#au-user');
+      if (r.status === 503 && d.error === 'full') return authError('Bloc has no room for new accounts right now. Ask Mauro.', '#au-user');
       if (r.status === 503 && d.error === 'setup') return setupNeeded();
       authError('Something went wrong. Try again.', '#au-pw');
     }, function () {
       authBusy(false);
-      authError('Can’t reach MyIB. Check your connection.', '#au-pw');
+      authError('Can’t reach Bloc. Check your connection.', '#au-pw');
     });
   }
   function authPasswordHTML(u) {
@@ -5283,7 +7584,7 @@
       '</form>';
   }
   /* Saved passwords: Safari or iCloud Keychain can keep an old password, and then the one it fills in
-     fails every time. MyIB spots a password the browser filled in, says so, and never sends a password
+     fails every time. Bloc spots a password the browser filled in, says so, and never sends a password
      that just failed again, so it doesn't use up your tries. Only a short fingerprint is kept, in memory. */
   var FAILED = [];
   function pwPrint(user, pw) {
@@ -5298,7 +7599,7 @@
     try { if (el.matches(':autofill')) return true; } catch (e) { /* older browsers */ }
     try { return el.matches(':-webkit-autofill'); } catch (e) { return false; }
   }
-  var SAME_PW = 'That’s the password that just failed, so MyIB didn’t send it again. If your browser filled it in, its saved password is out of date: type yours instead.';
+  var SAME_PW = 'That’s the password that just failed, so Bloc didn’t send it again. If your browser filled it in, its saved password is out of date: type yours instead.';
   function wrongText(d, filled) {
     var tail = d.left ? d.left + (d.left === 1 ? ' try' : ' tries') + ' left.' : 'Wait ' + (d.wait || 15) + ' minutes, then try again.';
     return (filled ? 'The password your browser filled in is wrong, so its saved one is out of date. Type yours instead. ' : 'Wrong password. ') + tail;
@@ -5347,7 +7648,7 @@
       authError('Something went wrong. Try again.', '#au-pw');
     }, function () {
       authBusy(false);
-      authError('Can’t reach MyIB. Check your connection.', '#au-pw');
+      authError('Can’t reach Bloc. Check your connection.', '#au-pw');
     });
   }
 
@@ -5394,9 +7695,14 @@
   function logout(el) {
     flush();
     if (SYNC.pending && !arm(el, 'Not synced yet. Press again to log out')) { push(); return; }
-    var id = ME.id;
+    var id = ME.id, mine = pushMine();
     sset('myib:bye', '1');
-    api('POST', '/api/logout', {}).then(function (r) { if (r.status === 200) sdel('myib:bye'); }, function () {});
+    /* this browser stops getting the account's reminders */
+    api('POST', '/api/logout', mine ? { push: mine.endpoint } : {}).then(function (r) { if (r.status === 200) sdel('myib:bye'); }, function () {});
+    if (mine) {
+      sdel('myib:push:' + id); sdel('myib:pushplan:' + id);
+      swReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) { return sub && sub.unsubscribe(); }).catch(function () {});
+    }
     toNative({ type: 'logout' });
     stopApp();
     sdel(cacheKey(id)); sdel('myib:last');
@@ -5423,7 +7729,7 @@
       showAuth({});
     });
   }
-  /* new versions: ask for a fresh sw.js every 30 minutes and when MyIB comes back on screen */
+  /* new versions: ask for a fresh sw.js every 30 minutes and when Bloc comes back on screen */
   var updateReady = false, swReg = null, lastSwCheck = Date.now();
   function checkForUpdate() {
     if (!swReg || Date.now() - lastSwCheck < 30 * 60000) return;
@@ -5443,6 +7749,7 @@
     if (!SYNC.online || SYNC.needsLoad || Date.now() - SYNC.lastMe > 30 * 60000) { reconnect(); return; }
     if (SYNC.pending && !SYNC.inflight && !SYNC.timer) { push(); return; }
     if (SYNC.wantPull || Date.now() - SYNC.lastPull > 120000) pull();
+    if (Date.now() - GARDEN.loadedAt > 5 * 60000) gardenLoad();
   }
 
   /* =========================================================
@@ -5454,6 +7761,10 @@
     lastDay = today();
     lastMinute = nd.getHours() * 60 + nd.getMinutes();
     setInterval(tick, 1000);
+    /* a phone that slept overnight wakes on yesterday's page: check the day the moment it shows again */
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) tick(); });
+    window.addEventListener('pageshow', function () { tick(); });
+    window.addEventListener('focus', function () { tick(); });
     setInterval(heartbeat, 30000);
     checkSession();
     if ('serviceWorker' in navigator) {
@@ -5465,7 +7776,8 @@
         updateReady = true;
         reloadWhenQuiet();
       });
-      if (location.protocol === 'https:') {
+      /* https only; local tests turn it on with myib:devsw */
+      if (location.protocol === 'https:' || (/^(127\.0\.0\.1|localhost)$/.test(location.hostname) && sget('myib:devsw') === '1')) {
         window.addEventListener('load', function () {
           navigator.serviceWorker.register('sw.js').then(function (reg) { swReg = reg; }, function () {});
         });

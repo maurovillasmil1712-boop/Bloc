@@ -44,6 +44,19 @@
     return d;
   }
   /* a filled stroke along a chain of points, wide at the start and round at the tip */
+  function starD(cx, cy, r, k) {
+    var d = '';
+    for (var i = 0; i < 10; i++) { var a = (i * 36 - 90) * RAD, rr = i % 2 ? r * (k || 0.45) : r; d += (i ? 'L' : 'M') + pt(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
+    return d + 'Z';
+  }
+  function pawD(cx, cy, s) {
+    var d = 'M' + pt(cx - 4.2 * s, cy + 2.6 * s) + 'C' + pt(cx - 4.4 * s, cy - 1.2 * s) + ' ' + pt(cx + 4.4 * s, cy - 1.2 * s) + ' ' + pt(cx + 4.2 * s, cy + 2.6 * s) + 'C' + pt(cx + 4 * s, cy + 5 * s) + ' ' + pt(cx - 4 * s, cy + 5 * s) + ' ' + pt(cx - 4.2 * s, cy + 2.6 * s) + 'Z';
+    [[-4.6, -2.8], [-1.7, -5.2], [1.7, -5.2], [4.6, -2.8]].forEach(function (t) {
+      var x = cx + t[0] * s, y = cy + t[1] * s, r = 1.55 * s;
+      d += 'M' + pt(x - r, y) + 'A' + n2(r) + ' ' + n2(r) + ' 0 1 0 ' + pt(x + r, y) + 'A' + n2(r) + ' ' + n2(r) + ' 0 1 0 ' + pt(x - r, y) + 'Z';
+    });
+    return d;
+  }
   function taper(pts, w0, w1, from) {
     var L = [], R = [], n = pts.length, i0 = from || 0;
     for (var i = i0; i < n; i++) {
@@ -110,8 +123,18 @@
     { id: 'scarf', name: 'Scarf', slot: 'neck', hours: 0, plus: true },
     { id: 'shades', name: 'Sunglasses', slot: 'face', hours: 5, plus: true },
     { id: 'phones', name: 'Headphones', slot: 'head', hours: 15, plus: true },
-    { id: 'crown', name: 'Crown', slot: 'head', hours: 50, plus: true }
+    { id: 'crown', name: 'Crown', slot: 'head', hours: 50, plus: true },
+    /* street style */
+    { id: 'snapback', name: 'Snapback', slot: 'head', hours: 2 },
+    { id: 'chain', name: 'Gold Chain', slot: 'neck', hours: 5 },
+    { id: 'grillz', name: 'Grillz', slot: 'mouth', hours: 9 },
+    { id: 'bucket', name: 'Bucket Hat', slot: 'head', hours: 14 },
+    { id: 'ice', name: 'Iced-Out Chain', slot: 'neck', hours: 10, plus: true },
+    { id: 'car', name: 'Supercar', slot: 'ride', hours: 20, plus: true }
   ];
+  var SLOTS = ['neck', 'head', 'face', 'mouth', 'ride'];
+  /* a puppy that ran out of study time in exam season floats above its grave in these colours */
+  var GHOST = { id: 'ghost', name: 'Ghost', base: '#F2F6FF', light: '#FFFFFF', line: '#9DADD3', ear: '#E2E9FA', inner: '#FFFFFF', spot: '#DCE4F6', nose: '#AEBBDA', eye: '#6D7EA6' };
   function find(list, id) { for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return list[0]; }
   function breedOf(id) { return find(BREEDS, id); }
   function coatOf(b, id) { return find(b.coats, id); }
@@ -217,8 +240,10 @@
     return o;
   }
 
-  function Dog(parent, look, pfx) {
-    var br = breedOf(look.breed), C = coatOf(br, look.coat), st = stageOf(look.stage);
+  function Dog(parent, look, pfx, opts) {
+    var br = breedOf(look.breed), st = stageOf(look.stage), ghost = !!(opts && opts.ghost);
+    var C = ghost ? GHOST : coatOf(br, look.coat);
+    this.ghost = ghost;
     var d = this.d = dimsFor(br, st), R = d.R, L = d.L, H = d.H;
     var self0 = this;
     this.br = br; this.C = C; this.st = st; this.look = look;
@@ -334,6 +359,7 @@
     this.happyR = el('path', { fill: 'none', stroke: lidCol, 'stroke-width': 2.6, 'stroke-linecap': 'round' }, face);
     this.mouthIn = el('path', { fill: '#8E2F3A', stroke: mix(line, '#2E2522', 0.5), 'stroke-width': 1.8, 'stroke-linejoin': 'round' }, face);
     this.tongue = el('path', { fill: '#FF8398', stroke: '#D9546E', 'stroke-width': 1.4, 'stroke-linejoin': 'round' }, face);
+    this.mouthwear = el('g', null, face);
     this.mouth = el('path', { fill: 'none', stroke: mix(line, '#2E2522', 0.5), 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, face);
     var nw = R * 0.36, nh = R * 0.25;
     this.nose = el('g', null, face);
@@ -345,13 +371,19 @@
     drawBall(this.ballMouth, 7);
     this.facewear = el('g', null, face);
     this.headwear = el('g', null, hg);
-    this.wear = { neck: null, head: null, face: null };
+    if (ghost) {
+      /* a halo instead of clothes */
+      el('ellipse', { cx: 0, cy: n2(-R * 1.3), rx: n2(R * 0.56), ry: n2(R * 0.17), fill: 'none', stroke: '#FFE58A', 'stroke-width': 5.5, opacity: 0.45 }, hg);
+      el('ellipse', { cx: 0, cy: n2(-R * 1.3), rx: n2(R * 0.56), ry: n2(R * 0.17), fill: 'none', stroke: '#FFC933', 'stroke-width': 2.6 }, hg);
+    }
+    this.wear = { neck: null, head: null, face: null, mouth: null, ride: null };
     this.dyn = {};
-    this.setWear(look.wear || {});
+    this.setWear(ghost ? {} : look.wear || {});
   }
   Dog.prototype.setWear = function (w) {
     var self = this, R = this.hR;
-    [['neck', this.neckwear], ['face', this.facewear], ['head', this.headwear]].forEach(function (s) {
+    this.wear.ride = w.ride === 'car' ? 'car' : null;
+    [['neck', this.neckwear], ['face', this.facewear], ['head', this.headwear], ['mouth', this.mouthwear]].forEach(function (s) {
       var id = w[s[0]] || null;
       if (self.wear[s[0]] === id) return;
       self.wear[s[0]] = id;
@@ -447,6 +479,78 @@
       [-1, 1].forEach(function (s) { el('circle', { cx: n2(s * R * 0.27), cy: n2(-R * 0.08), r: 1.7, fill: '#4DA3FF', stroke: '#B7861A', 'stroke-width': 0.9 }, cg); });
       [[-0.5, -0.4], [0, -0.5], [0.5, -0.4]].forEach(function (p) { el('circle', { cx: n2(p[0] * R), cy: n2(p[1] * R), r: 2, fill: '#FFE58A', stroke: '#B7861A', 'stroke-width': 1 }, cg); });
       return null;
+    }
+    if (id === 'snapback') {
+      /* flat brim, worn to the side */
+      var sg = el('g', { transform: 'translate(' + pt(-R * 0.04, -R * 0.6) + ') rotate(-9)' }, g);
+      el('path', { d: 'M' + pt(R * 0.3, -R * 0.06) + 'L' + pt(R * 1.2, -R * 0.14) + 'Q' + pt(R * 1.33, -R * 0.05) + ' ' + pt(R * 1.2, R * 0.05) + 'L' + pt(R * 0.26, R * 0.12) + 'Z', fill: '#26262E', stroke: '#0B0B0E', 'stroke-width': 1.8, 'stroke-linejoin': 'round' }, sg);
+      el('path', { d: 'M' + pt(R * 0.34, R * 0.07) + 'L' + pt(R * 1.18, R * 0.01), fill: 'none', stroke: '#2FBF71', 'stroke-width': 1.6, 'stroke-linecap': 'round' }, sg);
+      el('path', { d: 'M' + pt(-R * 0.75, R * 0.1) + 'C' + pt(-R * 0.8, -R * 0.64) + ' ' + pt(R * 0.8, -R * 0.64) + ' ' + pt(R * 0.75, R * 0.1) + 'Q0 ' + n2(R * 0.02) + ' ' + pt(-R * 0.75, R * 0.1) + 'Z', fill: '#33333D', stroke: '#0B0B0E', 'stroke-width': 1.9, 'stroke-linejoin': 'round' }, sg);
+      el('path', { d: 'M0 ' + n2(-R * 0.44) + 'L0 ' + n2(R * 0.05) + 'M' + pt(-R * 0.4, -R * 0.33) + 'Q' + pt(-R * 0.33, -R * 0.12) + ' ' + pt(-R * 0.37, R * 0.08) + 'M' + pt(R * 0.4, -R * 0.33) + 'Q' + pt(R * 0.33, -R * 0.12) + ' ' + pt(R * 0.37, R * 0.08), fill: 'none', stroke: '#50505C', 'stroke-width': 1.1 }, sg);
+      el('ellipse', { cx: 0, cy: n2(-R * 0.45), rx: 3.2, ry: 1.9, fill: '#FFC933', stroke: '#B7861A', 'stroke-width': 1 }, sg);
+      el('path', { d: starD(-R * 0.2, -R * 0.13, R * 0.17), fill: '#FFC933', stroke: '#B7861A', 'stroke-width': 0.9, 'stroke-linejoin': 'round' }, sg);
+      return null;
+    }
+    if (id === 'bucket') {
+      var bk = el('g', { transform: 'translate(' + pt(0, -R * 0.66) + ') rotate(-4)' }, g);
+      el('path', { d: 'M' + pt(-R * 0.62, -R * 0.03) + 'L' + pt(-R * 0.5, -R * 0.52) + 'Q0 ' + n2(-R * 0.66) + ' ' + pt(R * 0.5, -R * 0.52) + 'L' + pt(R * 0.62, -R * 0.03) + 'Z', fill: '#F6F0E1', stroke: '#6F6656', 'stroke-width': 1.9, 'stroke-linejoin': 'round' }, bk);
+      el('path', { d: 'M' + pt(-R * 0.6, -R * 0.1) + 'L' + pt(R * 0.6, -R * 0.1) + 'L' + pt(R * 0.56, -R * 0.26) + 'L' + pt(-R * 0.56, -R * 0.26) + 'Z', fill: '#22222A' }, bk);
+      el('path', { d: 'M' + pt(-R * 1.04, R * 0.2) + 'Q' + pt(-R * 0.92, -R * 0.08) + ' ' + pt(-R * 0.62, -R * 0.05) + 'L' + pt(R * 0.62, -R * 0.05) + 'Q' + pt(R * 0.92, -R * 0.08) + ' ' + pt(R * 1.04, R * 0.2) + 'Q0 ' + n2(R * 0.38) + ' ' + pt(-R * 1.04, R * 0.2) + 'Z', fill: '#F6F0E1', stroke: '#6F6656', 'stroke-width': 1.9, 'stroke-linejoin': 'round' }, bk);
+      el('path', { d: 'M' + pt(-R * 0.9, R * 0.15) + 'Q0 ' + n2(R * 0.29) + ' ' + pt(R * 0.9, R * 0.15), fill: 'none', stroke: '#B8AD95', 'stroke-width': 1.1, 'stroke-dasharray': '2.2 2' }, bk);
+      el('path', { d: 'M' + pt(-R * 0.28, -R * 0.38) + 'L' + pt(-R * 0.1, -R * 0.4), fill: 'none', stroke: '#fff', 'stroke-width': 2, 'stroke-linecap': 'round', opacity: 0.8 }, bk);
+      return null;
+    }
+    if (id === 'chain' || id === 'ice') {
+      /* a long chain that hangs on the chest, with a pendant */
+      var ice = id === 'ice', lf = ice ? '#F2F7FF' : '#FFD34D', ls = ice ? '#8393AE' : '#AD7C12';
+      var A = [-R * 0.68, R * 0.56], B = [0, R * 1.8], Cc = [R * 0.68, R * 0.56], n = 14;
+      for (var i = 0; i <= n; i++) {
+        var t = i / n, u = 1 - t;
+        var x = u * u * A[0] + 2 * u * t * B[0] + t * t * Cc[0], yy = u * u * A[1] + 2 * u * t * B[1] + t * t * Cc[1];
+        var tx = 2 * u * (B[0] - A[0]) + 2 * t * (Cc[0] - B[0]), ty = 2 * u * (B[1] - A[1]) + 2 * t * (Cc[1] - B[1]);
+        var ang = Math.atan2(ty, tx) / RAD;
+        el('ellipse', { cx: n2(x), cy: n2(yy), rx: i % 2 ? 2.9 : 2.5, ry: i % 2 ? 1.2 : 2, fill: i % 2 ? ls : lf, stroke: ls, 'stroke-width': 0.9, transform: 'rotate(' + n2(ang) + ' ' + pt(x, yy) + ')' }, g);
+        if (ice && i % 2 === 0) el('circle', { cx: n2(x - 0.6), cy: n2(yy - 0.6), r: 0.7, fill: '#fff' }, g);
+      }
+      var py = R * 1.18 + 7;
+      if (!ice) {
+        el('circle', { cx: 0, cy: n2(py), r: 7.6, fill: '#FFD34D', stroke: '#AD7C12', 'stroke-width': 1.5 }, g);
+        el('circle', { cx: 0, cy: n2(py), r: 5.5, fill: 'none', stroke: '#E3A91C', 'stroke-width': 1 }, g);
+        el('path', { d: pawD(0, py - 0.6, 0.62), fill: '#D69A12' }, g);
+        el('path', { d: 'M' + pt(-3.8, py - 4.4) + 'Q' + pt(-2, py - 6) + ' ' + pt(0.4, py - 6.2), fill: 'none', stroke: '#fff', 'stroke-width': 1.3, 'stroke-linecap': 'round', opacity: 0.85 }, g);
+      } else {
+        var bone = 'M' + pt(-6.4, py - 2.2) + 'A2.7 2.7 0 1 1 ' + pt(-4.2, py - 4.6) + 'L' + pt(4.2, py - 4.6) + 'A2.7 2.7 0 1 1 ' + pt(6.4, py - 2.2) + 'A2.7 2.7 0 1 1 ' + pt(4.2, py + 0.2) + 'L' + pt(-4.2, py + 0.2) + 'A2.7 2.7 0 1 1 ' + pt(-6.4, py - 2.2) + 'Z';
+        el('path', { d: bone, transform: 'translate(0 ' + n2(py - 0.2) + ') scale(1.25) translate(0 ' + n2(2.2 - py) + ')', fill: '#EAF3FF', stroke: '#7486A6', 'stroke-width': 1.2, 'stroke-linejoin': 'round' }, g);
+        [[-5.5, -1.3], [-2.8, -1.1], [0, -1.2], [2.8, -1.1], [5.5, -1.3], [-7.6, 1.5], [7.6, 1.5], [-7.6, -4], [7.6, -4]].forEach(function (d0) {
+          el('circle', { cx: n2(d0[0]), cy: n2(py + 1.6 + d0[1]), r: 1.15, fill: '#BFE6FF', stroke: '#fff', 'stroke-width': 0.6 }, g);
+        });
+      }
+      return { bling: [0, py] };
+    }
+    if (id === 'grillz') {
+      /* gold teeth: a full row when the mouth opens, two little fangs when it's shut */
+      var gz = el('g', null, g);
+      var band = el('path', { fill: '#FFD34D', stroke: '#A8780F', 'stroke-width': 0.9, 'stroke-linejoin': 'round' }, gz);
+      var cuts = el('path', { fill: 'none', stroke: '#B88612', 'stroke-width': 0.75 }, gz);
+      var gem = el('circle', { r: 1.05, fill: '#BDEBFF', stroke: '#fff', 'stroke-width': 0.45 }, gz);
+      var fang = el('path', { fill: '#FFD34D', stroke: '#A8780F', 'stroke-width': 0.85, 'stroke-linejoin': 'round' }, gz);
+      return {
+        grill: function (mx, my, mo, s) {
+          if (mo > 0.04) {
+            var h = Math.min((3.4 + 2 * mo) * s, 13 * mo * s * 0.62), x0 = mx - 6 * s, x1 = mx + 6 * s, y0 = my + 1.9 * s, yc = my + 3 * s;
+            attr(band, 'd', 'M' + pt(x0, y0) + 'Q' + pt(mx, yc) + ' ' + pt(x1, y0) + 'L' + pt(x1 - 0.5 * s, y0 + h) + 'Q' + pt(mx, yc + h) + ' ' + pt(x0 + 0.5 * s, y0 + h) + 'Z');
+            var cd = '';
+            for (var k = -2; k <= 2; k++) { var cx = mx + k * 2.35 * s, cy = y0 + (yc - y0) * (1 - Math.pow(k / 2.5, 2)) * 0.9; cd += 'M' + pt(cx, cy) + 'L' + pt(cx, cy + h * 0.92); }
+            attr(cuts, 'd', cd);
+            attr(gem, 'cx', n2(mx + 1.2 * s)); attr(gem, 'cy', n2(yc + h * 0.4)); attr(gem, 'r', n2(0.55 * s));
+            attr(band, 'opacity', 1); attr(cuts, 'opacity', 1); attr(gem, 'opacity', 1); attr(fang, 'opacity', 0);
+          } else {
+            var fy = my + 2.3 * s, fh = 3.8 * s, fw = 1.8 * s, fx = 3.2 * s;
+            attr(fang, 'd', 'M' + pt(mx - fx - fw, fy) + 'L' + pt(mx - fx + fw, fy) + 'Q' + pt(mx - fx + fw * 0.6, fy + fh * 0.7) + ' ' + pt(mx - fx, fy + fh) + 'Q' + pt(mx - fx - fw * 0.6, fy + fh * 0.7) + ' ' + pt(mx - fx - fw, fy) + 'Z' + 'M' + pt(mx + fx - fw, fy) + 'L' + pt(mx + fx + fw, fy) + 'Q' + pt(mx + fx + fw * 0.6, fy + fh * 0.7) + ' ' + pt(mx + fx, fy + fh) + 'Q' + pt(mx + fx - fw * 0.6, fy + fh * 0.7) + ' ' + pt(mx + fx - fw, fy) + 'Z');
+            attr(band, 'opacity', 0); attr(cuts, 'opacity', 0); attr(gem, 'opacity', 0); attr(fang, 'opacity', 1);
+          }
+        }
+      };
     }
     return null;
   }
@@ -611,14 +715,16 @@
       attr(this.tongue, 'd', 'M' + pt(mx - twd / 2, top) + 'L' + pt(mx - twd / 2 + wob, top + tl - twd / 2) + 'A' + n2(twd / 2) + ' ' + n2(twd / 2) + ' 0 0 0 ' + pt(mx + twd / 2 + wob, top + tl - twd / 2) + 'L' + pt(mx + twd / 2, top) + 'Z');
       attr(this.tongue, 'opacity', 1);
     } else attr(this.tongue, 'opacity', 0);
+    if (this.dyn.mouth && this.dyn.mouth.grill) this.dyn.mouth.grill(mx, my, mo, s);
     attr(this.ballMouth, 'transform', 'translate(' + pt(mx, my + 4 * s) + ')');
     attr(this.ballMouth, 'opacity', P.ball ? 1 : 0);
     attr(this.facewear, 'transform', 'translate(' + n2(tx) + ' 0)');
     if (this.dyn.head && this.dyn.head.swing) attr(this.dyn.head.swing, 'transform', this.dyn.head.base + ' rotate(' + n2(P.tassel || 0) + ')');
 
     /* where things are, for the scene (dog units, before the dog's own scale) */
-    var mr = rotp(mx, my + 4 * s, tilt);
-    this.out = { head: [hc[0] * fx, hc[1]], mouth: [hc[0] * fx + mr[0], hc[1] + mr[1]], body: [cx * fx, cy], R: R, L: L, tilt: tilt };
+    var mr = rotp(mx, my + 4 * s, tilt), bl = this.dyn.neck && this.dyn.neck.bling, br2 = bl ? rotp(bl[0], bl[1], tilt) : null;
+    this.out = { head: [hc[0] * fx, hc[1]], mouth: [hc[0] * fx + mr[0], hc[1] + mr[1]], body: [cx * fx, cy], R: R, L: L, tilt: tilt,
+      bling: br2 ? [hc[0] * fx + br2[0], hc[1] + br2[1]] : null, grin: this.wear.mouth === 'grillz' ? mo : 0 };
   };
 
   /* ready-made poses for still pictures */
@@ -801,7 +907,9 @@
   };
 
   /* =========================================================
-     The live pet: state, springs, particles, ball, input
+     The live pet: state, springs, particles, ball, input.
+     The first puppy owns the garden (sky, camera, ball, touch). Friends' puppies are
+     guests: they share its garden and stand on lanes in front of it or behind it.
      ========================================================= */
   var BLINK = 0.3;   /* seconds, eyes shut and open again */
   var TAU = { sit: 0.16, lie: 0.22, bow: 0.13, crouch: 0.06, tuck: 0.06, lean: 0.2, headTurn: 0.12, headTilt: 0.14, headDown: 0.13, headRest: 0.35, headUp: 0.15,
@@ -814,46 +922,78 @@
   var HEART = 'M0 3.6C-5.6 -0.4 -4.6 -6.2 0 -3.3C4.6 -6.2 5.6 -0.4 0 3.6Z';
   var STAR = 'M0 -5.5L1.4 -1.4L5.5 0L1.4 1.4L0 5.5L-1.4 1.4L-5.5 0L-1.4 -1.4Z';
   var DROP = 'M0 -4.2C2.4 -1.2 3 0.8 3 2A3 3 0 0 1 -3 2C-3 0.8 -2.4 -1.2 0 -4.2Z';
+  /* lanes for friends' puppies: behind the owner's puppy (smaller) and in front of it (bigger) */
+  var GUEST_LANES = [247, 258, 250, 263, 244, 255, 266];
+  var CROWD = [1, 0.94, 0.88, 0.83, 0.78, 0.74, 0.7, 0.68];
 
   function Pet(host, o) {
     var self = this;
-    this.host = host; this.o = o || {};
-    this.clock = typeof this.o.now === 'function' ? this.o.now : function () { return Date.now(); };
-    this.reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    this.o = o || {};
+    var G = this.o.guestOf || null;
+    this.guest = !!G; this.home = G || this;
+    this.host = G ? G.host : host;
+    this.clock = G ? G.clock : typeof this.o.now === 'function' ? this.o.now : function () { return Date.now(); };
+    this.reduce = G ? G.reduce : !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     this.pfx = 'pm' + (++UID) + '-';
-    var svg = this.svg = el('svg', { viewBox: '0 52 400 250', preserveAspectRatio: 'xMidYMax meet', 'class': 'pet-svg', 'aria-hidden': 'true' });
-    host.appendChild(svg);
-    this.scene = new Scene(svg, this.pfx);
-    this.world = el('g', null, svg);
-    this.ballShadow = el('ellipse', { rx: 6, ry: 1.8, fill: '#000', opacity: 0 }, this.world);
-    this.dogG = el('g', null, this.world);
-    this.ballG = el('g', { opacity: 0 }, this.world); drawBall(this.ballG, 6.5);
-    this.treatG = el('g', { opacity: 0 }, this.world);
-    el('path', { d: 'M-7 -2.2A2.8 2.8 0 1 1 -4.6 -4.4L4.6 -4.4A2.8 2.8 0 1 1 7 -2.2A2.8 2.8 0 1 1 4.6 0L-4.6 0A2.8 2.8 0 1 1 -7 -2.2Z', transform: 'translate(0 2.2)', fill: '#F3C98B', stroke: '#A8753D', 'stroke-width': 1.6, 'stroke-linejoin': 'round' }, this.treatG);
-    this.flyG = el('g', { opacity: 0 }, this.world);
-    this.flyL = el('ellipse', { cx: -3.2, cy: -1, rx: 4, ry: 5.4, fill: '#FFB14E', stroke: '#C9761E', 'stroke-width': 1 }, this.flyG);
-    this.flyR = el('ellipse', { cx: 3.2, cy: -1, rx: 4, ry: 5.4, fill: '#FF8A65', stroke: '#C9561E', 'stroke-width': 1 }, this.flyG);
-    el('path', { d: 'M0 -4L0 4', stroke: '#4A3426', 'stroke-width': 1.6, 'stroke-linecap': 'round' }, this.flyG);
-    this.fxG = el('g', null, svg);
-    this.frontTint = el('rect', { x: -800, y: -800, width: 2000, height: 2000, fill: '#0A1238', opacity: 0, 'pointer-events': 'none' }, svg);
-    this.x = 190; this.face = 1; this.faceX = 1; this.air = 0; this.vUp = 0; this.sq = 1; this.sqV = 0;
-    this.T = neutral(); this.P = neutral(); this.P.faceX = 1;
-    this.ph = { gait: 0, wag: 0, breath: 0, dig: 0, scratch: 0, tongue: 0, chew: 0 };
+    this.id = this.o.id || 'me';
+    this.lane = G ? this.o.lane : LANE;
+    this.depth = 1 + (this.lane - LANE) * 0.006;
+    if (G) {
+      this.svg = G.svg; this.scene = G.scene; this.world = G.world; this.fxG = G.fxG;
+      this.ball = { on: false, state: 'none' }; this.fly = { on: false }; this.treat = { on: false };
+    } else {
+      var svg = this.svg = el('svg', { viewBox: '0 52 400 250', preserveAspectRatio: 'xMidYMax meet', 'class': 'pet-svg', 'aria-hidden': 'true' });
+      host.appendChild(svg);
+      this.scene = new Scene(svg, this.pfx);
+      this.world = el('g', null, svg);
+      this.ballShadow = el('ellipse', { rx: 6, ry: 1.8, fill: '#000', opacity: 0 }, this.world);
+      this.guests = []; this.pups = [];
+      this.ball = { on: false, state: 'none', x: 0, y: 0, vx: 0, vy: 0, spin: 0, ready: false, a: 0 };
+      this.fly = { on: false, x: 0, y: 0, a: 0, t: 0 };
+      this.treat = { on: false, x: 0, y: 0, vy: 0, a: 0, falling: false };
+    }
+    /* this puppy's layer: its car behind it, the puppy, the car's near side, a rain cloud, a name tag, a grave */
+    var pg = this.pg = el('g', null);
+    this.graveG = el('g', { opacity: 0 }, pg);
+    this.carBack = el('g', { opacity: 0 }, pg);
+    this.carFront = el('g', { opacity: 0 }, pg);
+    this.dogG = el('g', null, pg);
+    this.cloudG = el('g', { opacity: 0 }, pg);
+    this.tagG = el('g', { opacity: 0 }, pg);
+    this.home.addPup(this);
+    if (!G) {
+      this.ballG = el('g', { opacity: 0 }, this.world); drawBall(this.ballG, 6.5);
+      this.treatG = el('g', { opacity: 0 }, this.world);
+      el('path', { d: 'M-7 -2.2A2.8 2.8 0 1 1 -4.6 -4.4L4.6 -4.4A2.8 2.8 0 1 1 7 -2.2A2.8 2.8 0 1 1 4.6 0L-4.6 0A2.8 2.8 0 1 1 -7 -2.2Z', transform: 'translate(0 2.2)', fill: '#F3C98B', stroke: '#A8753D', 'stroke-width': 1.6, 'stroke-linejoin': 'round' }, this.treatG);
+      this.flyG = el('g', { opacity: 0 }, this.world);
+      this.flyL = el('ellipse', { cx: -3.2, cy: -1, rx: 4, ry: 5.4, fill: '#FFB14E', stroke: '#C9761E', 'stroke-width': 1 }, this.flyG);
+      this.flyR = el('ellipse', { cx: 3.2, cy: -1, rx: 4, ry: 5.4, fill: '#FF8A65', stroke: '#C9561E', 'stroke-width': 1 }, this.flyG);
+      el('path', { d: 'M0 -4L0 4', stroke: '#4A3426', 'stroke-width': 1.6, 'stroke-linecap': 'round' }, this.flyG);
+      this.fxG = el('g', null, this.svg);
+      this.frontTint = el('rect', { x: -800, y: -800, width: 2000, height: 2000, fill: '#0A1238', opacity: 0, 'pointer-events': 'none' }, this.svg);
+    }
+    this.x = G ? (this.o.x == null ? 200 : this.o.x) : 190; this.face = G && this.o.face ? this.o.face : 1; this.faceX = this.face; this.air = 0; this.vUp = 0; this.sq = 1; this.sqV = 0;
+    this.homeX = this.guest ? this.x : 200; this.bedX = this.guest ? clamp(this.x, 60, 340) : BED_X;
+    this.T = neutral(); this.P = neutral(); this.P.faceX = this.face;
+    this.ph = { gait: 0, wag: rnd(0, 6), breath: rnd(0, 6), dig: 0, scratch: 0, tongue: 0, chew: 0 };
     this.ears = { r: 0, rv: 0, l: 0, lv: 0 }; this.tassel = { a: 0, v: 0 };
     this.lag = { x: 0, vx: 0, y: 0, vy: 0 }; this.prevHead = null; this.prevX = this.x;
-    this.blink = { next: rnd(2, 4), left: 0, gap: 0, again: false };
+    this.blink = { next: rnd(1, 4), left: 0, gap: 0, again: false };
     this.fx = []; this.bubble = null;
-    this.ball = { on: false, state: 'none', x: 0, y: 0, vx: 0, vy: 0, spin: 0, ready: false, a: 0 };
-    this.fly = { on: false, x: 0, y: 0, a: 0, t: 0 };
-    this.treat = { on: false, x: 0, y: 0, vy: 0, a: 0, falling: false };
     this.mood = this.o.mood || 'happy'; this.needs = this.o.needs || { food: 1, water: 1, fun: 1 };
     this.name = this.o.name || '';
     this.t = 0; this.script = null; this.kind = ''; this.queue = []; this.last = ''; this.playing = false;
     this.awakeUntil = 0; this.sleeping = false; this.wet = 0;
     this.petting = { down: false, active: 0, acc: 0, hearts: 0, moved: 0, x: 0, y: 0, t0: 0, total: 0 };
     this.attn = null;
+    this.dead = false; this.graveX = this.x; this.grave = null; this.cloudK = 0; this.tagK = 0; this.blingT = rnd(1, 3);
+    this.car = null; this.seated = false;
     this.setLook(this.o.look);
-    this.scene.setName(this.name);
+    this.setTag(this.name);
+    if (this.o.grave) this.setGrave(true, false);
+    if (G) { this.alive = true; this.pose(); return; }
+    this.sign = this.o.sign || '';
+    this.scene.setName(this.sign || this.name);
     this.paintSky(true);
     this.bindInput();
     this.alive = true;
@@ -864,6 +1004,14 @@
     this.camera(0);
     this.resume();
   }
+  /* keep puppies drawn back to front by lane */
+  Pet.prototype.addPup = function (pup) {
+    var list = this.pups;
+    list.push(pup);
+    list.sort(function (a, b) { return a.lane - b.lane || (a.guest ? 1 : 0) - (b.guest ? 1 : 0); });
+    var i = list.indexOf(pup), next = list[i + 1];
+    this.world.insertBefore(pup.pg, next ? next.pg : this.ballG || null);
+  };
   Pet.prototype.hour = function () { var d = new Date(this.clock()); return d.getHours() + d.getMinutes() / 60; };
   Pet.prototype.isNight = function () { return isNightHour(this.hour()); };
   Pet.prototype.paintSky = function (force) {
@@ -875,21 +1023,39 @@
   Pet.prototype.setLook = function (look) {
     look = look || {};
     var key = [look.breed, look.coat, look.stage].join('|');
-    if (this.dog && this.lookKey === key) { this.dog.setWear(look.wear || {}); this.look = look; return; }
+    if (this.dog && this.lookKey === key) { this.dog.setWear(look.wear || {}); this.look = look; this.checkCar(); return; }
     if (this.dog) this.dogG.removeChild(this.dog.g);
     this.look = look; this.lookKey = key;
     this.dog = new Dog(this.dogG, look, this.pfx + 'd' + (++UID) + '-');
-    this.S = this.dog.st.scale * 0.92;
+    this.rescale();
+    if (this.grave) this.buildGrave();
+    this.checkCar();
     this.pose();
   };
-  Pet.prototype.setName = function (n) { this.name = n; this.scene.setName(n); };
+  /* size in the scene: smaller for puppies further back, and everyone a bit smaller in a big group */
+  Pet.prototype.sizeK = function () { return (this.guest ? this.depth * 0.92 : 1) * CROWD[Math.min(CROWD.length - 1, this.home.guests.length)]; };
+  Pet.prototype.rescale = function () { if (this.dog) this.S = this.dog.st.scale * 0.92 * this.sizeK(); };
+  Pet.prototype.setName = function (n) {
+    this.name = n;
+    if (!this.guest && !this.home.sign) this.scene.setName(n);
+    this.setTag(n);
+    if (this.grave) this.buildGrave();
+  };
   Pet.prototype.resume = function () {
-    if (!this.alive || this.raf) return;
+    if (!this.alive || this.raf || this.guest) return;
     this.lastTs = 0;
     this.raf = requestAnimationFrame(this.frameFn);
   };
   Pet.prototype.destroy = function () {
     this.alive = false;
+    if (this.guest) {
+      var h = this.home, i = h.pups.indexOf(this);
+      if (i >= 0) h.pups.splice(i, 1);
+      this.fx.forEach(function (p) { if (p.e.parentNode) p.e.parentNode.removeChild(p.e); });
+      if (this.bubble && this.bubble.g.parentNode) this.bubble.g.parentNode.removeChild(this.bubble.g);
+      if (this.pg.parentNode) this.pg.parentNode.removeChild(this.pg);
+      return;
+    }
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
     document.removeEventListener('visibilitychange', this.onVis);
@@ -901,15 +1067,16 @@
     if (document.hidden || !this.host.isConnected) return;
     var dt = this.lastTs ? Math.min(0.05, (ts - this.lastTs) / 1000) : 1 / 60;
     this.lastTs = ts;
-    this.t += dt;
     this.step(dt);
     this.raf = requestAnimationFrame(this.frameFn);
   };
-  /* the camera: closer on small screens and for small puppies, and it follows the puppy */
+  /* the camera: closer on small screens and for small puppies, and it follows the puppy.
+     With friends in the garden it shows the whole garden. */
   Pet.prototype.camera = function (dt) {
-    var w = this.host.clientWidth || 400, k = clamp((this.dog.st.scale - 0.62) / 0.38, 0, 1);
-    var W = (w < 560 ? 300 : 400) * lerp(0.84, 1, k), H = W / 1.6;
-    var focus = this.ball.on && this.ball.state === 'air' ? lerp(this.x, this.ball.x, 0.35) : this.x + this.face * 16;
+    var w = this.host.clientWidth || 400, k = clamp((this.dog.st.scale - 0.62) / 0.38, 0, 1), group = this.guests.length > 0;
+    var W = group ? 400 : (w < 560 ? 300 : 400) * lerp(0.84, 1, k), H = W / 1.6;
+    var x = this.dead ? this.graveX : this.x;
+    var focus = this.ball.on && this.ball.state === 'air' ? lerp(x, this.ball.x, 0.35) : x + (this.dead ? 0 : this.face * 16);
     var target = clamp(focus, W / 2, 400 - W / 2);
     this.camX = this.camX == null || dt === 0 ? target : this.camX + (target - this.camX) * (1 - Math.exp(-dt / 0.7));
     var x0 = this.camX - W / 2, y0 = 302 - H, key = n2(x0) + ' ' + n2(y0) + ' ' + n2(W) + ' ' + n2(H);
@@ -922,13 +1089,18 @@
     attr(sc.nearLayer, 'transform', 'translate(' + n2(dx * 0.2) + ' 0)');
   };
   Pet.prototype.step = function (dt) {
+    this.t += dt;
     this.think(dt);
     this.physics(dt);
     this.pose();
-    this.camera(dt);
-    this.scene.tick(dt, this.t);
+    this.extras(dt);
+    if (!this.guest) {
+      this.camera(dt);
+      this.scene.tick(dt, this.t);
+      for (var i = 0; i < this.guests.length; i++) this.guests[i].step(dt);
+    }
     this.tickFx(dt);
-    if ((this.t | 0) !== this.lastPaintT) { this.lastPaintT = this.t | 0; if (this.lastPaintT % 5 === 0) this.paintSky(); }
+    if (!this.guest && (this.t | 0) !== this.lastPaintT) { this.lastPaintT = this.t | 0; if (this.lastPaintT % 5 === 0) this.paintSky(); }
   };
 
   /* ---------- springs and physics ---------- */
@@ -941,14 +1113,15 @@
     ph.breath += dt * (this.sleeping ? 1.5 : 2.5 + P.gait * 1.2);
     ph.gait += dt * (P.gait <= 1 ? 11 * Math.max(0.35, P.gait) : 11 + 6 * (P.gait - 1));
     ph.dig += dt * 17; ph.scratch += dt * 19; ph.tongue += dt * 9;
-    /* jumping */
-    if (this.air > 0 || this.vUp > 0) {
+    /* jumping (a puppy in its car sits still in the seat) */
+    if (this.seated) { this.vUp = 0; }
+    else if (this.air > 0 || this.vUp > 0) {
       this.vUp -= GRAV * dt; this.air += this.vUp * dt;
       if (this.air <= 0) { this.air = 0; if (this.vUp < -60) this.sqV -= Math.min(4.5, -this.vUp * 0.012); this.vUp = 0; this.landed = true; }
     }
     /* squash and stretch, ears, tassel, head lag: small steps keep the springs steady */
     var steps = Math.max(1, Math.ceil(dt / 0.008)), h = dt / steps, E = this.dog.E, ears = this.ears;
-    var head = this.dog.out ? this.dog.out.head : [0, 0], hx = this.x + head[0] * this.S, hy = LANE - this.air + head[1] * this.S;
+    var head = this.dog.out ? this.dog.out.head : [0, 0], hx = this.x + head[0] * this.S, hy = this.lane - this.air + head[1] * this.S;
     var vx = 0, vy = 0;
     if (this.prevHead && dt > 0) { vx = (hx - this.prevHead[0]) / dt; vy = (hy - this.prevHead[1]) / dt; }
     this.prevHead = [hx, hy];
@@ -977,8 +1150,7 @@
       b.next -= dt;
       if (b.next <= 0) { b.left = BLINK; b.next = rnd(3, 7.5); b.again = chance(0.15); }
     }
-    this.updateBall(dt); this.updateFly(dt); this.updateTreat(dt);
-    this.petTick(dt);
+    if (!this.guest) { this.updateBall(dt); this.updateFly(dt); this.updateTreat(dt); this.petTick(dt); }
   };
   Pet.prototype.pose = function () {
     if (!this.dog) return;
@@ -995,30 +1167,38 @@
       tassel: this.tassel.a, ball: this.ball.state === 'mouth' ? 1 : 0, air: this.air / this.S, tear: this.tearK || 0
     };
     this.dog.pose(Q);
+    if (this.seated) attr(this.dog.shadow, 'opacity', 0);
     var sx = 1 / Math.sqrt(this.sq);
-    attr(this.dogG, 'transform', 'translate(' + pt(this.x, LANE - this.air) + ') scale(' + n2(this.S * sx) + ' ' + n2(this.S * this.sq) + ')');
+    attr(this.dogG, 'transform', 'translate(' + pt(this.x, this.lane - this.air) + ') scale(' + n2(this.S * sx) + ' ' + n2(this.S * this.sq) + ')');
   };
   /* dog units to the scene */
-  Pet.prototype.toScene = function (p) { return [this.x + p[0] * this.S, LANE - this.air + p[1] * this.S]; };
+  Pet.prototype.toScene = function (p) { return [this.x + p[0] * this.S, this.lane - this.air + p[1] * this.S]; };
   Pet.prototype.headPos = function () { return this.toScene(this.dog.out.head); };
   Pet.prototype.mouthPos = function () { return this.toScene(this.dog.out.mouth); };
   Pet.prototype.onDog = function (x, y) {
+    if (this.dead) {
+      var g = this.graveX, gy = this.lane;
+      return Math.abs(x - g) < 26 && y > gy - 110 && y < gy + 8 ? 'grave' : '';
+    }
     var h = this.headPos(), R = this.dog.out.R * this.S, b = this.toScene(this.dog.out.body), L = this.dog.out.L * this.S;
     if (Math.hypot(x - h[0], y - h[1]) < R * 1.25) return 'head';
     if (Math.abs(x - b[0]) < L * 1.15 && Math.abs(y - b[1]) < 26 * this.S) return 'body';
     return '';
   };
+  Pet.prototype.dogVis = function (on) { attr(this.dogG, 'opacity', on ? 1 : 0); };
 
   /* ---------- particles and speech bubbles ---------- */
   Pet.prototype.emit = function (type, x, y, o) {
-    if (this.fx.length > 70) return;
-    if (this.reduce && type !== 'heart' && type !== 'z' && chance(0.6)) return;
+    if (this.fx.length > 90) return;
+    if (this.reduce && type !== 'heart' && type !== 'z' && type !== 'text' && chance(0.6)) return;
     o = o || {};
-    var e, p = { x: x, y: y, vx: o.vx || 0, vy: o.vy || 0, g: o.g || 0, life: o.life || 1, age: 0, rot: o.rot || 0, vr: o.vr || 0, s0: o.s0 || 1, s1: o.s1 == null ? 1 : o.s1, drag: o.drag || 0, wob: o.wob || 0 };
+    var e, p = { x: x, y: y, vx: o.vx || 0, vy: o.vy || 0, g: o.g || 0, life: o.life || 1, age: 0, rot: o.rot || 0, vr: o.vr || 0, s0: o.s0 || 1, s1: o.s1 == null ? 1 : o.s1, drag: o.drag || 0, wob: o.wob || 0, fade: o.fade || 0 };
     if (type === 'heart') e = el('path', { d: HEART, fill: o.color || '#FF4F7B', stroke: '#C92C58', 'stroke-width': 0.8 }, this.fxG);
     else if (type === 'star') e = el('path', { d: STAR, fill: o.color || '#FFD54A' }, this.fxG);
-    else if (type === 'drop') e = el('path', { d: DROP, fill: '#6CC3FF', stroke: '#2F86D6', 'stroke-width': 0.7 }, this.fxG);
+    else if (type === 'drop') e = el('path', { d: DROP, fill: o.color || '#6CC3FF', stroke: o.stroke || '#2F86D6', 'stroke-width': 0.7 }, this.fxG);
     else if (type === 'dot') e = el('circle', { r: o.r || 1.8, fill: o.color || '#9A5F2E' }, this.fxG);
+    else if (type === 'puff') e = el('circle', { r: o.r || 8, fill: o.color || '#EDE7DB', stroke: o.stroke || '#BDB3A2', 'stroke-width': 1.2 }, this.fxG);
+    else if (type === 'dash') e = el('path', { d: 'M-' + n2(o.len || 8) + ' 0L0 0', stroke: o.color || '#fff', 'stroke-width': 1.6, 'stroke-linecap': 'round', opacity: 0.8 }, this.fxG);
     else if (type === 'confetti') e = el('rect', { x: -2, y: -1.2, width: 4, height: 2.4, rx: 0.6, fill: o.color || '#FF5FA2' }, this.fxG);
     else if (type === 'text') { e = el('text', { 'text-anchor': 'middle', 'font-size': o.size || 12, 'font-weight': 800, fill: o.color || '#fff', stroke: o.stroke || 'none', 'stroke-width': o.stroke ? 2.6 : 0, 'paint-order': 'stroke', 'font-family': '-apple-system, system-ui, sans-serif' }, this.fxG); e.textContent = o.text; }
     else if (type === 'z') { e = el('text', { 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 800, fill: '#fff', stroke: '#5B6FB8', 'stroke-width': 2.4, 'paint-order': 'stroke', 'font-family': '-apple-system, system-ui, sans-serif' }, this.fxG); e.textContent = 'z'; }
@@ -1034,7 +1214,7 @@
       if (p.age >= p.life) { if (p.e.parentNode) p.e.parentNode.removeChild(p.e); continue; }
       p.vy += p.g * dt; if (p.drag) { p.vx *= 1 - p.drag * dt; p.vy *= 1 - p.drag * dt; }
       p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
-      var k = p.age / p.life, s = lerp(p.s0, p.s1, k), op = k > 0.7 ? 1 - (k - 0.7) / 0.3 : Math.min(1, p.age / 0.08);
+      var k = p.age / p.life, s = lerp(p.s0, p.s1, p.fade ? ease(k) : k), fo = p.fade || 0.7, op = k > fo ? 1 - (k - fo) / (1 - fo) : Math.min(1, p.age / 0.08);
       attr(p.e, 'transform', 'translate(' + pt(p.x + (p.wob ? Math.sin(p.age * 6) * p.wob : 0), p.y) + ') rotate(' + n2(p.rot) + ') scale(' + n2(s) + ')');
       attr(p.e, 'opacity', n2(op));
       keep.push(p);
@@ -1045,7 +1225,7 @@
       bb.age += dt;
       if (bb.age > bb.life) { if (bb.g.parentNode) bb.g.parentNode.removeChild(bb.g); this.bubble = null; }
       else {
-        var h = this.headPos(), R = this.dog.out.R * this.S, k2 = bb.age / bb.life;
+        var h = this.dead && this.grave ? [this.graveX, this.lane - 70] : this.headPos(), R = this.dog.out.R * this.S, k2 = bb.age / bb.life;
         var sc = bb.age < 0.12 ? 0.6 + bb.age / 0.12 * 0.4 : 1;
         attr(bb.g, 'transform', 'translate(' + pt(clamp(h[0] + R * 0.9, 40, 360), h[1] - R * 1.55) + ') scale(' + n2(sc) + ')');
         attr(bb.g, 'opacity', n2(k2 > 0.8 ? 1 - (k2 - 0.8) / 0.2 : 1));
@@ -1068,6 +1248,14 @@
   Pet.prototype.sparkle = function (x, y, n, spread) {
     for (var i = 0; i < n; i++) this.emit('star', x + rnd(-spread, spread), y + rnd(-spread, spread) * 0.7, { life: rnd(0.5, 0.9), s0: 0.2, s1: 1.1, vr: rnd(-120, 120), vy: rnd(-20, -5) });
   };
+  /* a cartoon dust cloud */
+  Pet.prototype.poof = function (x, y, n, color, stroke, spread) {
+    spread = spread || 1;
+    for (var i = 0; i < n; i++) {
+      var a = rnd(0, Math.PI * 2), sp = rnd(18, 60) * spread;
+      this.emit('puff', x + Math.cos(a) * rnd(0, 14) * spread, y + Math.sin(a) * rnd(0, 10) * spread, { r: rnd(6, 12) * spread, color: color, stroke: stroke, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.7 - 12, drag: 2.2, life: rnd(0.8, 1.3), s0: 0.35, s1: rnd(1.2, 1.6), fade: 0.55 });
+    }
+  };
 
   /* ---------- ball ---------- */
   var BALL_R = 6.5, BALL_FLOOR = LANE + 2 - BALL_R;
@@ -1075,7 +1263,7 @@
     var b = this.ball;
     b.on = true; b.state = 'air'; b.x = x; b.y = y; b.vx = vx || 0; b.vy = vy || 0; b.ready = false; b.a = 1;
   };
-  Pet.prototype.hideBall = function () { this.ball.on = false; this.ball.state = 'none'; attr(this.ballG, 'opacity', 0); attr(this.ballShadow, 'opacity', 0); };
+  Pet.prototype.hideBall = function () { if (this.guest) return; this.ball.on = false; this.ball.state = 'none'; attr(this.ballG, 'opacity', 0); attr(this.ballShadow, 'opacity', 0); };
   Pet.prototype.updateBall = function (dt) {
     var b = this.ball;
     if (!b.on) return;
@@ -1152,12 +1340,14 @@
   /* ---------- touch and mouse ---------- */
   Pet.prototype.bindInput = function () {
     var self = this, svg = this.svg;
+    /* screen point to garden point, from the drawing's box and viewBox (xMidYMax meet).
+       getScreenCTM() misses CSS zoom in Safari, and big screens zoom the app. */
     function sp(e) {
-      var m = svg.getScreenCTM();
-      if (!m) return null;
-      var p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY;
-      var q = p.matrixTransform(m.inverse());
-      return [q.x, q.y];
+      var r = svg.getBoundingClientRect(), vb = svg.viewBox && svg.viewBox.baseVal;
+      if (!r.width || !r.height || !vb || !vb.width || !vb.height) return null;
+      var k = Math.min(r.width / vb.width, r.height / vb.height);
+      var ox = r.left + (r.width - vb.width * k) / 2, oy = r.top + r.height - vb.height * k;
+      return [vb.x + (e.clientX - ox) / k, vb.y + (e.clientY - oy) / k];
     }
     function capture(e) { try { svg.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } }
     this.onDown = function (e) {
@@ -1170,8 +1360,11 @@
         b.state = 'held'; b.ready = false; b.dropped = false; b.x = p[0]; b.y = Math.min(p[1], BALL_FLOOR); b.samples = [[p[0], p[1], performance.now()]];
         capture(e); e.preventDefault(); return;
       }
-      var on = self.onDog(p[0], p[1]);
-      if (on) {
+      for (var i = self.pups.length - 1; i >= 0; i--) {
+        var pup = self.pups[i], on = pup.alive ? pup.onDog(p[0], p[1]) : '';
+        if (!on) continue;
+        if (pup.guest) { pup.tapped(); return; }
+        if (on === 'grave') { self.graveTap(); return; }
         pe.down = true; pe.moved = 0; pe.x = p[0]; pe.y = p[1]; pe.t0 = performance.now(); pe.where = on;
         capture(e); return;
       }
@@ -1191,7 +1384,7 @@
       if (pe.down) {
         var d = Math.hypot(p[0] - pe.x, p[1] - pe.y);
         pe.x = p[0]; pe.y = p[1];
-        if (d > 0.6 && self.onDog(p[0], p[1])) { pe.moved += d; if (pe.moved > 5) pe.active = self.t; }
+        if (d > 0.6 && !self.dead && self.onDog(p[0], p[1])) { pe.moved += d; if (pe.moved > 5) pe.active = self.t; }
       }
     };
     this.onUp = function () {
@@ -1213,7 +1406,7 @@
     this.onKey = function (e) {
       if (e.target !== self.host || (e.key !== 'Enter' && e.key !== ' ')) return;
       e.preventDefault();
-      self.petBurst();
+      if (self.dead) self.graveTap(); else self.petBurst();
     };
     svg.addEventListener('pointerdown', this.onDown);
     svg.addEventListener('pointermove', this.onMove);
@@ -1237,8 +1430,26 @@
     }
     if (pe.acc >= 0.5) { pe.acc -= 0.5; if (this.o.onPet) this.o.onPet(0.5); }
   };
-  Pet.prototype.petBurst = function () { this.petting.burst = this.t + 1.3; var h = this.headPos(); this.petting.x = h[0]; this.petting.y = h[1]; };
+  Pet.prototype.petBurst = function () { if (this.dead || this.seated) return; this.petting.burst = this.t + 1.3; var h = this.headPos(); this.petting.x = h[0]; this.petting.y = h[1]; };
+  /* a friend's puppy says its name */
+  Pet.prototype.tapped = function () {
+    var T = this.T, h = this.dead ? [this.graveX, this.lane - 70] : this.headPos();
+    this.hearts(h[0], h[1] - 16, 2);
+    this.tagUntil = this.t + 5;
+    this.say(this.name || 'Woof!', 1.3);
+    if (this.dead) { this.ghostSpin = 1; return; }
+    this.awakeUntil = Math.max(this.awakeUntil, this.t + 20);
+    if (this.sleeping) { this.script = null; this.kind = ''; this.queue.unshift('wake'); return; }
+    this.sqV -= 1.4; this.nodKick = 1; T.happy = 1; T.blush = 1;
+    this.later(0.5, function () { T.happy = 0; T.blush = 0.35; });
+  };
+  Pet.prototype.graveTap = function () {
+    this.ghostSpin = 1;
+    this.hearts(this.graveX, this.lane - 86, 2);
+    if (this.o.onGraveTap) this.o.onGraveTap();
+  };
   Pet.prototype.boop = function () {
+    if (this.dead || this.seated) return;
     var T = this.T, self = this, h = this.headPos();
     this.awakeUntil = Math.max(this.awakeUntil, this.t + 30);
     if (this.sleeping) { this.script = null; this.kind = ''; this.queue.unshift('wake'); return; }
@@ -1253,7 +1464,7 @@
   /* ---------- the brain: one script at a time ---------- */
   Pet.prototype.moodBase = function () {
     var m = this.mood, o;
-    if (m === 'sad') o = { sad: 1, perk: 0.06, tailBase: -58, wagAmp: 0.06, wagSpeed: 0.5, eyeBig: 0.7, blush: 0.08 };
+    if (m === 'sad' || m === 'lonely') o = { sad: 1, perk: 0.06, tailBase: -58, wagAmp: 0.06, wagSpeed: 0.5, eyeBig: m === 'lonely' ? 1 : 0.7, blush: 0.08 };
     else if (m === 'hungry' || m === 'thirsty' || m === 'bored') o = { sad: 0.45, perk: 0.35, tailBase: -14, wagAmp: 0.25, eyeBig: 0.35 };
     else o = { sad: 0, perk: 0.6, tailBase: 10, wagAmp: 0.5 };
     if (this.dog && this.dog.st.id === 'newborn') o.eyeOpen = 0.94;
@@ -1262,6 +1473,7 @@
   Pet.prototype.later = function (sec, fn) { (this.timers = this.timers || []).push({ t: this.t + sec, fn: fn }); };
   Pet.prototype.cleanup = function () {
     this.chew = 0; this.nod = 0; this.shakeRot = 0; this.tiltAdd = 0; this.earFlap = 0; this.sleeping = false; this.tearK = 0;
+    if (this.seated || (this.car && this.car.on)) this.carAway();
     if (this.ball.state === 'mouth') this.dropBall(false);
     if (this.fly.on && !this.fly.leave) { this.fly.leave = true; this.fly.dir = 1; }
     this.treat.on = false;
@@ -1280,7 +1492,7 @@
     var tm = this.timers || [], due = [];
     this.timers = tm.filter(function (x) { if (x.t <= this.t) { due.push(x); return false; } return true; }, this);
     due.forEach(function (x) { x.fn(); });
-    if (this.petActive && (this.kind === 'idle' || this.kind === 'sleep') && this.scriptName !== 'petted') this.run(sPetted(this), 'idle', 'petted');
+    if (this.petActive && !this.dead && (this.kind === 'idle' || this.kind === 'sleep') && this.scriptName !== 'petted') this.run(sPetted(this), 'idle', 'petted');
     if (!this.script) this.pickNext();
     var r;
     try { r = this.script.next(dt); } catch (e) { r = { done: true }; if (window.console) console.error(e); }
@@ -1291,18 +1503,19 @@
     if (this.headShakeKick > 0) { this.headShakeKick = Math.max(0, this.headShakeKick - dt); var a = Math.sin(this.t * 60) * this.headShakeKick * 2; this.tiltAdd = a * 14; this.earFlap = a * 30; if (this.headShakeKick === 0) { this.tiltAdd = 0; this.earFlap = 0; } }
   };
   Pet.prototype.pickNext = function () {
-    if (this.queue.length) { var a = this.queue.shift(); this.run(ACTIONS[a](this), 'act', a); return; }
-    if (this.playing) { this.run(sFetch(this), 'play', 'fetch'); return; }
+    if (this.queue.length) { var a = this.queue.shift(); if (!this.dead) { this.run(ACTIONS[a](this), 'act', a); return; } }
+    if (this.playing && !this.dead) { this.run(sFetch(this), 'play', 'fetch'); return; }
     var name = this.chooseIdle();
     this.last = name;
     this.run(IDLES[name](this), name === 'sleep' ? 'sleep' : 'idle', name);
   };
   Pet.prototype.chooseIdle = function () {
+    if (this.dead) return 'ghost';
     var st = this.dog.st.id, m = this.mood, h = this.hour(), W;
     if (this.isNight() && this.t > this.awakeUntil) return 'sleep';
-    if (m === 'sad') {
+    if (m === 'sad' || m === 'lonely') {
       W = { sadSit: 3, sadLie: 3, stand: 0.8 };
-      if (this.needs.food < 0.02 || this.needs.water < 0.02) W.wantBowl = 2.5;
+      if (!this.guest && (this.needs.food < 0.02 || this.needs.water < 0.02)) W.wantBowl = 2.5;
     } else {
       W = { stand: 3, wander: 4, sit: 3, lie: 2, look: 2, sniff: 2, dig: 0.8, scratch: 1.2, yawn: 1, stretch: 1.1, shake: 0.6, bark: 0.7, sleep: 0.35 };
       if (st !== 'newborn') W.zoomies = st === 'puppy' || st === 'junior' ? 1.6 : 0.6;
@@ -1312,7 +1525,11 @@
       if (st === 'newborn') { W.sleep = 2.5; W.lie += 2; W.wander = 2; }
       if (m === 'hungry' || m === 'thirsty') { W.wantBowl = 4; W.zoomies = 0; W.chaseTail = 0; }
       if (m === 'bored') { W.bringBall = 3.5; W.zoomies = 0; }
-      if (this.reduce) { W.zoomies = 0; W.chaseTail = 0; W.shake = 0; }
+      if (this.dog.wear.ride === 'car' && st !== 'newborn') W.cruise = this.guest ? 1 : 1.8;
+      /* friends settle in for a few seconds before they play together */
+      if (this.home.t - (this.home.guestT || -99) > 8 && this.buddy()) { W.greet = 0.9; if (st !== 'newborn') W.chase = 0.8; }
+      if (this.guest) { W.butterfly = 0; W.wantBowl = 0; W.bringBall = 0; }
+      if (this.reduce) { W.zoomies = 0; W.chaseTail = 0; W.shake = 0; W.chase = 0; W.cruise = 0; }
     }
     if (W[this.last] && Object.keys(W).length > 1) W[this.last] *= 0.12;
     var sum = 0, k;
@@ -1322,14 +1539,14 @@
     return 'stand';
   };
   Pet.prototype.act = function (name) {
-    if (!ACTIONS[name]) return;
+    if (!ACTIONS[name] || this.dead) return;
     this.awakeUntil = Math.max(this.awakeUntil, this.t + 45);
     if (this.kind === 'act') { if (this.queue.length < 3) this.queue.push(name); return; }
     var asleep = this.sleeping || this.scriptName === 'sleep';
     this.run(wake(this, ACTIONS[name](this), asleep), 'act', name);
   };
   Pet.prototype.setPlaying = function (on) {
-    on = !!on;
+    on = !!on && !this.dead;
     if (on === this.playing) return;
     this.playing = on;
     this.awakeUntil = Math.max(this.awakeUntil, this.t + 60);
@@ -1343,11 +1560,17 @@
   Pet.prototype.setMood = function (m, needs) {
     if (needs) this.needs = needs;
     if (m === this.mood) return;
-    var was = this.mood;
+    var was = this.mood, low = function (x) { return x === 'sad' || x === 'lonely'; };
     this.mood = m;
-    if ((m === 'sad' || was === 'sad') && (this.kind === 'idle' || this.kind === 'sleep')) this.script = null;
+    if ((low(m) || low(was)) && (this.kind === 'idle' || this.kind === 'sleep')) this.script = null;
     else { var base = this.moodBase(); this.T.sad = base.sad; this.T.perk = base.perk; this.T.tailBase = base.tailBase; this.T.eyeBig = base.eyeBig || 0; }
   };
+  /* another awake puppy in the garden, for greeting and chasing */
+  Pet.prototype.buddy = function () {
+    var me = this, list = this.home.pups.filter(function (x) { return x !== me && x.alive && !x.dead && !x.leaving && !x.sleeping && !x.seated && x.kind !== 'act'; });
+    return list.length ? list[Math.floor(Math.random() * list.length)] : null;
+  };
+  Pet.prototype.free = function () { return this.alive && !this.dead && !this.leaving && !this.seated && (this.kind === 'idle' || !this.script) && this.scriptName !== 'petted'; };
   Pet.prototype.setPose = function (name) {
     var T = this.T;
     T.sit = name === 'sit' ? 1 : 0; T.lie = name === 'lie' ? 1 : 0; T.bow = name === 'bow' ? 1 : 0;
@@ -1489,7 +1712,7 @@
     var T = p.T;
     T.sit = 0; T.lie = 0; T.bow = 0.35; T.headDown = 0.55; T.dig = 1; T.perk = 0.75; T.wagAmp = 0.9; T.wagSpeed = 1.3;
     yield* p.wait(rnd(1.6, 2.4), function (k, dt) {
-      if (chance(dt * 16)) p.emit('dot', p.x + p.face * p.dog.d.L * 0.75 * p.S, LANE - 2, { vx: -p.face * rnd(40, 100), vy: rnd(-100, -50), g: 430, life: 0.7, color: pick(['#8B5A2B', '#6E4526', '#A0703F']), r: rnd(1.2, 2.3) });
+      if (chance(dt * 16)) p.emit('dot', p.x + p.face * p.dog.d.L * 0.75 * p.S, p.lane - 2, { vx: -p.face * rnd(40, 100), vy: rnd(-100, -50), g: 430, life: 0.7, color: pick(['#8B5A2B', '#6E4526', '#A0703F']), r: rnd(1.2, 2.3) });
     });
     T.dig = 0; T.bow = 0; T.headDown = 0;
     yield* p.wait(0.3);
@@ -1579,7 +1802,7 @@
   };
   IDLES.sleep = function* (p) {
     var T = p.T, night = p.isNight();
-    if (Math.abs(p.x - BED_X) > 6) { T.eyeOpen = 0.7; yield* p.walkTo(BED_X, 'walk'); }
+    if (Math.abs(p.x - p.bedX) > 6) { T.eyeOpen = 0.7; yield* p.walkTo(p.bedX, 'walk'); }
     yield* p.turnTo(-p.face); yield* p.wait(0.2); yield* p.turnTo(1);
     p.setPose('lie'); T.eyeOpen = 0.6; yield* p.wait(0.8);
     T.headRest = 1; T.eyeOpen = 0; T.perk = 0.2; T.tailBase = -20; T.wagAmp = 0; T.blush = 0.5;
@@ -1642,6 +1865,155 @@
     yield* p.wait(4);
     T.lie = 0; yield* p.wait(0.4);
   };
+
+  /* a ghost waits above its grave until someone studies */
+  IDLES.ghost = function* (p) { while (p.dead) yield; };
+
+  /* say hi to another puppy: trot over, sniff noses, wag */
+  IDLES.greet = function* (p) {
+    var o = p.buddy();
+    if (!o) return;
+    var T = p.T, gap = Math.abs(p.dog.out.head[0]) * p.S + Math.abs(o.dog.out.head[0]) * o.S + (p.dog.d.R * p.S + o.dog.d.R * o.S) * 0.95, side = p.x < o.x ? -1 : 1;
+    p.tagUntil = o.tagUntil = p.t + 5;
+    var tx = o.x + side * gap;
+    if (tx < 40 || tx > 360) tx = o.x - side * gap;
+    T.perk = 0.9; T.wagAmp = 0.9; T.wagSpeed = 1.3;
+    yield* p.walkTo(clamp(tx, 40, 360), 'trot');
+    if (!o.alive || o.dead) return;
+    yield* p.turnTo(o.x > p.x ? 1 : -1);
+    if (o.free()) o.run(sGreeted(o, p), 'idle', 'greeted');
+    T.headDown = 0.25; T.sniff = 1; T.happy = 0.3; p.canLook = false;
+    yield* p.wait(1.1, function () { var h = o.headPos(); p.lookAt(h[0], h[1]); });
+    T.sniff = 0; T.headDown = 0; T.happy = 1; T.wagAmp = 1; T.wagSpeed = 1.7;
+    var a = p.headPos(), b = o.headPos();
+    p.hearts((a[0] + b[0]) / 2, Math.min(a[1], b[1]) - 14, 2);
+    if (chance(0.5)) p.say('Woof!', 0.9);
+    yield* p.wait(0.9);
+    if (chance(0.5)) { p.setPose('bow'); yield* p.wait(0.8); T.bow = 0; }
+    T.happy = 0.2; yield* p.wait(0.4);
+  };
+  function* sGreeted(p, by) {
+    var T = p.T;
+    T.sit = 0; T.lie = 0; T.bow = 0;
+    yield* p.turnTo(by.x > p.x ? 1 : -1);
+    T.perk = 0.95; T.wagAmp = 1; T.wagSpeed = 1.6; T.happy = 0.5; p.canLook = false;
+    yield* p.wait(1.7, function () { var h = by.headPos(); p.lookAt(h[0], h[1]); });
+    T.happy = 0; T.wagAmp = 0.5;
+    yield* p.wait(0.4);
+  }
+  /* a play bow, then run; the other puppy gives chase */
+  IDLES.chase = function* (p) {
+    var o = p.buddy();
+    if (!o) return;
+    var T = p.T;
+    yield* p.turnTo(o.x > p.x ? 1 : -1);
+    p.setPose('bow'); T.wagAmp = 1; T.wagSpeed = 1.8; T.happy = 0.6; T.mouth = 0.5; T.tongue = 0.8; p.say('Woof!', 0.9);
+    p.canLook = false;
+    yield* p.wait(0.8, function () { var h = o.headPos(); p.lookAt(h[0], h[1]); });
+    T.bow = 0; T.headTurn = 0; T.lookX = 0; T.lookY = 0;
+    if (o.free()) o.run(sFollow(o, p), 'idle', 'follow');
+    var right = p.x < 200;
+    for (var i = 0; i < 2; i++) {
+      yield* p.walkTo(right ? XMAX - rnd(0, 20) : XMIN + rnd(0, 20), 'run');
+      right = !right;
+      if (chance(0.4)) { T.tuck = 0.7; yield* p.hop(220); T.tuck = 0; }
+    }
+    p.setPose('sit'); T.mouth = 0.45;
+    yield* p.wait(1.6, function () { T.mouth = 0.45 + 0.1 * Math.sin(p.t * 16); });
+    T.sit = 0; T.mouth = 0; T.tongue = 0; T.happy = 0;
+  };
+  function* sFollow(p, lead) {
+    var T = p.T, t = 0, sp = 150 * (0.72 + 0.28 * p.dog.st.scale);
+    T.sit = 0; T.lie = 0; T.bow = 0; T.happy = 0.5; T.mouth = 0.5; T.tongue = 0.8; T.wagAmp = 1; T.wagSpeed = 1.7;
+    p.canLook = false;
+    yield* p.wait(0.35);
+    while (t < 7 && lead.alive && !lead.dead && lead.scriptName === 'chase') {
+      var tx = clamp(lead.x - lead.face * (lead.dog.d.L * lead.S + 22), 34, 366), dist = tx - p.x, dir = dist >= 0 ? 1 : -1;
+      if (Math.abs(dist) > 8 && dir !== p.face) { T.gait = 0; yield* p.turnTo(dir); continue; }
+      var dt = yield; t += dt;
+      T.gait = Math.abs(dist) > 4 ? 2 : 0;
+      p.x += clamp(dist, -sp * dt, sp * dt);
+      if (p.air === 0) { T.tuck = 0; if (chance(dt * 0.4)) { T.tuck = 0.6; p.vUp = 200; p.air = 0.01; } }
+    }
+    T.gait = 0; T.tuck = 0; p.setPose('sit'); T.mouth = 0.45;
+    yield* p.wait(1.4, function () { T.mouth = 0.45 + 0.1 * Math.sin(p.t * 16); });
+    T.sit = 0; T.mouth = 0; T.tongue = 0; T.happy = 0;
+  }
+  /* the supercar: it pops up, the puppy jumps in, drives across the garden and back */
+  IDLES.cruise = function* (p) {
+    if (p.dog.wear.ride !== 'car' || p.dead) return;
+    var T = p.T, dir = p.x < 200 ? 1 : -1, c = p.carOn(clamp(p.x - dir * 20, 80, 320), dir);
+    T.perk = 1; T.surprise = 1; T.wagAmp = 1; T.wagSpeed = 1.7;
+    yield* p.wait(0.55, function () { p.lookAt(c.x, p.lane - 30); });
+    T.surprise = 0;
+    yield* p.turnTo(dir);
+    T.crouch = 1; yield* p.wait(0.18); T.crouch = 0;
+    var x0 = p.x, a0 = p.air;
+    p.seated = true; T.tuck = 0.8; p.canLook = false;
+    yield* p.wait(0.5, function (k) {
+      var s = p.seatPos();
+      p.x = lerp(x0, s.x, ease(k)); p.air = lerp(a0, s.air, k) + Math.sin(k * Math.PI) * 36;
+      if (k > 0.55) p.carIn(true);
+    });
+    c.ride = true; T.tuck = 0; p.setPose('sit'); p.sqV -= 1.4;
+    T.happy = 0.5; T.mouth = 0.45; T.tongue = 0.5; T.headTurn = 0.3 * dir; p.say('Vroom!', 1.1);
+    yield* p.wait(0.8, function (k, dt) { c.shake = 1; if (chance(dt * 16)) p.exhaust(); });
+    c.shake = 0;
+    yield* p.drive(dir > 0 ? 328 : 72);
+    yield* p.drive(dir > 0 ? 72 : 328);
+    T.happy = 1; T.mouth = 0.55;
+    yield* p.drive(c.home);
+    if (c.dir !== dir) yield* p.carTurn(dir);
+    T.happy = 0.6; var h = p.headPos(); p.hearts(h[0], h[1] - 16, 2);
+    yield* p.wait(0.7);
+    c.ride = false;
+    var sx = p.x, sa = p.air, lx = clamp(c.x + c.dir * 62 * p.carS(), 40, 360);
+    T.sit = 0; T.tuck = 0.7;
+    yield* p.wait(0.45, function (k) {
+      p.x = lerp(sx, lx, ease(k)); p.air = Math.max(0, lerp(sa, 0, k) + Math.sin(k * Math.PI) * 26);
+      if (k > 0.35) p.carIn(false);
+    });
+    p.seated = false; p.air = 0; T.tuck = 0; p.sqV -= 1.6;
+    yield* p.wait(0.3);
+    p.carAway();
+    T.happy = 0; T.mouth = 0; T.tongue = 0; T.headTurn = 0;
+    yield* p.wait(0.4);
+  };
+
+  /* no study for 48 hours in exam season: very sad, then a dust cloud, then a grave */
+  function* sDie(p) {
+    var T = p.T;
+    p.canLook = false; p.setPose('sit'); T.sad = 1; T.eyeBig = 1; T.perk = 0; T.tailBase = -60; T.wagAmp = 0.05; T.headTilt = -6 * p.face; T.lookY = 0.3; T.headTurn = 0;
+    p.say('…', 1.1);
+    yield* p.wait(1.4, function (k) { p.tearK = Math.min(1, k * 2.5); p.shakeRot = Math.sin(p.t * 42) * 1.4 * k; });
+    p.shakeRot = 0;
+    var b = p.toScene(p.dog.out.body);
+    p.poof(b[0], b[1] - 4 * p.S, 24, '#F1ECE2', '#BDB3A2', Math.max(0.8, p.S * 1.25));
+    p.emit('text', b[0], b[1] - 44 * p.S, { text: 'Poof!', size: 17, color: '#fff', stroke: '#8A8173', vy: -24, life: 1.3, s0: 0.5, s1: 1.15 });
+    p.tearK = 0;
+    p.goGrave(true);
+    for (var i = 0; i < 10; i++) p.emit('dot', p.graveX + rnd(-14, 14), p.lane - 2, { vx: rnd(-60, 60), vy: rnd(-130, -60), g: 430, life: 0.75, color: pick(['#8B5A2B', '#6E4526', '#A0703F']), r: rnd(1.3, 2.4) });
+    yield* p.wait(1.4);
+  }
+  /* 25 minutes of study: the ghost goes back in, the stone shakes, and out jumps the puppy */
+  function* sRevive(p) {
+    var g = p.grave, T = p.T, gx = p.graveX, gy = p.lane;
+    if (!g || !p.dead) { p.leaveGrave(); return; }
+    g.mode = 'revive';
+    yield* p.wait(1.5, function (k, dt) {
+      if (chance(dt * 18)) p.emit('star', gx + rnd(-32, 32), gy - rnd(8, 96), { life: 0.8, s0: 0.2, s1: 1, vr: rnd(-200, 200), color: pick(['#FFD54A', '#FFF3B0', '#FFFFFF']) });
+      g.sink = k;
+    });
+    p.poof(gx, gy - 20, 22, '#FFF6D2', '#E6C45C', 1.1);
+    p.sparkle(gx, gy - 40, 10, 34);
+    p.leaveGrave();
+    p.x = gx; p.air = 0; p.sqV += 3;
+    p.setPose('stand'); T.sad = 0; T.eyeBig = 0.4; T.surprise = 1; T.perk = 1; T.tailBase = 14;
+    yield* p.wait(0.45);
+    T.surprise = 0;
+    p.say('I’m back!', 1.5);
+    yield* ACTIONS.celebrate(p);
+  }
 
   /* petting: eyes shut, leaning into your hand, tail going */
   function* sPetted(p) {
@@ -1833,24 +2205,322 @@
   };
 
   /* =========================================================
+     Extras around a puppy: the supercar, the grave, a rain cloud, a name tag
+     ========================================================= */
+  var CAR_SEAT = [-14, -11];
+  /* a made-up supercar (no real brand), side view facing right, wheels on the ground at y = 0 */
+  function drawCar(back, front) {
+    var Y = '#FFCB1F', YD = '#E3A600', OL = '#6B4E00', DK = '#26262D';
+    el('ellipse', { cx: 0, cy: 0.5, rx: 68, ry: 5, fill: '#000', opacity: 0.16 }, back);
+    el('path', { d: 'M-58 -29L-40 -30Q-14 -35 12 -32L22 -31', fill: 'none', stroke: YD, 'stroke-width': 6, 'stroke-linecap': 'round' }, back);
+    el('path', { d: 'M-41 -24Q-44 -53 -33 -54Q-25 -54 -26 -24Z', fill: '#2E2E36', stroke: '#131317', 'stroke-width': 1.6, 'stroke-linejoin': 'round' }, back);
+    el('path', { d: 'M-38 -47Q-33.5 -50.5 -29 -47', fill: 'none', stroke: '#E0453A', 'stroke-width': 2, 'stroke-linecap': 'round' }, back);
+    var body = 'M-68 -12Q-70 -27 -60 -31L-42 -31Q-30 -27 -12 -27Q4 -27 14 -30L28 -30Q50 -29 66 -19Q72 -15 70 -9L67 -6L55 -6A14 14 0 0 0 27 -6L-27 -6A14 14 0 0 0 -55 -6L-64 -6Q-68 -7 -68 -12Z';
+    el('path', { d: body, fill: Y, stroke: OL, 'stroke-width': 2.2, 'stroke-linejoin': 'round' }, front);
+    el('path', { d: 'M-26 -7L26 -7L24.5 -11.5L-24.5 -11.5Z', fill: DK }, front);
+    el('path', { d: 'M-23 -22L-7 -24L-9 -14L-23 -13Z', fill: DK, stroke: OL, 'stroke-width': 1.2, 'stroke-linejoin': 'round' }, front);
+    el('path', { d: 'M-3 -27Q-1 -18 2 -12M22 -29.5Q24 -20 22 -12', fill: 'none', stroke: OL, 'stroke-width': 1.2, opacity: 0.6 }, front);
+    el('path', { d: 'M30 -27Q48 -26 60 -19.5', fill: 'none', stroke: '#FFF1B0', 'stroke-width': 2.2, 'stroke-linecap': 'round' }, front);
+    el('path', { d: 'M-62 -28.5Q-56 -29.5 -46 -29.5', fill: 'none', stroke: '#FFF1B0', 'stroke-width': 1.8, 'stroke-linecap': 'round' }, front);
+    el('path', { d: 'M56 -21L66.5 -16L62 -13.8Z', fill: '#FFF8D6', stroke: OL, 'stroke-width': 1.1, 'stroke-linejoin': 'round' }, front);
+    el('rect', { x: -69.5, y: -27, width: 4, height: 6.5, rx: 1.5, fill: '#FF4B3E', stroke: OL, 'stroke-width': 1 }, front);
+    el('path', { d: 'M21 -30L9 -45L4.5 -44L15 -30Z', fill: '#BFE6FF', 'fill-opacity': 0.75, stroke: '#2B2B33', 'stroke-width': 1.8, 'stroke-linejoin': 'round' }, front);
+    el('ellipse', { cx: 5, cy: -35, rx: 2.3, ry: 6.5, fill: 'none', stroke: DK, 'stroke-width': 2.2, transform: 'rotate(-18 5 -35)' }, front);
+    el('path', { d: 'M-60 -31L-62 -39M-50 -30.5L-51 -38', stroke: DK, 'stroke-width': 2.4, 'stroke-linecap': 'round' }, front);
+    el('path', { d: 'M-73 -42.5L-44 -40.5L-45 -36.5L-72 -38.5Z', fill: DK, stroke: '#131317', 'stroke-width': 1.2, 'stroke-linejoin': 'round' }, front);
+    el('rect', { x: -71, y: -11.5, width: 5.5, height: 3.2, rx: 1.3, fill: '#A2A8B2', stroke: '#5E646E', 'stroke-width': 0.8 }, front);
+    var wheels = [-41, 41].map(function (wx) {
+      var wg = el('g', { transform: 'translate(' + wx + ' -12)' }, front);
+      el('circle', { r: 12, fill: DK, stroke: '#0E0E12', 'stroke-width': 1.6 }, wg);
+      el('circle', { r: 7.2, fill: '#D8DDE6', stroke: '#8C93A0', 'stroke-width': 1.2 }, wg);
+      var sp = el('g', null, wg);
+      for (var i = 0; i < 5; i++) el('path', { d: 'M0 0L0 -6.3', stroke: '#8C93A0', 'stroke-width': 1.7, 'stroke-linecap': 'round', transform: 'rotate(' + (i * 72) + ')' }, sp);
+      el('circle', { r: 2, fill: '#FFC933', stroke: '#8C93A0', 'stroke-width': 0.8 }, wg);
+      return sp;
+    });
+    return { wheels: wheels };
+  }
+  /* the grave: a small rounded stone with a paw print and the name, on a little mound */
+  function drawStone(g, name) {
+    el('ellipse', { cx: 0, cy: 2, rx: 31, ry: 5, fill: '#000', opacity: 0.12 }, g);
+    var s = el('g', null, g);
+    el('path', { d: 'M-17 -3L-17 -36A17 17 0 0 1 17 -36L17 -3Z', fill: '#C4CBD7', stroke: '#6B7385', 'stroke-width': 2.2, 'stroke-linejoin': 'round' }, s);
+    el('path', { d: 'M-12.5 -6.5L-12.5 -35.5A12.5 12.5 0 0 1 12.5 -35.5L12.5 -6.5Z', fill: '#D8DEE7' }, s);
+    el('path', { d: 'M-10 -44Q-6 -49 0 -49.5', fill: 'none', stroke: '#fff', 'stroke-width': 1.8, 'stroke-linecap': 'round', opacity: 0.7 }, s);
+    el('path', { d: pawD(0, -39.5, 0.72), fill: '#98A1B3' }, s);
+    var nm = String(name || '').slice(0, 16);
+    var t = el('text', { x: 0, y: -20, 'text-anchor': 'middle', 'font-size': n2(clamp(44 / Math.max(4, nm.length * 0.62), 4.6, 7.6)), 'font-weight': 800, fill: '#565E6E', 'font-family': '-apple-system, system-ui, sans-serif' }, s);
+    t.textContent = nm;
+    el('path', { d: 'M-7 -13H7', stroke: '#A6AFBF', 'stroke-width': 1.4, 'stroke-linecap': 'round' }, s);
+    el('path', { d: 'M-28 3Q-25 -7 0 -8Q25 -7 28 3Z', fill: '#9B6A3C', stroke: '#6E4526', 'stroke-width': 1.8, 'stroke-linejoin': 'round' }, g);
+    el('path', { d: 'M-14 -3Q-12 -5 -9 -4M6 -5Q9 -6.5 12 -4.5', fill: 'none', stroke: '#B98451', 'stroke-width': 1.4, 'stroke-linecap': 'round' }, g);
+    [[-22, 2, '#FF7EB6'], [21, 3, '#FFD54A'], [-9, 4, '#B69CFF']].forEach(function (f) {
+      var fg = el('g', { transform: 'translate(' + f[0] + ' ' + f[1] + ') scale(0.8)' }, g);
+      el('path', { d: 'M0 0Q1 -5 0 -10', fill: 'none', stroke: '#4E9A45', 'stroke-width': 1.6, 'stroke-linecap': 'round' }, fg);
+      var hd = el('g', { transform: 'translate(0 -11)' }, fg);
+      for (var k = 0; k < 5; k++) { var a = k * 72 * RAD; el('circle', { cx: n2(Math.cos(a) * 3), cy: n2(Math.sin(a) * 3), r: 2.6, fill: f[2] }, hd); }
+      el('circle', { r: 2, fill: '#FFF1A8' }, hd);
+    });
+    var bone = el('g', { transform: 'translate(8 4) rotate(-8) scale(0.62)' }, g);
+    el('path', { d: 'M-7 -2.2A2.8 2.8 0 1 1 -4.6 -4.4L4.6 -4.4A2.8 2.8 0 1 1 7 -2.2A2.8 2.8 0 1 1 4.6 0L-4.6 0A2.8 2.8 0 1 1 -7 -2.2Z', transform: 'translate(0 2.2)', fill: '#FFF6E6', stroke: '#A8753D', 'stroke-width': 1.6, 'stroke-linejoin': 'round' }, bone);
+    return s;
+  }
+  function drawCloud(g) {
+    var C = [[-11, 0, 8.5], [0, -5, 10.5], [11, -0.5, 8], [3, 3, 8]];
+    C.forEach(function (c) { el('circle', { cx: c[0], cy: c[1], r: c[2] + 1.4, fill: '#65708A' }, g); });
+    C.forEach(function (c) { el('circle', { cx: c[0], cy: c[1], r: c[2], fill: '#A4AEC2' }, g); });
+    el('path', { d: 'M-8 -6Q-4 -12 3 -11', fill: 'none', stroke: '#C9D0DE', 'stroke-width': 2, 'stroke-linecap': 'round' }, g);
+  }
+
+  /* ---------- the car ---------- */
+  var CAR_S = 1;
+  Pet.prototype.carS = function () { return CAR_S * this.sizeK(); };
+  Pet.prototype.checkCar = function () { if (this.car && this.car.on && this.dog.wear.ride !== 'car') this.carAway(); };
+  Pet.prototype.carOn = function (x, dir) {
+    if (!this.carParts) this.carParts = drawCar(this.carBack, this.carFront);
+    var c = this.car = { on: true, x: x, home: x, dir: dir, v: 0, wheel: 0, shake: 0, pop: 0, flip: 1, ride: false, front: false };
+    this.carIn(false);
+    this.poof(x, this.lane - 14, 12, '#FFF7D6', '#E3C55A', 1.1);
+    this.sparkle(x, this.lane - 30, 6, 40);
+    return c;
+  };
+  Pet.prototype.seatPos = function () {
+    var c = this.car, cs = this.carS(), boost = (1 - this.dog.st.scale) * 18;
+    return { x: c.x + c.dir * CAR_SEAT[0] * cs, air: (-CAR_SEAT[1] + boost) * cs };
+  };
+  /* in the car, the near side of the car covers the puppy's legs */
+  Pet.prototype.carIn = function (on) {
+    if (!this.car) return;
+    this.car.front = on;
+    if (on) this.pg.insertBefore(this.carFront, this.dogG.nextSibling);
+    else this.pg.insertBefore(this.carFront, this.dogG);
+  };
+  Pet.prototype.carAway = function () {
+    var c = this.car;
+    if (this.seated) { this.seated = false; this.vUp = 0; }
+    if (!c || !c.on) return;
+    c.on = false; c.ride = false;
+    this.carIn(false);
+    this.poof(c.x, this.lane - 14, 12, '#FFF7D6', '#E3C55A', 1.1);
+    attr(this.carBack, 'opacity', 0); attr(this.carFront, 'opacity', 0);
+  };
+  Pet.prototype.exhaust = function () {
+    var c = this.car, cs = this.carS();
+    if (!c) return;
+    this.emit('puff', c.x - c.dir * 70 * cs, this.lane - 10 * cs, { r: 3.2, color: '#DDE1E7', stroke: '#AEB4BE', vx: -c.dir * rnd(25, 55), vy: rnd(-24, -6), life: 0.7, s0: 0.5, s1: 1.7, fade: 0.4, drag: 1.2 });
+  };
+  Pet.prototype.drive = function* (tx) {
+    var c = this.car;
+    if (!c) return;
+    var dir = tx > c.x ? 1 : -1;
+    if (dir !== c.dir) yield* this.carTurn(dir);
+    var vmax = 200, cs = this.carS();
+    while ((tx - c.x) * dir > 1 && c.on) {
+      var dt = yield, rem = Math.abs(tx - c.x);
+      c.v = Math.min(vmax, c.v + 280 * dt);
+      if (rem < 70) c.v = Math.max(28, Math.min(c.v, rem * 3));
+      c.x += dir * c.v * dt;
+      if ((tx - c.x) * dir < 0) c.x = tx;
+      var k = c.v / vmax;
+      this.earFlap = Math.sin(this.t * 32) * 16 * k;
+      if (chance(dt * 26 * k)) this.emit('dash', c.x - dir * rnd(74, 96) * cs, this.lane - rnd(8, 44) * cs, { len: rnd(8, 18), vx: -dir * 40, life: 0.3, color: '#FFFFFF' });
+      if (chance(dt * 12)) this.exhaust();
+      if (chance(dt * 10 * k)) this.emit('dot', c.x - dir * 50 * cs, this.lane - 1, { vx: -dir * rnd(30, 70), vy: rnd(-60, -30), g: 300, life: 0.45, color: '#8DB76B', r: 1.3 });
+    }
+    c.v = 0; this.earFlap = 0;
+  };
+  /* a quick skid turn */
+  Pet.prototype.carTurn = function* (dir) {
+    var c = this.car, self = this, cs = this.carS();
+    if (!c) return;
+    for (var i = 0; i < 8; i++) this.emit('puff', c.x + rnd(-40, 40) * cs, this.lane - 4, { r: rnd(3, 6), color: '#E9E1CF', stroke: '#C2B7A0', vx: rnd(-40, 40), vy: rnd(-30, -8), life: 0.6, s0: 0.5, s1: 1.5, fade: 0.4, drag: 1.5 });
+    yield* this.wait(0.3, function (k) { c.flip = Math.cos(k * Math.PI); if (k > 0.5 && c.dir !== dir) { c.dir = dir; self.face = dir; } });
+    c.flip = 1; c.dir = dir; this.face = dir;
+  };
+  Pet.prototype.updateCar = function (dt) {
+    var c = this.car;
+    if (!c || !c.on) return;
+    var cs = this.carS();
+    c.pop = Math.min(1, c.pop + dt * 4);
+    var pop = c.pop < 1 ? 1 + Math.sin(c.pop * Math.PI) * 0.18 - (1 - c.pop) * 0.6 : 1;
+    c.wheel += c.v * dt / (12 * cs) / RAD;
+    if (c.ride && this.seated) { var s = this.seatPos(); this.x = s.x; this.air = s.air + (c.shake ? Math.abs(Math.sin(this.t * 40)) * 0.8 : 0); this.face = c.dir; }
+    var sy = c.shake ? Math.sin(this.t * 55) * 0.7 : 0;
+    var tr = 'translate(' + pt(c.x, this.lane + sy) + ') scale(' + n2(c.dir * Math.abs(c.flip) * cs * pop) + ' ' + n2(cs * pop) + ')';
+    attr(this.carBack, 'transform', tr); attr(this.carFront, 'transform', tr);
+    attr(this.carBack, 'opacity', 1); attr(this.carFront, 'opacity', 1);
+    var rot = 'rotate(' + n2(c.wheel % 360) + ')';
+    this.carParts.wheels.forEach(function (w) { attr(w, 'transform', rot); });
+  };
+
+  /* ---------- name tags (only with friends in the garden) ---------- */
+  Pet.prototype.setTag = function (name) {
+    var g = this.tagG;
+    while (g.firstChild) g.removeChild(g.firstChild);
+    var nm = String(name || '').slice(0, 16), w = Math.max(22, nm.length * 5.6 + 12);
+    el('rect', { x: n2(-w / 2), y: -7, width: n2(w), height: 13, rx: 6.5, fill: this.guest ? '#FFFFFF' : '#FFE27A', stroke: '#2B2B33', 'stroke-width': 1.1, opacity: 0.94 }, g);
+    var t = el('text', { x: 0, y: 2.6, 'text-anchor': 'middle', 'font-size': 8.2, 'font-weight': 800, fill: '#2B2B33', 'font-family': '-apple-system, system-ui, sans-serif' }, g);
+    t.textContent = nm;
+    this.tagW = w;
+  };
+  Pet.prototype.updateTag = function (dt) {
+    var n = this.home.guests.length, want = n > 0 && (n <= 3 || this.t < (this.tagUntil || 0)) && !this.bubble ? 1 : 0;
+    this.tagK += (want - this.tagK) * (1 - Math.exp(-dt / 0.25));
+    if (this.tagK < 0.02) { if (this.tagOn) { attr(this.tagG, 'opacity', 0); this.tagOn = false; } return; }
+    this.tagOn = true;
+    var x, y;
+    if (this.dead && this.grave) { x = this.graveX; y = this.lane - 50 * this.graveS() - 92 * this.S; }
+    else { var h = this.headPos(), R = this.dog.out.R * this.S; x = h[0]; y = h[1] - R * 1.75 - 8; }
+    attr(this.tagG, 'transform', 'translate(' + pt(clamp(x, this.tagW / 2 + 4, 396 - this.tagW / 2), y) + ')');
+    attr(this.tagG, 'opacity', n2(this.tagK));
+  };
+
+  /* ---------- the grave and the ghost ---------- */
+  Pet.prototype.graveS = function () { return this.sizeK(); };
+  Pet.prototype.buildGrave = function () {
+    var g = this.graveG, old = this.grave;
+    while (g.firstChild) g.removeChild(g.firstChild);
+    var stone = drawStone(el('g', null, g), this.name);
+    var gw = el('g', { opacity: 0 }, g), gi = el('g', null, gw);
+    var look = this.look || {};
+    var ghost = new Dog(gi, { breed: look.breed, coat: look.coat, stage: look.stage }, this.pfx + 'g' + (++UID) + '-', { ghost: true });
+    this.grave = { stone: stone, root: stone.parentNode, gw: gw, gi: gi, dog: ghost, rise: old ? old.rise : 1, ghostK: old ? old.ghostK : 1, delay: 0, sink: 0, mode: '', t: rnd(0, 5) };
+  };
+  Pet.prototype.hideGrave = function () {
+    attr(this.graveG, 'opacity', 0);
+    while (this.graveG.firstChild) this.graveG.removeChild(this.graveG.firstChild);
+    this.grave = null;
+  };
+  /* straight to the grave (no dust cloud), or the end of the dust cloud */
+  Pet.prototype.goGrave = function (rising) {
+    this.cleanupForGrave();
+    this.dead = true; this.graveX = clamp(this.x, 60, 340); this.dogVis(false);
+    this.buildGrave();
+    if (rising) { this.grave.rise = 0; this.grave.ghostK = 0; this.grave.delay = 0.35; }
+  };
+  Pet.prototype.cleanupForGrave = function () {
+    if (this.playing) { this.playing = false; if (this.ball.on) this.hideBall(); }
+    if (this.seated || (this.car && this.car.on)) this.carAway();
+    this.seated = false; this.air = 0; this.vUp = 0; this.sleeping = false;
+  };
+  Pet.prototype.leaveGrave = function () {
+    this.dead = false;
+    this.hideGrave();
+    this.x = this.graveX; this.air = 0;
+    this.dogVis(true);
+  };
+  Pet.prototype.setGrave = function (on, animate) {
+    on = !!on;
+    if (on === this.dead) return;
+    if (on) {
+      if (animate && this.dog && !this.reduce && this.alive) { this.cleanupForGrave(); this.queue = []; this.run(sDie(this), 'act', 'die'); return; }
+      this.goGrave(false);
+      this.script = null; this.kind = '';
+    } else {
+      if (animate && this.grave && !this.reduce && this.alive) { this.queue = []; this.run(sRevive(this), 'act', 'revive'); return; }
+      this.leaveGrave();
+      this.script = null; this.kind = '';
+    }
+  };
+  Pet.prototype.updateGrave = function (dt) {
+    var g = this.grave;
+    if (!g) return;
+    g.t += dt;
+    if (g.delay > 0) { g.delay -= dt; attr(this.graveG, 'opacity', 0); return; }
+    attr(this.graveG, 'opacity', 1);
+    if (g.rise < 1) g.rise = Math.min(1, g.rise + dt * 1.8);
+    var r = g.rise, sc = r < 1 ? Math.max(0.01, 1 + Math.sin(r * Math.PI * 1.5) * 0.12 * (1 - r) - (1 - r) * (1 - r)) : 1;
+    var wig = g.mode === 'revive' && g.sink > 0.45 ? Math.sin(g.t * 38) * 7 * (g.sink - 0.45) : 0;
+    var gs = this.graveS();
+    attr(g.root, 'transform', 'translate(' + pt(this.graveX, this.lane + 4) + ') scale(' + n2(gs) + ' ' + n2(gs * sc) + ')');
+    attr(g.stone, 'transform', wig ? 'rotate(' + n2(wig) + ' 0 -2)' : '');
+    /* the ghost fades in after the stone, floats and bobs; it sinks into the stone to come back */
+    if (r >= 1 && g.mode !== 'revive') g.ghostK = Math.min(1, g.ghostK + dt * 1.2);
+    if (g.mode === 'revive') g.ghostK = Math.max(0, 1 - g.sink * 1.4);
+    var gk = g.ghostK, bob = Math.sin(g.t * 1.7) * 3.2, sink = g.mode === 'revive' ? g.sink : 0;
+    var hover = lerp(30, 50, ease(gk)) - sink * 40;
+    var spin = this.ghostSpin > 0 ? (1 - this.ghostSpin) * 360 : 0;
+    if (this.ghostSpin > 0) this.ghostSpin = Math.max(0, this.ghostSpin - dt * 1.4);
+    var S = this.S * 0.82;
+    attr(g.gw, 'opacity', n2(gk * 0.9));
+    attr(g.gw, 'transform', 'translate(' + pt(this.graveX + Math.sin(g.t * 0.7) * 5, this.lane - hover * gs + bob) + ')');
+    attr(g.gi, 'transform', (spin ? 'rotate(' + n2(spin) + ' 0 ' + n2(-30 * S) + ') ' : '') + 'scale(' + n2(S) + ')');
+    g.dog.pose({ faceX: Math.sin(g.t * 0.35) > -0.6 ? 1 : -1, tuck: 1, happy: 1, blush: 0.9, perk: 0.45, tailBase: 12, wagAmp: 0.55, wagPh: g.t * 6, breath: Math.sin(g.t * 2),
+      headTilt: Math.sin(g.t * 1.3) * 7, mouth: 0.18, tongue: 0.35, tongueWag: g.t * 4, lean: Math.sin(g.t * 0.9) * 4, eyeOpen: 1 });
+    attr(g.dog.shadow, 'opacity', 0);
+    if (gk > 0.6 && chance(dt * 0.9)) this.emit('star', this.graveX + rnd(-22, 22), this.lane - hover * gs - rnd(0, 30), { life: 0.9, s0: 0.2, s1: 0.8, vy: -14, color: '#FFFFFF' });
+  };
+  Pet.prototype.updateCloud = function (dt) {
+    var want = !this.dead && this.mood === 'lonely' ? 1 : 0;
+    this.cloudK += (want - this.cloudK) * (1 - Math.exp(-dt / 0.45));
+    if (this.cloudK < 0.02) { if (this.cloudOn) { attr(this.cloudG, 'opacity', 0); this.cloudOn = false; } return; }
+    if (!this.cloudOn && !this.cloudG.firstChild) drawCloud(this.cloudG);
+    this.cloudOn = true;
+    var h = this.headPos(), R = this.dog.out.R * this.S, k = this.cloudK;
+    this.cloudX = this.cloudX == null ? h[0] : this.cloudX + (h[0] - this.cloudX) * (1 - Math.exp(-dt / 0.5));
+    var y = h[1] - R * 2.2 - 10 + Math.sin(this.t * 1.5) * 1.5, s = clamp(this.S * 1.15, 0.7, 1.15);
+    attr(this.cloudG, 'transform', 'translate(' + pt(this.cloudX, y) + ') scale(' + n2(s * (0.6 + 0.4 * k)) + ')');
+    attr(this.cloudG, 'opacity', n2(k));
+    if (k > 0.5 && chance(dt * 16)) this.emit('drop', this.cloudX + rnd(-13, 13) * s, y + 7 * s, { vy: 120, g: 160, life: 0.42, s0: 0.55, s1: 0.55, color: '#8CC4F2', stroke: '#4F86C6' });
+  };
+  /* bling: gold and diamonds catch the light now and then */
+  Pet.prototype.updateBling = function (dt) {
+    this.blingT -= dt;
+    if (this.blingT > 0) return;
+    this.blingT = rnd(1.2, 3);
+    var o = this.dog.out;
+    if (this.dead || !o) return;
+    if (o.bling) { var q = this.toScene(o.bling); this.emit('star', q[0] + rnd(-3, 3), q[1] + rnd(-3, 2), { life: 0.55, s0: 0.2, s1: 0.85, vr: 220, color: '#FFFFFF' }); }
+    if (o.grin > 0.2) { var m = this.mouthPos(); this.emit('star', m[0] + rnd(-3, 3), m[1] - 3, { life: 0.5, s0: 0.2, s1: 0.7, vr: 220, color: '#FFF3B0' }); }
+  };
+  Pet.prototype.extras = function (dt) {
+    this.updateCar(dt);
+    this.updateGrave(dt);
+    this.updateCloud(dt);
+    this.updateTag(dt);
+    this.updateBling(dt);
+  };
+
+  /* =========================================================
      Still pictures (breed picker, wardrobe, iPhone widget)
      ========================================================= */
   var measureBox = null;
   function stillSVG(o) {
     o = o || {};
-    var br = breedOf(o.breed), look = { breed: br.id, coat: coatOf(br, o.coat).id, stage: stageOf(o.stage).id, wear: o.wear || {} };
+    var br = breedOf(o.breed), st = stageOf(o.stage), look = { breed: br.id, coat: coatOf(br, o.coat).id, stage: st.id, wear: o.wear || {} };
     var svg = el('svg', { xmlns: NS, 'class': 'pet-still' });
-    var dog = new Dog(svg, look, 'ps' + (++UID) + '-');
-    dog.pose(Object.assign({ faceX: o.face || 1 }, STILL[o.pose] || STILL.sit, o.P || {}));
+    var root = el('g', null, svg), pfx = 'ps' + (++UID) + '-', S0 = st.scale * 0.92, dog;
+    var pose = Object.assign({ faceX: o.face || 1 }, STILL[o.pose] || STILL.sit, o.P || {});
+    if (o.grave) {
+      /* the stone, and the ghost puppy with its halo floating above it */
+      var k = 1.25 / S0;
+      drawStone(el('g', { transform: 'scale(' + n2(k) + ')' }, root), o.name || '');
+      var gw = el('g', { opacity: 0.92, transform: 'translate(0 ' + n2(-47 * k) + ') scale(0.82)' }, root);
+      dog = new Dog(gw, look, pfx, { ghost: true });
+      dog.pose({ faceX: 1, tuck: 1, happy: 1, blush: 0.9, perk: 0.45, tailBase: 12, wagAmp: 0, mouth: 0.18, tongue: 0.35, headTilt: 6 });
+      attr(dog.shadow, 'opacity', 0);
+    } else if (look.wear.ride === 'car' && !o.noCar && (!o.pose || o.pose === 'sit' || o.pose === 'happy')) {
+      /* sitting in the supercar */
+      var cs = CAR_S / S0, boost = (1 - st.scale) * 18;
+      var cb = el('g', { transform: 'scale(' + n2(cs) + ')' }, root), dw = el('g', { transform: 'translate(' + pt(CAR_SEAT[0] * cs, (CAR_SEAT[1] - boost) * cs) + ')' }, root), cf = el('g', { transform: 'scale(' + n2(cs) + ')' }, root);
+      drawCar(cb, cf);
+      dog = new Dog(dw, look, pfx);
+      dog.pose(pose);
+      attr(dog.shadow, 'opacity', 0);
+    } else {
+      dog = new Dog(root, look, pfx);
+      dog.pose(pose);
+    }
     var box = null;
     try {
       if (!measureBox) { measureBox = document.createElement('div'); measureBox.style.cssText = 'position:absolute;left:-9999px;top:0;width:10px;height:10px;overflow:hidden;visibility:hidden'; }
       if (!measureBox.isConnected) document.body.appendChild(measureBox);
       measureBox.appendChild(svg);
-      box = dog.g.getBBox();
+      box = root.getBBox();
       measureBox.removeChild(svg);
     } catch (e) { box = null; }
-    var w = o.frame || 150, h = w * (o.aspect || 0.9);
+    var aspect = o.aspect || 0.9, w = o.frame || 150, h = w * aspect;
+    if (box && box.width + 10 > w) { w = box.width + 10; h = w * aspect; }
     var cx = box ? box.x + box.width / 2 : -4, bottom = box ? Math.max(8, box.y + box.height + 3) : 8;
     var top = box ? Math.min(box.y - 4, bottom - h) : bottom - h, vh = bottom - top;
     if (vh > h) { w = w * vh / h; h = vh; }
@@ -1860,13 +2530,58 @@
   }
 
   /* one accessory on its own, for the wardrobe */
-  var ITEM_BOX = { neck: '-26 8 52 44', face: '-26 -16 52 28', head: '-34 -60 68 56' };
+  var ITEM_BOX = { neck: '-26 8 52 44', face: '-26 -16 52 28', head: '-34 -60 68 56', phones: '-36 -36 72 52', snapback: '-25 -35 65 29', bucket: '-31 -38 62 32', mouth: '-14.5 1 29 17', ride: '-78 -58 156 64' };
   function itemSVG(id) {
     var it = itemOf(id);
     if (!it) return '';
-    var svg = el('svg', { xmlns: NS, viewBox: ITEM_BOX[it.slot], 'class': 'pet-item', 'aria-hidden': 'true' });
-    drawItem(id, el('g', null, svg), 27, null);
+    var svg = el('svg', { xmlns: NS, viewBox: ITEM_BOX[it.id] || ITEM_BOX[it.slot], 'class': 'pet-item', 'aria-hidden': 'true' });
+    if (it.id === 'car') drawCar(el('g', null, svg), el('g', null, svg));
+    else {
+      var dyn = drawItem(id, el('g', null, svg), 27, null);
+      if (dyn && dyn.grill) dyn.grill(0, 0, 1, 1.9);
+    }
     return new XMLSerializer().serializeToString(svg);
+  }
+
+  /* ---------- friends' puppies ---------- */
+  function addGuest(home, x) {
+    var used = home.guests.map(function (g) { return g.lane; });
+    var lane = GUEST_LANES.filter(function (l) { return used.indexOf(l) < 0; })[0] || GUEST_LANES[home.guests.length % GUEST_LANES.length];
+    /* spread out: the first free spot away from everyone else */
+    var SPOTS = [302, 118, 250, 154, 342, 222, 86], best = SPOTS[0], bestD = -1;
+    SPOTS.forEach(function (cx) {
+      var d = Math.min.apply(null, home.pups.map(function (q) { return Math.abs((q.dead ? q.graveX : q.x) - cx); }).concat([999]));
+      if (d > bestD + 8) { bestD = d; best = cx; }
+    });
+    var g = new Pet(null, { guestOf: home, id: x.id, lane: lane, x: best, face: best < 200 ? 1 : -1, name: x.name, look: x.look, mood: x.mood, needs: x.needs, grave: !!x.grave });
+    home.guests.push(g);
+    home.guestT = home.t;
+    if (!x.grave) g.run(IDLES.sit(g), 'idle', 'sit');
+    home.pups.forEach(function (q) { q.rescale(); });
+    g.tagUntil = 6;
+    if (home.t > 0.5) { home.sparkle(best, lane - 30, 6, 26); if (!x.grave) { g.air = 0.01; g.vUp = 220; g.sqV += 2; } }
+    return g;
+  }
+  function removeGuest(home, g) {
+    var i = home.guests.indexOf(g);
+    if (i >= 0) home.guests.splice(i, 1);
+    home.poof(g.dead ? g.graveX : g.x, g.lane - 22, 10, '#FFFFFF', '#D5DAE3', 0.9);
+    g.destroy();
+    home.pups.forEach(function (q) { q.rescale(); });
+  }
+  function syncGuests(home, list) {
+    list = (list || []).filter(function (x) { return x && x.id && x.look; }).slice(0, GUEST_LANES.length);
+    var want = {};
+    list.forEach(function (x) { want[x.id] = x; });
+    home.guests.slice().forEach(function (g) { if (!want[g.id]) removeGuest(home, g); });
+    list.forEach(function (x) {
+      var g = home.guests.filter(function (q) { return q.id === x.id; })[0];
+      if (!g) { addGuest(home, x); return; }
+      g.setLook(x.look);
+      if (g.name !== x.name) g.setName(x.name);
+      g.setMood(x.mood || 'happy', x.needs);
+      if (!!x.grave !== g.dead) g.setGrave(!!x.grave, true);
+    });
   }
 
   /* the live garden: returns a small handle for app.js */
@@ -1876,6 +2591,9 @@
       setLook: function (l) { p.setLook(l); },
       setName: function (n) { p.setName(n); },
       setMood: function (m, needs) { p.setMood(m, needs); },
+      setGrave: function (on, animate) { p.setGrave(on, animate); },
+      setGuests: function (list) { syncGuests(p, list); },
+      setSign: function (text) { p.sign = text || ''; p.scene.setName(p.sign || p.name); },
       act: function (name) { p.act(name); },
       play: function (on) { p.setPlaying(on); },
       playing: function () { return p.playing; },
@@ -1889,14 +2607,16 @@
       resume: function () { p.resume(); },
       destroy: function () { p.destroy(); },
       busy: function () { return p.kind === 'act' || p.queue.length > 0; },
-      idle: function (n) { if (IDLES[n]) p.run(IDLES[n](p), 'idle', n); },
+      dead: function () { return p.dead; },
+      idle: function (n) { if (IDLES[n] && !p.dead) p.run(IDLES[n](p), 'idle', n); },
+      guests: function () { return p.guests.map(function (g) { return { id: g.id, dead: g.dead, name: g.name }; }); },
       el: p.svg,
       _p: p
     };
   }
 
   window.MyIBPetEngine = {
-    BREEDS: BREEDS, STAGES: STAGES, ITEMS: ITEMS,
+    BREEDS: BREEDS, STAGES: STAGES, ITEMS: ITEMS, SLOTS: SLOTS,
     svg: stillSVG, itemSVG: itemSVG, mount: mount,
     isNight: isNightHour
   };

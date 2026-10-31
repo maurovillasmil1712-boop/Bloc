@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>MyIB Help</title>
-<meta name="description" content="Help with MyIB, the IB planner, and how to reach its developer.">
+<title>Bloc Help</title>
+<meta name="description" content="Help with Bloc, the school planner, and how to reach its developer.">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
 <style>
-  :root { --bg: #EDF0F6; --card: #fff; --text: #0B0B0F; --sub: rgb(60 60 67 / .7); --accent: #007AFF; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #040507; --card: #1C1C1E; --text: #fff; --sub: rgb(235 235 245 / .65); --accent: #0A84FF; } }
+  :root { --bg: #F4EFE6; --card: #FFFCF6; --text: #1F1A15; --sub: rgb(74 62 50 / .72); --accent: #C2481B; --on: #fff; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #13100D; --card: #221D18; --text: #F6F0E6; --sub: rgb(240 228 212 / .64); --accent: #FF7A45; --on: #1A120C; } }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif; -webkit-text-size-adjust: 100%; }
   main { max-width: 720px; margin: 0 auto; padding: calc(28px + env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
@@ -22,7 +22,7 @@
   p { margin: 0 0 8px; }
   p:last-child { margin-bottom: 0; }
   a { color: var(--accent); }
-  .mail { display: inline-block; margin-top: 4px; padding: 10px 16px; border-radius: 14px; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; }
+  .mail { display: inline-block; margin-top: 4px; padding: 10px 16px; border-radius: 14px; background: var(--accent); color: var(--on); text-decoration: none; font-weight: 600; }
   .foot { color: var(--sub); font-size: 14px; margin-top: 18px; text-align: center; }
 </style>
 </head>
@@ -30,12 +30,12 @@
 <main>
   <header>
     <img src="icons/icon-192.png" alt="" width="44" height="44">
-    <div><h1>Help</h1><p class="sub">MyIB, the planner for your IB year</p></div>
+    <div><h1>Help</h1><p class="sub">Bloc, the planner for your school year</p></div>
   </header>
 
   <section>
     <h2>Contact</h2>
-    <p>Mauro Villasmil builds MyIB. Email him about a problem, an idea or your data.</p>
+    <p>Mauro Villasmil builds Bloc. Email him about a problem, an idea or your data.</p>
     <p><a class="mail" href="mailto:maurovillasmil1712@gmail.com">maurovillasmil1712@gmail.com</a></p>
     <p>For ideas, you can also post in Suggestions, the channel at the top of your chats.</p>
   </section>
@@ -51,14 +51,39 @@
   </section>
 
   <section>
+    <h2>Plan your day by the hour</h2>
+    <p>In Calendar, pick a day. The panel shows its hours, with your classes faded behind. Tap a free time to add a study block or a task, like walking the dog at 09:30. Events and tasks take a time in their own settings too.</p>
+    <p>Drag anything on the hours to move it, or drag its bottom edge to make it longer. Drag tasks, events and study blocks onto another day in the month to move them there. School dates like exams and the school’s deadlines stay on their day. On a phone, touch and hold before you drag.</p>
+    <p>When a study block starts, Bloc offers to start the focus timer for it. The focus timer also has a stopwatch that counts up until you stop it.</p>
+  </section>
+
+  <section>
     <h2>Your study pet</h2>
     <p>Open Pet and adopt a puppy. It grows with every minute you study, up to 8 hours a day, and every 20 minutes of study earns a treat.</p>
-    <p>Feed it, give it water and play fetch. If food, water or fun runs out, your puppy gets sad, stops growing and slowly loses progress, but it never drops a stage.</p>
+    <p>Feed it, give it water and play fetch. A hungry, thirsty or bored puppy looks sad, but it still grows when you study.</p>
+    <p>In the 2 weeks before any exam or mock in your calendar, your puppy needs you to study at least every 2 days. After 36 hours without study it misses you, and at 48 hours a dust cloud puffs and it turns into a ghost above a little grave. Study 25 minutes to bring it back, with all its growth. Outside exam season nothing bad happens.</p>
+    <p>On the Pet page, Invite Friends starts a garden. Everyone who joins brings their own puppy, and the puppies play together. Tap a friend’s puppy in the list to block the person or report the puppy’s name.</p>
+  </section>
+
+  <section>
+    <h2>Reminders</h2>
+    <p>Open Settings → Reminders. Tap the dots on each timeline to pick when Bloc reminds you: two weeks, a week, a few days, the day before, or the morning of. Exams, deadlines and other events each get their own timeline. Any event can have its own days: open it and change Remind me.</p>
+    <p>In a browser, turn on Notifications in the same sheet and allow them when the browser asks. They arrive even when Bloc is closed. On iPhone, use the Bloc app, or add the site to your Home Screen first (Share → Add to Home Screen).</p>
+  </section>
+
+  <section>
+    <h2>Bring in your calendar</h2>
+    <p>Open Settings → Import from Calendar. Choose a calendar file (.ics, or the .zip Google gives you), or paste a calendar link and keep it updated.</p>
+    <p><b>iPhone:</b> in the Calendar app, tap Calendars, tap ⓘ next to a calendar, turn on Public Calendar, then Share Link → Copy. Paste the link in Bloc.</p>
+    <p><b>Mac:</b> in the Calendar app, select the calendar, then File → Export → Export…, and pick that file in Bloc.</p>
+    <p><b>Google Calendar:</b> on a computer, open Settings, click your calendar, and copy the Secret address in iCal format under Integrate calendar. Or use Import &amp; export → Export to download a .zip of every calendar.</p>
+    <p>Weekly and daily repeats become repeating tasks. Bloc guesses exams and deadlines from their titles; open any date to change it.</p>
+    <p>To send your Bloc dates the other way, use Export to Calendar (.ics) in Settings, or, with Plus, Live Calendar.</p>
   </section>
 
   <section>
     <h2>Widgets and reminders on iPhone</h2>
-    <p>Touch and hold your Home Screen, tap Edit, then Add Widget, and pick MyIB. Next Up shows your classes and deadlines. Study Pet shows your puppy and what it needs. Turn on deadline reminders in Settings → Reminders inside the app.</p>
+    <p>Touch and hold your Home Screen, tap Edit, then Add Widget, and pick Bloc. Next Up shows your classes and deadlines. Study Pet shows your puppy and what it needs. Turn on reminders in Settings → Reminders inside the app. Your phone shows them on the days you pick, when a study block or a timed task starts, and when your puppy starts to miss you in exam season.</p>
   </section>
 
   <section>
@@ -66,7 +91,7 @@
     <p>Open Settings and tap Delete Account at the bottom. Your planner, photo, chats and logins go for good.</p>
   </section>
 
-  <p class="foot"><a href="/">Open MyIB</a> · <a href="/privacy">Privacy Policy</a></p>
+  <p class="foot"><a href="/">Open Bloc</a> · <a href="/privacy">Privacy Policy</a></p>
 </main>
 </body>
 </html>

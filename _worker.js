@@ -1,4 +1,5 @@
-/* MyIB server (Cloudflare Pages, advanced mode).
+/* Bloc server (Cloudflare Pages, advanced mode). Bloc was called MyIB; storage keys, the
+   X-MyIB header and the myib_session cookie keep the old name so nobody gets logged out.
    Every request comes through here. /api/* is the app's server: accounts, sessions and
    each person's planner, stored in the D1 database bound as DB. Everything else is a
    static file from env.ASSETS, sent with security headers. Pages doesn't publish this
@@ -13,7 +14,7 @@ const USERS = [
 const NAMES = new Map(USERS);
 /* Students outside Sociales 2 IB make their own account (free tier) with a username. */
 const FREE_ID = /^[a-z0-9][a-z0-9_.]{1,18}[a-z0-9]$/;
-const RESERVED = new Set(['admin', 'administrator', 'root', 'system', 'myib', 'api', 'support', 'help', 'owner', 'staff',
+const RESERVED = new Set(['admin', 'administrator', 'root', 'system', 'myib', 'bloc', 'api', 'support', 'help', 'owner', 'staff',
   'null', 'undefined', 'guest', 'teacher', 'profesor', 'profe', 'moderator', 'mod']);
 const MAX_FREE = 500;             /* most accounts outside the class (the admin list shows them all) */
 const JOINS_PER_DAY = 150;        /* new outside accounts per day, whole site */
@@ -49,7 +50,7 @@ const MAURO_START = {"version":2,"profile":{"name":"Mauro"},"settings":{"theme":
 
 const COMMON = new Set(['123456', '1234567', '12345678', '123456789', '1234567890', '111111', '000000', '123123', '654321',
   '121212', 'password', 'password1', 'qwerty', 'qwerty123', 'abc123', 'abcdef', 'contraseña', 'contrasena', 'iloveyou',
-  'myib', 'myib123', 'ibplanner', 'colegio', 'madrid', 'bachillerato']);
+  'myib', 'myib123', 'bloc', 'bloc123', 'ibplanner', 'colegio', 'madrid', 'bachillerato']);
 
 const BASE_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
@@ -67,11 +68,17 @@ class HttpError extends Error {
   constructor(status, code, extra) { super(code); this.status = status; this.code = code; this.extra = extra || {}; }
 }
 
+let lastTickTry = 0;
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
     if (path === '/api' || path.startsWith('/api/')) {
+      /* reminders go out even without the cron worker, as long as someone uses the app */
+      if (env.DB && ctx && typeof ctx.waitUntil === 'function' && request.method === 'GET' && path !== '/api/push/tick' && Date.now() - lastTickTry > 60000) {
+        lastTickTry = Date.now();
+        ctx.waitUntil(pushTick({ db: env.DB, env, now: Date.now() }, PUSH_BATCH_SIDE).catch((e) => console.error('push tick:', e && e.message)));
+      }
       try {
         return await route(request, env, url);
       } catch (e) {
@@ -140,7 +147,24 @@ const ROUTES = {
   'POST /api/chat/report': chatReport,
   'GET /api/admin/reports': adminReports,
   'POST /api/admin/report': adminReport,
-  'POST /api/admin/chat': adminChat
+  'POST /api/admin/chat': adminChat,
+  'GET /api/garden': gardenList,
+  'POST /api/garden/new': gardenNew,
+  'POST /api/garden/invite': gardenInvite,
+  'POST /api/garden/answer': gardenAnswer,
+  'POST /api/garden/leave': gardenLeave,
+  'POST /api/garden/rename': gardenRename,
+  'GET /api/garden/pets': gardenPets,
+  'POST /api/garden/report': gardenReport,
+  'PUT /api/pet/card': putPetCard,
+  'DELETE /api/pet/card': deletePetCard,
+  'GET /api/push/key': pushKey,
+  'POST /api/push/sub': pushSub,
+  'POST /api/push/unsub': pushUnsub,
+  'PUT /api/push/plan': pushPlanPut,
+  'POST /api/push/test': pushTest,
+  'GET /api/push/tick': pushTickRoute,
+  'POST /api/ics': icsFetch
 };
 
 async function route(req, env, url) {
@@ -194,7 +218,17 @@ async function makeSchema(db) {
       db.prepare('CREATE TABLE IF NOT EXISTS blocks (user TEXT NOT NULL, blocked TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (user, blocked)) WITHOUT ROWID'),
       db.prepare('CREATE TABLE IF NOT EXISTS chat_bans (user TEXT PRIMARY KEY, at INTEGER NOT NULL)'),
       db.prepare('CREATE TABLE IF NOT EXISTS reports (conv TEXT NOT NULL, seq INTEGER NOT NULL, reporter TEXT NOT NULL, sender TEXT, body TEXT, at INTEGER NOT NULL, PRIMARY KEY (conv, seq, reporter))'),
-      db.prepare("INSERT OR IGNORE INTO convs (id, kind, name, created_by, created_at, last_at, last_seq) VALUES ('suggestions', 'channel', 'Suggestions', 'mauro', 0, 0, 0)")
+      db.prepare("INSERT OR IGNORE INTO convs (id, kind, name, created_by, created_at, last_at, last_seq) VALUES ('suggestions', 'channel', 'Suggestions', 'mauro', 0, 0, 0)"),
+      /* study pets: each person's puppy card, and gardens friends share */
+      db.prepare('CREATE TABLE IF NOT EXISTS pet_cards (user TEXT PRIMARY KEY, card TEXT NOT NULL, updated_at INTEGER NOT NULL, bad_name TEXT)'),
+      db.prepare('CREATE TABLE IF NOT EXISTS gardens (id TEXT PRIMARY KEY, name TEXT NOT NULL, owner TEXT NOT NULL, created_at INTEGER NOT NULL, bad_name TEXT)'),
+      db.prepare('CREATE TABLE IF NOT EXISTS garden_members (garden TEXT NOT NULL, user TEXT NOT NULL, status TEXT NOT NULL, invited_by TEXT, at INTEGER NOT NULL, PRIMARY KEY (garden, user)) WITHOUT ROWID'),
+      db.prepare('CREATE INDEX IF NOT EXISTS garden_members_user ON garden_members (user, status)'),
+      /* reminders: the browsers that get notifications, and each person's next reminders */
+      db.prepare('CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, user TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at INTEGER NOT NULL, fails INTEGER NOT NULL DEFAULT 0)'),
+      db.prepare('CREATE INDEX IF NOT EXISTS push_subs_user ON push_subs (user)'),
+      db.prepare('CREATE TABLE IF NOT EXISTS push_queue (user TEXT NOT NULL, id TEXT NOT NULL, at INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY (user, id)) WITHOUT ROWID'),
+      db.prepare('CREATE INDEX IF NOT EXISTS push_queue_at ON push_queue (at)')
   ]);
   /* databases made by an older MyIB lack the newer columns: add them */
   let have = null;
@@ -348,7 +382,7 @@ function newPassword(v, id) {
   const low = plainText(pw);
   const letters = low.replace(/[^a-z]/g, '');
   const idLetters = id.replace(/[^a-z]/g, '');
-  if (COMMON.has(pw.toLowerCase()) || COMMON.has(low) || /^(.)\1+$/.test(low) || (idLetters.length >= 3 && letters === idLetters) || letters === 'myib') {
+  if (COMMON.has(pw.toLowerCase()) || COMMON.has(low) || /^(.)\1+$/.test(low) || (idLetters.length >= 3 && letters === idLetters) || letters === 'myib' || letters === 'bloc') {
     throw new HttpError(400, 'common');
   }
   return pw;
@@ -613,7 +647,17 @@ async function login(c) {
 
 async function logout(c) {
   const token = readCookie(c.req, 'myib_session');
-  if (/^[A-Za-z0-9_-]{43}$/.test(token)) await c.db.prepare('DELETE FROM sessions WHERE token = ?').bind(await sha256hex(token)).run();
+  let b = {};
+  try { b = await readBody(c); } catch (e) { b = {}; }
+  if (/^[A-Za-z0-9_-]{43}$/.test(token)) {
+    const hash = await sha256hex(token), stmts = [];
+    /* this browser stops getting the account's reminders */
+    if (typeof b.push === 'string' && b.push.length <= 800) {
+      stmts.push(c.db.prepare('DELETE FROM push_subs WHERE endpoint = ?1 AND user = (SELECT user FROM sessions WHERE token = ?2)').bind(b.push, hash));
+    }
+    stmts.push(c.db.prepare('DELETE FROM sessions WHERE token = ?').bind(hash));
+    await c.db.batch(stmts);
+  }
   return json({ ok: true }, 200, { 'Set-Cookie': sessionCookie(c, '', 0) });
 }
 
@@ -795,7 +839,14 @@ function accountWipe(c, id) {
     c.db.prepare('DELETE FROM members WHERE user = ?1').bind(id),
     c.db.prepare('DELETE FROM blocks WHERE user = ?1 OR blocked = ?1').bind(id),
     c.db.prepare('DELETE FROM chat_bans WHERE user = ?1').bind(id),
-    c.db.prepare('DELETE FROM reports WHERE reporter = ?1').bind(id)
+    c.db.prepare('DELETE FROM reports WHERE reporter = ?1').bind(id),
+    /* their puppy leaves every garden; a garden with nobody left goes */
+    c.db.prepare('DELETE FROM pet_cards WHERE user = ?1').bind(id),
+    c.db.prepare('DELETE FROM garden_members WHERE user = ?1').bind(id),
+    ...gardenCleanup(c),
+    /* reminders */
+    c.db.prepare('DELETE FROM push_subs WHERE user = ?1').bind(id),
+    c.db.prepare('DELETE FROM push_queue WHERE user = ?1').bind(id)
   ];
 }
 
@@ -829,8 +880,8 @@ function buildICS(st, name) {
   const subjects = new Map((Array.isArray(st.subjects) ? st.subjects : [])
     .filter((x) => x && typeof x.id === 'string').map((x) => [x.id, x]));
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//MyIB//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
-    'X-WR-CALNAME:' + icsText('MyIB · ' + name), 'REFRESH-INTERVAL;VALUE=DURATION:PT3H', 'X-PUBLISHED-TTL:PT3H'];
+  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Bloc//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'X-WR-CALNAME:' + icsText('Bloc · ' + name), 'REFRESH-INTERVAL;VALUE=DURATION:PT3H', 'X-PUBLISHED-TTL:PT3H'];
   const events = (Array.isArray(st.events) ? st.events : [])
     .filter((e) => e && typeof e.id === 'string' && DATE_RE.test(e.start))
     .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
@@ -871,8 +922,295 @@ async function calendarFeed(c, rest, head) {
   return send(head ? null : text, 200, {
     'Content-Type': 'text/calendar; charset=utf-8',
     'Cache-Control': 'private, max-age=900',
-    'Content-Disposition': 'inline; filename="myib.ics"'
+    'Content-Disposition': 'inline; filename="bloc.ics"'
   });
+}
+
+
+/* =========================================================
+   Reminders by Web Push
+   Each person's app sends its next reminders (PUT /api/push/plan). The tick sends the ones
+   that come due to every browser where that person turned notifications on. A cron worker
+   calls GET /api/push/tick every minute (cron/README.md); app traffic runs it too.
+   Encryption follows RFC 8291 (aes128gcm), the sender's identity RFC 8292 (VAPID, ES256).
+   The iPhone app schedules its own notifications and never needs this.
+   ========================================================= */
+/* the push services of Chrome, Edge, Firefox and Safari; the server posts nowhere else */
+const PUSH_HOSTS = /^(fcm\.googleapis\.com|[a-z0-9-]+\.push\.services\.mozilla\.com|(?:[a-z0-9-]+\.)*push\.apple\.com|[a-z0-9-]+\.notify\.windows\.com)$/;
+const PUSH_SUBS_MAX = 8;            /* browsers per person */
+const PUSH_PLAN_MAX = 150;          /* queued reminders per person */
+const PUSH_AHEAD = 60 * DAY;        /* furthest ahead a reminder can wait */
+const PUSH_LATE = 3 * 60 * MIN;     /* a reminder more than 3 hours late is dropped */
+const PUSH_TICK_GAP = 20 * 1000;    /* the tick runs at most this often, whoever calls it */
+const PUSH_BATCH = 40;              /* notifications per tick (the free plan allows 50 requests out) */
+const PUSH_BATCH_SIDE = 10;         /* when a tick rides along with an app request */
+const PUSH_TTL = 6 * 3600;          /* a phone that's off for a while still gets it */
+const PUSH_ID = /^[A-Za-z0-9_.:-]{1,90}$/;
+const PUSH_URL = /^\/\?open=(day&d=\d{4}-\d{2}-\d{2}|pet|today)$/;
+
+let vapidCache = null;
+/* one key pair for the whole site, made on first use and kept in the config table */
+async function vapid(c) {
+  if (vapidCache) return vapidCache;
+  let row = await c.db.prepare("SELECT value FROM config WHERE key = 'vapid'").first();
+  if (!row) {
+    const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+    const pub = b64u(new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey)));
+    const j = await crypto.subtle.exportKey('jwk', kp.privateKey);
+    const value = JSON.stringify({ pub, jwk: { kty: j.kty, crv: j.crv, x: j.x, y: j.y, d: j.d } });
+    /* two first uses at once: the first one wins and both read it back */
+    await c.db.prepare("INSERT OR IGNORE INTO config (key, value) VALUES ('vapid', ?)").bind(value).run();
+    row = await c.db.prepare("SELECT value FROM config WHERE key = 'vapid'").first();
+  }
+  const v = JSON.parse(row.value);
+  const key = await crypto.subtle.importKey('jwk', Object.assign({ ext: true }, v.jwk), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  vapidCache = { pub: v.pub, key, jwts: new Map() };
+  return vapidCache;
+}
+/* a signed token per push service, reused for 11 of its 12 hours */
+async function vapidAuth(c, endpoint) {
+  const v = await vapid(c), aud = new URL(endpoint).origin, sec = Math.floor(Date.now() / 1000);
+  let t = v.jwts.get(aud);
+  if (!t || t.exp - sec < 3600) {
+    const exp = sec + 12 * 3600;
+    const head = b64u(te.encode(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
+    const claims = b64u(te.encode(JSON.stringify({ aud, exp, sub: c.env.VAPID_SUB || 'https://myib.app' })));
+    const sig = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, v.key, te.encode(head + '.' + claims)));
+    t = { jwt: head + '.' + claims + '.' + b64u(sig), exp };
+    v.jwts.set(aud, t);
+  }
+  return 'vapid t=' + t.jwt + ', k=' + v.pub;
+}
+function joinBytes(...parts) {
+  let n = 0;
+  for (const p of parts) n += p.length;
+  const out = new Uint8Array(n);
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
+}
+async function hkdf(salt, ikm, info, bytes) {
+  const k = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, k, bytes * 8));
+}
+/* RFC 8291: only the browser that made the subscription can read the message */
+async function pushEncrypt(p256dh, auth, text) {
+  const ua = unb64u(p256dh), secret = unb64u(auth);
+  const uaKey = await crypto.subtle.importKey('raw', ua, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  const mine = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
+  const asPub = new Uint8Array(await crypto.subtle.exportKey('raw', mine.publicKey));
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: uaKey }, mine.privateKey, 256));
+  const ikm = await hkdf(secret, shared, joinBytes(te.encode('WebPush: info\0'), ua, asPub), 32);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const cek = await hkdf(salt, ikm, te.encode('Content-Encoding: aes128gcm\0'), 16);
+  const nonce = await hkdf(salt, ikm, te.encode('Content-Encoding: nonce\0'), 12);
+  const key = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['encrypt']);
+  const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, key, joinBytes(te.encode(text), new Uint8Array([2]))));
+  const head = new Uint8Array(21);
+  head.set(salt, 0);
+  new DataView(head.buffer).setUint32(16, 4096);
+  head[20] = asPub.length;
+  return joinBytes(head, asPub, sealed);
+}
+async function pushSend(c, sub, message) {
+  try {
+    const body = await pushEncrypt(sub.p256dh, sub.auth, JSON.stringify(message));
+    const res = await fetch(sub.endpoint, {
+      method: 'POST',
+      headers: {
+        'TTL': String(PUSH_TTL), 'Urgency': 'normal', 'Content-Encoding': 'aes128gcm',
+        'Content-Type': 'application/octet-stream', 'Authorization': await vapidAuth(c, sub.endpoint)
+      },
+      body
+    });
+    try { if (res.body) await res.body.cancel(); } catch (e) { /* ignore */ }
+    return res.status;
+  } catch (e) {
+    return 0;
+  }
+}
+function pushEndpoint(c, v) {
+  if (typeof v !== 'string' || v.length > 800) return null;
+  let u;
+  try { u = new URL(v); } catch (e) { return null; }
+  if (u.href !== v || u.username || u.password || u.hash) return null;
+  /* local tests point it at a fake push service */
+  const test = !!c.env.PUSH_TEST_HOST && u.protocol === 'http:' && u.host === c.env.PUSH_TEST_HOST;
+  if (!test && (u.protocol !== 'https:' || u.port || !PUSH_HOSTS.test(u.hostname))) return null;
+  return v;
+}
+function pushKeyOk(v, len) {
+  if (typeof v !== 'string' || !/^[A-Za-z0-9_-]+={0,2}$/.test(v) || v.length > 100) return false;
+  try { const b = unb64u(v); return b.length === len && (len !== 65 || b[0] === 4); } catch (e) { return false; }
+}
+function pushText(v, max) {
+  if (typeof v !== 'string') return '';
+  const s = v.normalize('NFC').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, ' ').replace(/\s+/g, ' ').trim();
+  return Array.from(s).slice(0, max).join('');
+}
+
+async function pushKey(c) {
+  return json({ key: (await vapid(c)).pub });
+}
+async function pushSub(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  const endpoint = pushEndpoint(c, b.endpoint), k = b.keys && typeof b.keys === 'object' ? b.keys : {};
+  if (!endpoint || !pushKeyOk(k.p256dh, 65) || !pushKeyOk(k.auth, 16)) throw new HttpError(400, 'push');
+  await hit(c, 'pushsub:' + s.user, 30, WINDOW, 'slow');
+  const stmts = [
+    c.db.prepare('INSERT INTO push_subs (endpoint, user, p256dh, auth, created_at, fails) VALUES (?1, ?2, ?3, ?4, ?5, 0) ' +
+      'ON CONFLICT(endpoint) DO UPDATE SET user = ?2, p256dh = ?3, auth = ?4, created_at = ?5, fails = 0').bind(endpoint, s.user, k.p256dh, k.auth, c.now),
+    /* past the limit, the oldest browsers go */
+    c.db.prepare('DELETE FROM push_subs WHERE user = ?1 AND endpoint NOT IN (SELECT endpoint FROM push_subs WHERE user = ?1 ORDER BY created_at DESC LIMIT ?2)').bind(s.user, PUSH_SUBS_MAX)
+  ];
+  if (typeof b.old === 'string' && b.old !== endpoint && b.old.length <= 800) stmts.push(c.db.prepare('DELETE FROM push_subs WHERE endpoint = ?1 AND user = ?2').bind(b.old, s.user));
+  await c.db.batch(stmts);
+  return json({ ok: true });
+}
+async function pushUnsub(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  if (typeof b.endpoint !== 'string' || b.endpoint.length > 800) throw new HttpError(400, 'push');
+  await c.db.prepare('DELETE FROM push_subs WHERE endpoint = ?1 AND user = ?2').bind(b.endpoint, s.user).run();
+  return json({ ok: true });
+}
+/* the app's next reminders replace the queued ones; only the rows that change get written */
+async function pushPlanPut(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  if (!Array.isArray(b.items) || b.items.length > PUSH_PLAN_MAX) throw new HttpError(400, 'push');
+  await hit(c, 'pushplan:' + s.user, 120, WINDOW, 'slow');
+  const row = await c.db.prepare('SELECT COUNT(*) AS n FROM push_subs WHERE user = ?').bind(s.user).first();
+  const subs = row ? row.n : 0, want = new Map();
+  if (subs) {
+    for (const x of b.items) {
+      if (!x || typeof x !== 'object' || typeof x.id !== 'string' || !PUSH_ID.test(x.id) || want.has(x.id)) continue;
+      const at = Number(x.at), title = pushText(x.title, 120);
+      /* due already means sent already, or too late */
+      if (!Number.isSafeInteger(at) || at <= c.now || at > c.now + PUSH_AHEAD || !title) continue;
+      const url = typeof x.url === 'string' && PUSH_URL.test(x.url) ? x.url : '/';
+      want.set(x.id, { id: x.id, at, body: JSON.stringify({ title, body: pushText(x.body, 240), url, tag: x.id }) });
+    }
+  }
+  const list = JSON.stringify([...want.values()]);
+  await c.db.batch([
+    c.db.prepare("DELETE FROM push_queue WHERE user = ?1 AND id NOT IN (SELECT json_extract(value, '$.id') FROM json_each(?2))").bind(s.user, list),
+    c.db.prepare("INSERT INTO push_queue (user, id, at, body) SELECT ?1, json_extract(j.value, '$.id'), json_extract(j.value, '$.at'), json_extract(j.value, '$.body') FROM json_each(?2) AS j WHERE 1 " +
+      'ON CONFLICT(user, id) DO UPDATE SET at = excluded.at, body = excluded.body WHERE push_queue.at != excluded.at OR push_queue.body != excluded.body').bind(s.user, list)
+  ]);
+  return json({ ok: true, subs, queued: want.size });
+}
+async function pushTest(c) {
+  const s = await needUser(c);
+  await hit(c, 'pushtest:' + s.user, 5, 10 * MIN, 'slow');
+  const { results } = await c.db.prepare('SELECT endpoint, p256dh, auth FROM push_subs WHERE user = ? ORDER BY created_at DESC LIMIT ?').bind(s.user, PUSH_SUBS_MAX).all();
+  const subs = results || [];
+  const msg = { title: 'Notifications work', body: 'Your reminders show up here, even when the app is closed.', url: '/?open=today', tag: 'test' };
+  const codes = await Promise.all(subs.map((x) => pushSend(c, x, msg)));
+  const gone = subs.filter((x, i) => codes[i] === 404 || codes[i] === 410).map((x) => x.endpoint);
+  if (gone.length) await c.db.prepare('DELETE FROM push_subs WHERE endpoint IN (SELECT value FROM json_each(?1))').bind(JSON.stringify(gone)).run();
+  return json({ ok: true, subs: subs.length, sent: codes.filter((n) => n >= 200 && n < 300).length });
+}
+async function pushTickRoute(c) {
+  const r = await pushTick(c, PUSH_BATCH);
+  return json({ ok: true, ran: r.ran, sent: r.sent || 0 });
+}
+/* send what's due: at most every PUSH_TICK_GAP, at most max notifications */
+async function pushTick(c, max) {
+  await schema(c.db);
+  const lock = await c.db.prepare("INSERT INTO config (key, value) VALUES ('push_tick', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1 " +
+    'WHERE CAST(config.value AS INTEGER) <= ?2 RETURNING value').bind(String(c.now), c.now - PUSH_TICK_GAP).first();
+  if (!lock) return { ran: false };
+  const due = (await c.db.prepare('SELECT user, id, at, body FROM push_queue WHERE at <= ?1 ORDER BY at LIMIT ?2').bind(c.now, max).all()).results || [];
+  if (!due.length) return { ran: true, sent: 0 };
+  const users = [...new Set(due.map((r) => r.user))];
+  const subRows = (await c.db.prepare('SELECT endpoint, user, p256dh, auth FROM push_subs WHERE user IN (SELECT value FROM json_each(?1))').bind(JSON.stringify(users)).all()).results || [];
+  const subsOf = new Map();
+  for (const r of subRows) { if (!subsOf.has(r.user)) subsOf.set(r.user, []); subsOf.get(r.user).push(r); }
+  /* take reminders in order until the batch is full; the rest wait for the next tick */
+  const done = [], jobs = [];
+  for (const r of due) {
+    const list = subsOf.get(r.user) || [], late = c.now - r.at > PUSH_LATE;
+    if (!late && list.length && jobs.length && jobs.length + list.length > max) break;
+    done.push([r.user, r.id]);
+    if (late) continue;
+    let msg = null;
+    try { msg = JSON.parse(r.body); } catch (e) { msg = null; }
+    if (msg) for (const sub of list) jobs.push([sub, msg]);
+  }
+  await c.db.prepare("DELETE FROM push_queue WHERE (user, id) IN (SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?1))").bind(JSON.stringify(done)).run();
+  const codes = [];
+  for (let i = 0; i < jobs.length; i += 6) {
+    const part = await Promise.all(jobs.slice(i, i + 6).map((j) => pushSend(c, j[0], j[1])));
+    codes.push(...part);
+  }
+  const gone = new Set(), bad = new Set(), good = new Set();
+  jobs.forEach((j, i) => {
+    const n = codes[i], e = j[0].endpoint;
+    if (n === 404 || n === 410) gone.add(e);
+    else if (n >= 200 && n < 300) good.add(e);
+    else bad.add(e);
+  });
+  const stmts = [];
+  if (gone.size) stmts.push(c.db.prepare('DELETE FROM push_subs WHERE endpoint IN (SELECT value FROM json_each(?1))').bind(JSON.stringify([...gone])));
+  if (bad.size) {
+    stmts.push(c.db.prepare('UPDATE push_subs SET fails = fails + 1 WHERE endpoint IN (SELECT value FROM json_each(?1))').bind(JSON.stringify([...bad])));
+    stmts.push(c.db.prepare('DELETE FROM push_subs WHERE fails >= 30'));
+  }
+  if (good.size) stmts.push(c.db.prepare('UPDATE push_subs SET fails = 0 WHERE fails > 0 AND endpoint IN (SELECT value FROM json_each(?1))').bind(JSON.stringify([...good])));
+  if (stmts.length) await c.db.batch(stmts);
+  return { ran: true, sent: good.size ? codes.filter((n) => n >= 200 && n < 300).length : 0 };
+}
+
+/* =========================================================
+   Calendar import by link: the app can't fetch another site's calendar itself (CORS),
+   so the server gets it. Only https, no addresses or local names, at most 4 redirects,
+   3 MB, and it must be an iCalendar file.
+   ========================================================= */
+const ICS_MAX = 3 * 1024 * 1024;
+const ICS_PER_HOUR = 40;
+function icsUrl(c, v) {
+  if (typeof v !== 'string' || v.length > 600) return null;
+  let u;
+  try { u = new URL(v.trim().replace(/^webcals?:\/\//i, 'https://')); } catch (e) { return null; }
+  const test = !!c.env.ICS_TEST_HOST && u.protocol === 'http:' && u.host === c.env.ICS_TEST_HOST;
+  if (test) return u.href;
+  if (u.protocol !== 'https:' || u.username || u.password || u.port) return null;
+  const h = u.hostname.toLowerCase();
+  if (!h.includes('.') || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || /^[\d.]+$/.test(h) || h.includes(':') || h === c.url.hostname) return null;
+  return u.href;
+}
+async function icsFetch(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  let target = icsUrl(c, b.url);
+  if (!target) throw new HttpError(400, 'link');
+  await hit(c, 'ics:' + s.user, ICS_PER_HOUR, 60 * MIN, 'slow');
+  let res = null;
+  for (let hop = 0; hop < 5; hop++) {
+    const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 12000);
+    try {
+      res = await fetch(target, { redirect: 'manual', signal: ctrl.signal, headers: { 'Accept': 'text/calendar, text/plain;q=0.9, */*;q=0.5', 'User-Agent': 'Bloc calendar import (+https://myib.app)' } });
+    } catch (e) {
+      throw new HttpError(502, 'fetch');
+    } finally { clearTimeout(timer); }
+    const loc = res.status >= 300 && res.status < 400 ? res.headers.get('Location') : null;
+    if (!loc) break;
+    try { if (res.body) await res.body.cancel(); } catch (e) { /* ignore */ }
+    let next = null;
+    try { next = icsUrl(c, new URL(loc, target).href); } catch (e) { next = null; }
+    if (!next || hop === 4) throw new HttpError(400, 'link');
+    target = next;
+  }
+  if (res.status !== 200) {
+    try { if (res.body) await res.body.cancel(); } catch (e) { /* ignore */ }
+    throw new HttpError(502, res.status === 404 || res.status === 410 ? 'gone' : res.status === 401 || res.status === 403 ? 'private' : 'fetch');
+  }
+  if (Number(res.headers.get('Content-Length') || 0) > ICS_MAX) throw new HttpError(413, 'too_big');
+  const text = await readLimited(res, ICS_MAX);
+  if (!/BEGIN:VCALENDAR/i.test(text.slice(0, 4096))) throw new HttpError(422, 'not_ics');
+  return json({ text });
 }
 
 /* =========================================================
@@ -947,7 +1285,7 @@ async function adminExport(c) {
     ',"exported":' + JSON.stringify(iso) + ',"rev":' + row.rev + ',"data":' + row.data + '}';
   return send(text, 200, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Content-Disposition': 'attachment; filename="myib-' + id + '-' + iso.slice(0, 10) + '.json"'
+    'Content-Disposition': 'attachment; filename="bloc-' + id + '-' + iso.slice(0, 10) + '.json"'
   });
 }
 
@@ -1541,6 +1879,7 @@ async function adminReports(c) {
     c.db.prepare('SELECT user FROM chat_bans')
   ]);
   const rows = res[0].results || [];
+  await petReportRows(c, rows);
   const ids = new Set();
   rows.forEach((r) => { ids.add(r.sender); ids.add(r.reporter); });
   const { results } = await c.db.prepare('SELECT u.id, u.name, u.kind, a.updated_at AS avatar FROM users u LEFT JOIN avatars a ON a.user = u.id WHERE u.id IN (SELECT value FROM json_each(?1))')
@@ -1564,6 +1903,7 @@ async function adminReports(c) {
 async function adminReport(c) {
   await needAdmin(c);
   const b = await readBody(c);
+  if (typeof b.conv === 'string' && REPORT_ID.test(b.conv)) return adminPetReport(c, b);
   const conv = convId(b.conv), seq = seqOf(b.seq);
   const stmts = [];
   /* only the message that was reported: same number and same text as the report's copy */
@@ -1586,4 +1926,264 @@ async function adminChat(c) {
     ? c.db.prepare('INSERT OR IGNORE INTO chat_bans (user, at) VALUES (?1, ?2)').bind(id, c.now)
     : c.db.prepare('DELETE FROM chat_bans WHERE user = ?1').bind(id)).run();
   return json({ ok: true, off: b.off === true });
+}
+
+/* =========================================================
+   Study pets together: each person publishes a small card about their puppy
+   (look, needs, and when it gets sad or turns into a ghost). Friends share a garden;
+   everyone in it sees each other's puppies. Invites work like group chats.
+   ========================================================= */
+const GARDEN_MAX = 8;               /* people in one garden, you included */
+const GARDENS_PER_USER = 5;
+const GARDEN_ID = /^[A-Za-z0-9_-]{12}$/;
+const REPORT_ID = /^(pet:[a-z0-9_.]{2,20}|gdn:[A-Za-z0-9_-]{12})$/;
+const PET_BREEDS = { golden: ['gold', 'cream'], beagle: ['tri', 'lemon'], shiba: ['red', 'black'], dalmatian: ['black', 'liver'], husky: ['grey', 'copper'], corgi: ['red', 'tri'] };
+const PET_STAGES = ['newborn', 'puppy', 'junior', 'adult', 'legend'];
+const PET_ITEMS = {
+  neck: ['collar', 'bandana', 'bowtie', 'scarf', 'chain', 'ice'],
+  head: ['party', 'grad', 'phones', 'crown', 'snapback', 'bucket'],
+  face: ['glasses', 'shades'], mouth: ['grillz'], ride: ['car']
+};
+const GARDEN_DEFAULT = 'Study Garden';
+
+function gardenId(v) {
+  if (typeof v !== 'string' || !GARDEN_ID.test(v)) throw new HttpError(400, 'garden');
+  return v;
+}
+function samePetName(a, b) { return !!a && !!b && plainText(a) === plainText(b); }
+function cleanCard(v, bad) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new HttpError(400, 'card');
+  if (!Object.prototype.hasOwnProperty.call(PET_BREEDS, v.breed)) throw new HttpError(400, 'card');
+  const breed = v.breed, coats = PET_BREEDS[breed];
+  const wear = {};
+  for (const slot of Object.keys(PET_ITEMS)) {
+    const id = v.wear && typeof v.wear === 'object' ? v.wear[slot] : null;
+    wear[slot] = PET_ITEMS[slot].includes(id) ? id : null;
+  }
+  let name = cleanText(v.name, 16);
+  if (!name || rudeText(name) || samePetName(name, bad)) name = 'Puppy';
+  const need = (x) => { x = Number(x); return Number.isFinite(x) ? Math.max(0, Math.min(100, Math.round(x * 10) / 10)) : 50; };
+  const ms = (x) => { x = Number(x); return x > 1.5e12 && x < 4e12 ? Math.round(x) : null; };
+  return {
+    name, breed, coat: coats.includes(v.coat) ? v.coat : coats[0], stage: PET_STAGES.includes(v.stage) ? v.stage : 'newborn', wear,
+    food: need(v.food), water: need(v.water), fun: need(v.fun), at: ms(v.at) || Date.now(),
+    sadAt: ms(v.sadAt), graveAt: ms(v.graveAt), grave: ms(v.grave) || 0
+  };
+}
+function gardenCleanup(c) {
+  return [
+    c.db.prepare("DELETE FROM gardens WHERE NOT EXISTS (SELECT 1 FROM garden_members m WHERE m.garden = gardens.id AND m.status = 'member')"),
+    c.db.prepare('DELETE FROM garden_members WHERE NOT EXISTS (SELECT 1 FROM gardens g WHERE g.id = garden_members.garden)')
+  ];
+}
+/* you in a garden: 'member', 'invited', or a 404 */
+async function gardenRow(c, s, id, want) {
+  const r = await c.db.prepare(
+    'SELECT g.id, g.name, g.owner, g.bad_name, m.status, (SELECT COUNT(*) FROM garden_members x WHERE x.garden = g.id) AS n ' +
+    'FROM gardens g JOIN garden_members m ON m.garden = g.id AND m.user = ?2 WHERE g.id = ?1'
+  ).bind(id, s.user).first();
+  if (!r || (want && r.status !== want)) throw new HttpError(404, 'garden');
+  return r;
+}
+async function gardenCount(c, s) {
+  const r = await c.db.prepare("SELECT COUNT(*) AS n FROM garden_members WHERE user = ?1 AND status = 'member'").bind(s.user).first();
+  return (r && r.n) || 0;
+}
+function gardenInviteStmts(c, garden, ids, by) {
+  return ids.map((id) => c.db.prepare("INSERT OR IGNORE INTO garden_members (garden, user, status, invited_by, at) VALUES (?1, ?2, 'invited', ?3, ?4)").bind(garden, id, by, c.now));
+}
+function gardenName(v) {
+  const name = cleanText(v, 30);
+  if (name === null) throw new HttpError(400, 'name');
+  if (rudeText(name)) throw new HttpError(400, 'words');
+  return name || GARDEN_DEFAULT;
+}
+
+async function gardenList(c) {
+  const s = await needUser(c);
+  const res = await c.db.batch([
+    c.db.prepare(
+      'SELECT g.id, g.name, g.owner, g.created_at, m.status, m.invited_by, i.name AS by_name FROM garden_members m JOIN gardens g ON g.id = m.garden ' +
+      'LEFT JOIN users i ON i.id = m.invited_by WHERE m.user = ?1 ORDER BY g.created_at'
+    ).bind(s.user),
+    c.db.prepare(
+      "SELECT o.garden, o.user AS id, o.status, u.name, u.kind, a.updated_at AS avatar, (p.user IS NOT NULL) AS pet FROM garden_members m JOIN garden_members o ON o.garden = m.garden " +
+      "LEFT JOIN users u ON u.id = o.user LEFT JOIN avatars a ON a.user = o.user LEFT JOIN pet_cards p ON p.user = o.user WHERE m.user = ?1 AND m.status = 'member'"
+    ).bind(s.user),
+    c.db.prepare('SELECT user, blocked FROM blocks WHERE user = ?1 OR blocked = ?1').bind(s.user)
+  ]);
+  const off = new Set((res[2].results || []).map((r) => (r.user === s.user ? r.blocked : r.user)));
+  const people = new Map();
+  for (const r of res[1].results || []) {
+    if (r.id !== s.user && off.has(r.id)) continue;
+    if (!people.has(r.garden)) people.set(r.garden, []);
+    people.get(r.garden).push(Object.assign(person(r), { status: r.status, pet: !!r.pet, me: r.id === s.user }));
+  }
+  const gardens = [], invites = [];
+  for (const r of res[0].results || []) {
+    if (r.status === 'member') gardens.push({ id: r.id, name: r.name, owner: r.owner, people: people.get(r.id) || [] });
+    else if (!off.has(r.invited_by)) invites.push({ id: r.id, name: r.name, from: { id: r.invited_by, name: nameOf(r.invited_by, r.by_name) } });
+  }
+  return json({ gardens, invites, max: GARDEN_MAX, most: GARDENS_PER_USER });
+}
+async function gardenNew(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  const name = gardenName(b.name);
+  await needChat(c, s);
+  if (await gardenCount(c, s) >= GARDENS_PER_USER) throw new HttpError(400, 'gardens', { max: GARDENS_PER_USER });
+  const ids = await chatTargets(c, s, b.users, GARDEN_MAX - 1);
+  if (!ids.length) throw new HttpError(400, 'users');
+  await hit(c, 'garden:' + s.user, 30, 60 * MIN, 'slow');
+  const id = randomToken(9);
+  await c.db.batch([
+    c.db.prepare('INSERT INTO gardens (id, name, owner, created_at) VALUES (?1, ?2, ?3, ?4)').bind(id, name, s.user, c.now),
+    c.db.prepare("INSERT INTO garden_members (garden, user, status, invited_by, at) VALUES (?1, ?2, 'member', ?2, ?3)").bind(id, s.user, c.now),
+    ...gardenInviteStmts(c, id, ids, s.user)
+  ]);
+  return json({ id, invited: ids });
+}
+async function gardenInvite(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  const g = await gardenRow(c, s, gardenId(b.garden), 'member');
+  await needChat(c, s);
+  const { results } = await c.db.prepare('SELECT user FROM garden_members WHERE garden = ?1').bind(g.id).all();
+  const there = new Set((results || []).map((r) => r.user));
+  const ids = (await chatTargets(c, s, b.users, GARDEN_MAX)).filter((id) => !there.has(id));
+  if (!ids.length) throw new HttpError(400, 'users');
+  if (there.size + ids.length > GARDEN_MAX) throw new HttpError(400, 'full', { max: GARDEN_MAX });
+  await hit(c, 'garden:' + s.user, 30, 60 * MIN, 'slow');
+  await c.db.batch(gardenInviteStmts(c, g.id, ids, s.user));
+  return json({ ok: true, invited: ids });
+}
+async function gardenAnswer(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  const g = await gardenRow(c, s, gardenId(b.garden), 'invited');
+  if (b.join !== true) {
+    await c.db.prepare("DELETE FROM garden_members WHERE garden = ?1 AND user = ?2 AND status = 'invited'").bind(g.id, s.user).run();
+    return json({ ok: true, joined: false });
+  }
+  if (await gardenCount(c, s) >= GARDENS_PER_USER) throw new HttpError(400, 'gardens', { max: GARDENS_PER_USER });
+  await c.db.prepare("UPDATE garden_members SET status = 'member', at = ?3 WHERE garden = ?1 AND user = ?2 AND status = 'invited'").bind(g.id, s.user, c.now).run();
+  return json({ ok: true, joined: true });
+}
+async function gardenLeave(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  const g = await gardenRow(c, s, gardenId(b.garden), null);
+  await c.db.batch([
+    c.db.prepare('DELETE FROM garden_members WHERE garden = ?1 AND user = ?2').bind(g.id, s.user),
+    ...gardenCleanup(c)
+  ]);
+  return json({ ok: true });
+}
+async function gardenRename(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  const g = await gardenRow(c, s, gardenId(b.garden), 'member');
+  await needChat(c, s);
+  const name = gardenName(b.name);
+  if (samePetName(name, g.bad_name)) throw new HttpError(400, 'words');
+  await hit(c, 'garden:' + s.user, 30, 60 * MIN, 'slow');
+  await c.db.prepare('UPDATE gardens SET name = ?2 WHERE id = ?1').bind(g.id, name).run();
+  return json({ ok: true, name });
+}
+/* everyone else's puppy in a garden you're in (none from people you blocked, or who blocked you) */
+async function gardenPets(c) {
+  const s = await needUser(c);
+  const g = await gardenRow(c, s, gardenId(c.url.searchParams.get('garden')), 'member');
+  const res = await c.db.batch([
+    c.db.prepare(
+      "SELECT m.user AS id, u.name, u.kind, a.updated_at AS avatar, p.card, p.updated_at FROM garden_members m LEFT JOIN users u ON u.id = m.user " +
+      "LEFT JOIN avatars a ON a.user = m.user LEFT JOIN pet_cards p ON p.user = m.user WHERE m.garden = ?1 AND m.status = 'member' AND m.user <> ?2"
+    ).bind(g.id, s.user),
+    c.db.prepare('SELECT user, blocked FROM blocks WHERE user = ?1 OR blocked = ?1').bind(s.user)
+  ]);
+  const off = new Set((res[1].results || []).map((r) => (r.user === s.user ? r.blocked : r.user)));
+  const pets = [];
+  for (const r of res[0].results || []) {
+    if (off.has(r.id)) continue;
+    let card = null;
+    try { card = r.card ? JSON.parse(r.card) : null; } catch (e) { card = null; }
+    pets.push(Object.assign(person(r), { card, updated: r.updated_at || null }));
+  }
+  return json({ now: c.now, garden: { id: g.id, name: g.name }, pets });
+}
+async function gardenReport(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  const g = await gardenRow(c, s, gardenId(b.garden), 'member');
+  await hit(c, 'report:' + s.user, 20, 60 * MIN, 'slow');
+  if (b.user == null) {
+    await c.db.prepare('INSERT OR IGNORE INTO reports (conv, seq, reporter, sender, body, at) VALUES (?1, 1, ?2, ?3, ?4, ?5)')
+      .bind('gdn:' + g.id, s.user, g.owner, g.name, c.now).run();
+    return json({ ok: true });
+  }
+  const id = userId(b.user);
+  if (id === s.user) throw new HttpError(400, 'user');
+  const r = await c.db.prepare(
+    "SELECT p.card FROM garden_members m JOIN pet_cards p ON p.user = m.user WHERE m.garden = ?1 AND m.user = ?2 AND m.status = 'member'"
+  ).bind(g.id, id).first();
+  let card = null;
+  try { card = r ? JSON.parse(r.card) : null; } catch (e) { card = null; }
+  if (!card) throw new HttpError(404, 'pet');
+  await c.db.prepare('INSERT OR IGNORE INTO reports (conv, seq, reporter, sender, body, at) VALUES (?1, 1, ?2, ?3, ?4, ?5)')
+    .bind('pet:' + id, s.user, id, card.name, c.now).run();
+  return json({ ok: true });
+}
+async function putPetCard(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  await hit(c, 'card:' + s.user, 240, 60 * MIN, 'slow');
+  const row = await c.db.prepare('SELECT bad_name FROM pet_cards WHERE user = ?1').bind(s.user).first();
+  const card = cleanCard(b.card, row ? row.bad_name : null);
+  await c.db.prepare('INSERT INTO pet_cards (user, card, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(user) DO UPDATE SET card = excluded.card, updated_at = excluded.updated_at')
+    .bind(s.user, JSON.stringify(card), c.now).run();
+  return json({ ok: true, name: card.name });
+}
+async function deletePetCard(c) {
+  const s = await needUser(c);
+  await c.db.prepare('DELETE FROM pet_cards WHERE user = ?1').bind(s.user).run();
+  return json({ ok: true });
+}
+/* reports about a pet name or a garden name, for Mauro's list: still live while the name is the same */
+async function petReportRows(c, rows) {
+  const pets = [...new Set(rows.filter((r) => r.conv.startsWith('pet:')).map((r) => r.conv.slice(4)))];
+  const gds = [...new Set(rows.filter((r) => r.conv.startsWith('gdn:')).map((r) => r.conv.slice(4)))];
+  if (!pets.length && !gds.length) return;
+  const res = await c.db.batch([
+    c.db.prepare('SELECT user, card FROM pet_cards WHERE user IN (SELECT value FROM json_each(?1))').bind(JSON.stringify(pets)),
+    c.db.prepare('SELECT id, name FROM gardens WHERE id IN (SELECT value FROM json_each(?1))').bind(JSON.stringify(gds))
+  ]);
+  const petName = new Map(), gdName = new Map();
+  for (const r of res[0].results || []) { try { petName.set(r.user, JSON.parse(r.card).name); } catch (e) { /* ignore */ } }
+  for (const r of res[1].results || []) gdName.set(r.id, r.name);
+  for (const r of rows) {
+    if (r.conv.startsWith('pet:')) { r.kind = 'pet'; r.name = null; r.live = petName.get(r.conv.slice(4)) === r.body ? 1 : null; }
+    else if (r.conv.startsWith('gdn:')) { r.kind = 'garden'; r.name = gdName.get(r.conv.slice(4)) || null; r.live = r.name === r.body ? 1 : null; }
+  }
+}
+/* Mauro: rename a reported pet to Puppy, or a reported garden to Study Garden, or just clear the report */
+async function adminPetReport(c, b) {
+  const conv = b.conv, stmts = [];
+  const rep = await c.db.prepare('SELECT body FROM reports WHERE conv = ?1 LIMIT 1').bind(conv).first();
+  if (b.remove === true && rep) {
+    if (conv.startsWith('pet:')) {
+      const id = conv.slice(4);
+      const r = await c.db.prepare('SELECT card FROM pet_cards WHERE user = ?1').bind(id).first();
+      let card = null;
+      try { card = r ? JSON.parse(r.card) : null; } catch (e) { card = null; }
+      if (card && card.name === rep.body) {
+        card.name = 'Puppy';
+        stmts.push(c.db.prepare('UPDATE pet_cards SET card = ?2, bad_name = ?3 WHERE user = ?1').bind(id, JSON.stringify(card), rep.body));
+      }
+    } else {
+      stmts.push(c.db.prepare('UPDATE gardens SET name = ?2, bad_name = ?3 WHERE id = ?1 AND name = ?3').bind(conv.slice(4), GARDEN_DEFAULT, rep.body));
+    }
+  }
+  stmts.push(c.db.prepare('DELETE FROM reports WHERE conv = ?1').bind(conv));
+  await c.db.batch(stmts);
+  return json({ ok: true });
 }

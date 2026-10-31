@@ -1,6 +1,8 @@
-/* MyIB starting planners.
+/* Bloc starting planners.
    IB_DEFAULTS: Sociales 2 IB (2º BI B, 2026–27), filled in from the school timetable and calendar.
-   IB_BLANK: students outside the class. Empty timetable rows and the IB core, ready to fill in.
+   IB_BLANK: IB students outside the class. Empty timetable rows and the IB core, ready to fill in.
+   LEVELS: what the first log in screen offers (IB, Bachillerato, ESO, University): the words the
+   app uses for each, its subject list, and the empty planner a new account starts from.
    Each account keeps its own planner; Settings → "Reset to Starting Data" puts the matching one back. */
 (function () {
   'use strict';
@@ -25,21 +27,21 @@
   ];
 
   window.IB_DEFAULTS = {
-    version: 2,
+    version: 3,
     profile: { name: '' },
     settings: { theme: 'auto', weekend: false, lastBackup: null, accent: '' },
 
     subjects: [
-      { id: 'eng',  name: 'English',             short: 'English',    color: '#FF9500', group: 'ib',    level: '', teacher: 'Gerard O.', goal: 0, notes: '' },
-      { id: 'math', name: 'Math',                short: 'Math',       color: '#FFCC00', group: 'ib',    level: '', teacher: 'Ignacio',   goal: 0, notes: '' },
-      { id: 'sas',  name: 'SAS',                 short: 'SAS',        color: '#00C7BE', group: 'ib',    level: '', teacher: 'Sergio T',  goal: 0, notes: 'Sistemas Ambientales y Sociedades (S. Ambi on the timetable).' },
-      { id: 'len',  name: 'Lengua',              short: 'Lengua',     color: '#007AFF', group: 'ib',    level: '', teacher: 'Adrián',    goal: 0, notes: '' },
-      { id: 'ges',  name: 'Gestión Empresarial', short: 'Gestión',    color: '#5856D6', group: 'ib',    level: '', teacher: 'Fernan',    goal: 0, notes: '' },
-      { id: 'his',  name: 'Historia',            short: 'Historia',   color: '#34C759', group: 'ib',    level: '', teacher: 'Fernan',    goal: 0, notes: '' },
-      { id: 'tdc',  name: 'TDC',                 short: 'TDC',        color: '#8E8E93', group: 'core',  level: '', teacher: 'Pedro A',   goal: 0, notes: '' },
-      { id: 'mono', name: 'Monografía',          short: 'Monografía', color: '#FF2D55', group: 'core',  level: '', teacher: '',          goal: 0, notes: '' },
-      { id: 'cas',  name: 'CAS',                 short: 'CAS',        color: '#32ADE6', group: 'core',  level: '', teacher: '',          goal: 0, notes: '' },
-      { id: 'tut',  name: 'Tutoría',             short: 'Tutoría',    color: '#A2845E', group: 'other', level: '', teacher: 'Gerard O.', goal: 0, notes: '' }
+      { id: 'eng',  name: 'English',             short: 'English',    color: '#F28C28', group: 'ib',    level: '', teacher: 'Gerard O.', goal: 0, notes: '' },
+      { id: 'math', name: 'Math',                short: 'Math',       color: '#EDB21A', group: 'ib',    level: '', teacher: 'Ignacio',   goal: 0, notes: '' },
+      { id: 'sas',  name: 'SAS',                 short: 'SAS',        color: '#1E9E6A', group: 'ib',    level: '', teacher: 'Sergio T',  goal: 0, notes: 'Sistemas Ambientales y Sociedades (S. Ambi on the timetable).' },
+      { id: 'len',  name: 'Lengua',              short: 'Lengua',     color: '#3B6FD4', group: 'ib',    level: '', teacher: 'Adrián',    goal: 0, notes: '' },
+      { id: 'ges',  name: 'Gestión Empresarial', short: 'Gestión',    color: '#3D5591', group: 'ib',    level: '', teacher: 'Fernan',    goal: 0, notes: '' },
+      { id: 'his',  name: 'Historia',            short: 'Historia',   color: '#5DAA3A', group: 'ib',    level: '', teacher: 'Fernan',    goal: 0, notes: '' },
+      { id: 'tdc',  name: 'TDC',                 short: 'TDC',        color: '#7D756C', group: 'core',  level: '', teacher: 'Pedro A',   goal: 0, notes: '' },
+      { id: 'mono', name: 'Monografía',          short: 'Monografía', color: '#E0527D', group: 'core',  level: '', teacher: '',          goal: 0, notes: '' },
+      { id: 'cas',  name: 'CAS',                 short: 'CAS',        color: '#3E9BD6', group: 'core',  level: '', teacher: '',          goal: 0, notes: '' },
+      { id: 'tut',  name: 'Tutoría',             short: 'Tutoría',    color: '#A9714B', group: 'other', level: '', teacher: 'Gerard O.', goal: 0, notes: '' }
     ],
 
     periods: PERIODS,
@@ -112,13 +114,13 @@
   /* Everyone else: the IB core, the same school-day rows (tap a time to change it) and nothing else yet.
      guide: 'new' shows the welcome sheet and the setup checklist on Today. */
   window.IB_BLANK = {
-    version: 2,
+    version: 3,
     profile: { name: '' },
     settings: { theme: 'auto', weekend: false, lastBackup: null, accent: '', guide: 'new' },
     subjects: [
-      { id: 'tok', name: 'Theory of Knowledge', short: 'TOK', color: '#8E8E93', group: 'core', level: '', teacher: '', goal: 0, notes: '' },
-      { id: 'ee',  name: 'Extended Essay',      short: 'EE',  color: '#FF2D55', group: 'core', level: '', teacher: '', goal: 0, notes: '' },
-      { id: 'cas', name: 'CAS',                 short: 'CAS', color: '#32ADE6', group: 'core', level: '', teacher: '', goal: 0, notes: '' }
+      { id: 'tok', name: 'Theory of Knowledge', short: 'TOK', color: '#7D756C', group: 'core', level: '', teacher: '', goal: 0, notes: '' },
+      { id: 'ee',  name: 'Extended Essay',      short: 'EE',  color: '#E0527D', group: 'core', level: '', teacher: '', goal: 0, notes: '' },
+      { id: 'cas', name: 'CAS',                 short: 'CAS', color: '#3E9BD6', group: 'core', level: '', teacher: '', goal: 0, notes: '' }
     ],
     periods: PERIODS,
     slots: {},
@@ -127,5 +129,63 @@
     sessions: [],
     papers: [],
     timer: null
+  };
+
+  /* a Spanish secondary school day (ESO and Bachillerato): tap a time to change it */
+  var PERIODS_ES = [
+    { id: 'p1', start: '08:30', end: '09:25', kind: 'class', label: '' },
+    { id: 'p2', start: '09:25', end: '10:20', kind: 'class', label: '' },
+    { id: 'p3', start: '10:20', end: '11:15', kind: 'class', label: '' },
+    { id: 'br', start: '11:15', end: '11:45', kind: 'break', label: 'Break' },
+    { id: 'p4', start: '11:45', end: '12:40', kind: 'class', label: '' },
+    { id: 'p5', start: '12:40', end: '13:35', kind: 'class', label: '' },
+    { id: 'p6', start: '13:35', end: '14:30', kind: 'class', label: '' }
+  ];
+  /* university: hour by hour, mornings and afternoons */
+  var PERIODS_UNI = ['09:00', '10:00', '11:00', '12:00', '13:00', '15:00', '16:00', '17:00'].map(function (t, i) {
+    var h = Number(t.slice(0, 2)) + 1;
+    return { id: 'u' + (i + 1), start: t, end: (h < 10 ? '0' : '') + h + ':00', kind: 'class', label: '' };
+  });
+  function blank(periods) {
+    return { version: 3, profile: { name: '' }, settings: { theme: 'auto', weekend: false, lastBackup: null, accent: '', guide: 'new' },
+      subjects: [], periods: periods, slots: {}, events: [], tasks: [], sessions: [], papers: [], timer: null };
+  }
+
+  /* pick: [group name, [[full name, short name], ...]]; common: names ticked for you the first time */
+  window.LEVELS = {
+    ib: {
+      name: 'IB Diploma', short: 'IB', sub: 'International Baccalaureate', group: 'IB subjects', one: 'IB subject',
+      exams: 'IB exams', sl: true, blank: window.IB_BLANK, common: []
+    },
+    bach: {
+      name: 'Bachillerato', short: 'Bachillerato', sub: 'Nacional, 1º and 2º', group: 'Subjects', one: 'Subject',
+      exams: 'Next exam', blank: blank(PERIODS_ES),
+      common: ['Lengua Castellana y Literatura', 'Inglés'],
+      pick: [
+        ['Common', [['Lengua Castellana y Literatura', 'Lengua'], ['Inglés', 'Inglés'], ['Filosofía', 'Filosofía'], ['Historia de España', 'Historia'], ['Historia de la Filosofía', 'H. Filosofía'], ['Educación Física', 'Ed. Física']]],
+        ['Ciencias y Tecnología', [['Matemáticas', 'Mates'], ['Física', 'Física'], ['Química', 'Química'], ['Biología', 'Biología'], ['Geología y Ciencias Ambientales', 'Geología'], ['Dibujo Técnico', 'Dibujo'], ['Tecnología e Ingeniería', 'Tecnología']]],
+        ['Humanidades y Ciencias Sociales', [['Matemáticas Aplicadas a las CCSS', 'Mates CCSS'], ['Economía', 'Economía'], ['Empresa y Diseño de Modelos de Negocio', 'Empresa'], ['Geografía', 'Geografía'], ['Historia del Arte', 'H. Arte'], ['Latín', 'Latín'], ['Griego', 'Griego'], ['Literatura Universal', 'Lit. Universal'], ['Historia del Mundo Contemporáneo', 'H. Mundo']]],
+        ['Artes', [['Dibujo Artístico', 'Dibujo Art.'], ['Cultura Audiovisual', 'Audiovisual'], ['Análisis Musical', 'Música'], ['Artes Escénicas', 'Escénicas'], ['Diseño', 'Diseño']]],
+        ['Optativas', [['Francés', 'Francés'], ['Alemán', 'Alemán'], ['Psicología', 'Psicología'], ['Tecnologías de la Información', 'TIC'], ['Anatomía Aplicada', 'Anatomía'], ['Religión', 'Religión']]]
+      ]
+    },
+    eso: {
+      name: 'ESO', short: 'ESO', sub: '1º to 4º', group: 'Subjects', one: 'Subject',
+      exams: 'Next exam', blank: blank(PERIODS_ES),
+      common: ['Lengua Castellana y Literatura', 'Matemáticas', 'Inglés', 'Geografía e Historia', 'Educación Física'],
+      pick: [
+        ['Common', [['Lengua Castellana y Literatura', 'Lengua'], ['Matemáticas', 'Mates'], ['Inglés', 'Inglés'], ['Geografía e Historia', 'Geo e Historia'], ['Educación Física', 'Ed. Física']]],
+        ['Ciencias', [['Biología y Geología', 'Biología'], ['Física y Química', 'Física y Química'], ['Tecnología y Digitalización', 'Tecnología'], ['Digitalización', 'Digitalización']]],
+        ['Artes y más', [['Música', 'Música'], ['Educación Plástica, Visual y Audiovisual', 'Plástica'], ['Francés', 'Francés'], ['Alemán', 'Alemán'], ['Latín', 'Latín'], ['Economía y Emprendimiento', 'Economía'], ['Valores Cívicos y Éticos', 'Valores'], ['Religión', 'Religión']]]
+      ]
+    },
+    uni: {
+      name: 'University', short: 'University', sub: 'Degree or master’s', group: 'Courses', one: 'Course',
+      exams: 'Next exam', blank: blank(PERIODS_UNI), common: [],
+      pick: [
+        ['Common first-year courses', [['Calculus', 'Calculus'], ['Linear Algebra', 'Algebra'], ['Statistics', 'Statistics'], ['Programming', 'Programming'], ['Physics', 'Physics'], ['Chemistry', 'Chemistry'], ['Biology', 'Biology'],
+          ['Microeconomics', 'Micro'], ['Macroeconomics', 'Macro'], ['Accounting', 'Accounting'], ['Marketing', 'Marketing'], ['Introduction to Law', 'Law'], ['Psychology', 'Psychology'], ['Academic Writing', 'Writing']]]
+      ]
+    }
   };
 })();
