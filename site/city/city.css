@@ -82,3 +82,14 @@ html,body{margin:0;height:100%;background:#0B0E14;overflow:hidden;overscroll-beh
 .bc-choices kbd{display:inline-block;min-width:20px;font:inherit;font-weight:800;color:#5B6070}
 .bc-wanted{position:absolute;top:calc(max(12px,env(safe-area-inset-top)) + 44px);left:50%;transform:translateX(-50%);font-size:26px;letter-spacing:4px;color:#FFE14D;text-shadow:0 2px 6px rgba(0,0,0,.6);opacity:0;transition:opacity .2s ease-out}
 .bc-wanted.on{opacity:1}
+.bc-hp{height:4px;background:rgba(255,255,255,.16);border-radius:2px;margin-top:5px;overflow:hidden}.bc-hp i{display:block;height:100%;background:#FF5A5F;width:100%}
+/* the radio wheel: slow motion behind a blur */
+.bc-wheel{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;background:rgba(8,10,14,.35);-webkit-backdrop-filter:blur(8px) saturate(.8);backdrop-filter:blur(8px) saturate(.8);pointer-events:auto;animation:bcIn .18s ease-out}
+.bc-wheel.out{opacity:0;transition:opacity .18s ease-out}
+@keyframes bcIn{from{opacity:0}to{opacity:1}}
+.bc-wheel-in{position:relative;border-radius:50%;border:2px solid rgba(255,255,255,.18);background:rgba(14,16,22,.55)}
+.bc-wheel-in button{position:absolute;left:50%;top:50%;background:rgba(14,16,22,.85);color:#fff;border:2px solid transparent;border-radius:12px;padding:12px 14px;font:inherit;font-weight:800;font-size:15px;min-width:120px;cursor:pointer}
+.bc-wheel-in button.on{border-color:rgba(255,255,255,.5)}.bc-wheel-in button.hi,.bc-wheel-in button:hover{background:#FFE14D;color:#191D29}
+.bc-wheel-mid{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;max-width:160px}
+.bc-wheel-mid b{display:block;font-size:18px}.bc-wheel-mid small{display:block;font-size:12px;opacity:.75;margin-top:4px}
+.bc-label.friend{background:#FFE14D;color:#191D29}

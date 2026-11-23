@@ -14,6 +14,9 @@ import { Interiors } from './interiors.js';
 import { Sheets } from './sheets.js';
 import { Talk } from './talk.js';
 import { Plane, PlaneCam } from '../actors/plane.js';
+import { Human } from '../actors/human.js';
+import { Radio } from '../audio/radio.js';
+import { Friends } from './friends.js';
 
 function qNow() { let q = null; try { q = localStorage.getItem('bloc:city:q'); } catch (e) { /* ignore */ } return ['low', 'medium', 'high', 'ultra'].indexOf(q) >= 0 ? q : 'auto'; }
 const fmt = (s) => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
@@ -54,7 +57,15 @@ export class Game {
     this.fcam = new FootCam(this.camera, this.root);
     this.rooms = new Interiors(this.scene, this.plan, this.homes);
     this.sheets = new Sheets(this, !!ctx.test);
-    this.talk = new Talk(this); this.remarkT = 4;
+    this.talk = new Talk(this); this.remarkT = 4; this.timeScale = 1;
+    if (!ctx.test) this.friends = new Friends(this);
+    /* the radio and its wheel: hold Q (or tap Radio), pick a station, let go */
+    if (this.audio) {
+      this.radio = new Radio(this.audio, this.native);
+      this.radio.onTrack = (title) => { if (this.mode !== 'foot') this.say(this.radio.stationName(this.radio.cur), title); };
+      window.addEventListener('keydown', (e) => { if (e.code === 'KeyQ' && !e.repeat && !this.wheel) { e.preventDefault(); this.openWheel(); } }, true);
+      window.addEventListener('keyup', (e) => { if (e.code === 'KeyQ' && this.wheel) { e.preventDefault(); this.closeWheel(true); } }, true);
+    }
     /* the flight-school plane waits on the airport apron */
     this.plane = new Plane(this.world); this.planeHome = { x: 1210, z: 1590, yaw: 0 };
     this.plane.place(this.planeHome.x, this.planeHome.z, this.planeHome.yaw, sampleHeight(this.plan.height, this.planeHome.x, this.planeHome.z));
@@ -130,7 +141,7 @@ export class Game {
     const el = document.createElement('div'); el.className = 'bc-hud';
     el.innerHTML =
       `<div class="bc-top"><div class="bc-panel bc-fuel"><b class="bc-f">0:00</b><span class="bc-sub">${t('fuel')}</span><div class="bc-bar"><i></i></div></div>` +
-      `<div class="bc-btns"><button type="button" class="bc-btn" data-k="view">${t('view')}</button><button type="button" class="bc-btn" data-k="sky">${t('sky_live')}</button><button type="button" class="bc-btn" data-k="q">${t('quality')}: ${t('q_' + qNow())}</button><button type="button" class="bc-btn" data-k="map">${t('map')}</button><button type="button" class="bc-btn x" data-k="exit">${t('done')}</button></div></div>` +
+      `<div class="bc-btns"><button type="button" class="bc-btn" data-k="view">${t('view')}</button><button type="button" class="bc-btn" data-k="sky">${t('sky_live')}</button><button type="button" class="bc-btn" data-k="q">${t('quality')}: ${t('q_' + qNow())}</button><button type="button" class="bc-btn" data-k="radio">${t('radio')}</button><button type="button" class="bc-btn" data-k="map">${t('map')}</button><button type="button" class="bc-btn x" data-k="exit">${t('done')}</button></div></div>` +
       `<canvas class="bc-mini" width="320" height="320" aria-hidden="true"></canvas><div class="bc-place"></div>` +
       `<div class="bc-trial" hidden></div><div class="bc-msg"></div><button type="button" class="bc-act" data-k="act" hidden></button>` +
       `<div class="bc-speed"><b>0</b><span>km/h</span></div>` +
@@ -143,7 +154,7 @@ export class Game {
     el.addEventListener('click', (e) => {
       const b = e.target.closest('[data-k]'); if (!b) return;
       const k = b.dataset.k;
-      if (k === 'exit') this.finish('exit'); else if (k === 'map') this.toggleMap(); else if (k === 'view') this.nextView(); else if (k === 'act') this.contextAct(); else if (k === 'sky') this.cycleSky(); else if (k === 'q') this.cycleQuality(b);
+      if (k === 'exit') this.finish('exit'); else if (k === 'map') this.toggleMap(); else if (k === 'view') this.nextView(); else if (k === 'act') this.contextAct(); else if (k === 'radio') { if (this.wheel) this.closeWheel(false); else this.openWheel(); } else if (k === 'sky') this.cycleSky(); else if (k === 'q') this.cycleQuality(b);
     });
     this.ui.map.addEventListener('click', () => this.toggleMap());
     this.labels = this.homes.map((h) => { const d = document.createElement('div'); d.className = 'bc-label' + (h.me ? ' home' : ''); d.textContent = h.me ? t('home') : h.name; el.appendChild(d); return d; });
@@ -177,9 +188,11 @@ export class Game {
     if (this.mapOpen || this.paused) { if (this.mode === 'foot') this.foot.sync(dt); return; }
     this.driven += dt; this.fuel -= dt;
     this.world.wet = U.wet.value;
+    if (this.radio && this.audio.ctx) { const v = this.mode !== 'foot' && !this.rooms.inside; if (v !== this.radio.inVehicle || !this.radio.bus) this.radio.setVehicle(v); }
     if (this.mode === 'car') this.updateCar(dt); else if (this.mode === 'plane') this.updatePlane(dt); else this.updateFoot(dt);
     this.updateCrowd(dt);
     if (this.police && !this.rooms.inside) this.police.update(dt);
+    if (this.friends) this.friends.update(dt);
     this.pickups();
     this.prompt();
     this.hud(dt);
@@ -195,7 +208,10 @@ export class Game {
     C.update(dt, me, drive, {
       scared: (p) => T2.remark(p, 'dodge'), bump: (p) => T2.remark(p, 'bump'), pair: (a, b) => T2.pair(a, b),
       hit: (p, sp) => { this.cam.shake = Math.min(0.3, sp / 40); if (this.audio) this.audio.hit(sp * 0.5); if (this.police) this.police.crime('hit', p.x, p.z); },
-      up: (p) => T2.say(p, T2.pick('up', p.voice))
+      up: (p) => T2.say(p, T2.pick('up', p.voice)),
+      taunt: (p) => T2.say(p, T2.pick('fight_taunt', p.voice)),
+      meNow: () => this.me(),
+      punchPlayer: (p) => this.hurt(12, p)
     });
     C.draw(dt, this.camera);
     /* now and then someone nearby says something */
@@ -267,6 +283,10 @@ export class Game {
       f.place(sf.x, sf.z, sf.a); this.say(TEXT('splash'), TEXT('back_on_land'));
       setTimeout(() => this.ui.fade.classList.remove('on'), 380);
     }
+    if (this.koT > 0) this.koT -= dt;
+    if (this.bout) this.boutTick(dt);
+    if (this.hp != null && this.hp < 100 && !this.bout && this.koT <= 0) this.hp = Math.min(100, this.hp + dt * 4);
+    f.guard = !!this.bout || (this.crowd && this.crowd.people.some((p) => p.state === 'fight' && Math.hypot(p.x - f.x, p.z - f.z) < 4));
     f.sync(dt);
     this.fcam.update(dt, f, (x, z, y) => {
       if (this.rooms.inside) { const r = this.rooms.inside.room; return Math.abs(x - r.o.x) > r.W / 2 - 0.2 || Math.abs(z - r.o.z) > r.D / 2 - 0.2 || y > r.o.y + r.h - 0.2; }
@@ -357,6 +377,7 @@ export class Game {
     if (this.rooms.inside) {
       const s = this.rooms.spotAt(f.x, f.z); if (!s) return;
       if (s.act === 'leave') {
+        if (this.bout) this.endBout(false);
         const d = this.rooms.leave(); f.indoor = null;
         f.place(d.x + Math.sin(d.a) * 0.9, d.z + Math.cos(d.a) * 0.9, d.a, d.y);
         this.fcam.init = false; this.fcam.placed = false; this.fcam.yaw = d.a;
@@ -365,6 +386,7 @@ export class Game {
       else if (s.act === 'garage') this.sheets.garage();
       else if (s.act === 'coffee') this.talk.say(null, this.talk.pick('barista'), { name: TEXT('staff_barista') });
       else if (s.act === 'bag') this.talk.say(null, this.talk.pick('coach'), { name: TEXT('staff_coach') });
+      else if (s.act === 'ring') { if (this.native) this.say(TEXT('do_ring'), TEXT('web_only')); else this.startBout(); }
       else this.say(TEXT('do_' + s.act), TEXT('do_' + s.act + '_sub'));
       return;
     }
@@ -380,12 +402,92 @@ export class Game {
       this.fade(); this.say(TEXT('place_' + d.id));
     }
   }
+  /* sparring in the gym ring: first to land five clean punches wins */
+  startBout() {
+    if (this.bout) return;
+    const r = this.rooms.inside.room, h = new Human({ skin: '#9A6440', hair: 'buzz', hairC: '#1B1714', top: { kind: 'tee', c: '#A3262E' }, bottom: { kind: 'shorts', c: '#1C2B45' }, shoes: { kind: 'sneaker', c: '#1A1B1F' }, hat: { kind: 'none', c: '#000' } });
+    const x = r.o.x + 3.5, z = r.o.z + 4.6; h.group.position.set(x, r.o.y + 0.6, z); this.scene.add(h.group);
+    this.foot.place(r.o.x + 3.5, r.o.z + 2.4, 0, r.o.y + 0.6); this.foot.indoor = { ...r, floorY: r.o.y + 0.6, collide: (p) => { p.x = Math.max(r.o.x + 0.9, Math.min(r.o.x + 6.1, p.x)); p.z = Math.max(r.o.z + 0.9, Math.min(r.o.z + 6.1, p.z)); }, o: r.o, W: r.W, D: r.D, h: r.h };
+    this.bout = { h, x, z, y: r.o.y + 0.6, hp: 5, mine: 0, next: 1.5, t: 0, a: Math.PI, room: r };
+    this.hp = 100; this.say(TEXT('bout'), TEXT('bout_sub'));
+    this.talk.say(null, this.talk.pick('coach'), { name: TEXT('staff_coach') });
+  }
+  boutHit() {
+    const b = this.bout; b.hp -= 1; b.stagger = 0.4; if (this.audio) this.audio.hit(6);
+    if (b.hp <= 0) this.endBout(true); else this.talk.say(null, this.talk.pick('fight_hit', 'm'), { name: TEXT('sparring') });
+  }
+  boutTick(dt) {
+    const b = this.bout, f = this.foot; if (!b) return;
+    b.t += dt; const dx = f.x - b.x, dz = f.z - b.z, d = Math.hypot(dx, dz);
+    let want = Math.atan2(dx, dz), da = want - b.a; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; b.a += da * Math.min(1, dt * 6);
+    if (b.stagger > 0) { b.stagger -= dt; b.x -= dx / d * dt * 1.2; b.z -= dz / d * dt * 1.2; }
+    else if (d > 1.05) { b.x += dx / d * Math.min(2, d - 1) * dt; b.z += dz / d * Math.min(2, d - 1) * dt; }
+    b.x = Math.max(b.room.o.x + 0.9, Math.min(b.room.o.x + 6.1, b.x)); b.z = Math.max(b.room.o.z + 0.9, Math.min(b.room.o.z + 6.1, b.z));
+    if (b.t > b.next && d < 1.45 && !(b.stagger > 0)) { b.next = b.t + 1.1 + Math.random() * 0.7; b.h.punch(); setTimeout(() => { if (this.bout && Math.hypot(this.foot.x - this.bout.x, this.foot.z - this.bout.z) < 1.45) this.hurt(14, null); }, 140); }
+    b.h.group.position.set(b.x, b.y, b.z); b.h.group.rotation.y = b.a; b.h.animate(dt, { speed: d > 1.1 ? 0.8 : 0.2, guard: true });
+  }
+  endBout(won) {
+    const b = this.bout; if (!b) return;
+    this.scene.remove(b.h.group); this.bout = null;
+    const r = this.rooms.inside && this.rooms.inside.room; if (r) { this.foot.indoor = r; this.foot.place(r.o.x - 1, r.o.z + 1, 0, r.o.y); }
+    this.say(won ? TEXT('bout_won') : TEXT('bout_lost'), won ? TEXT('bout_won_sub') : TEXT('bout_lost_sub'));
+    this.talk.say(null, this.talk.pick(won ? 'fight_lose' : 'fight_win', 'm'), { name: TEXT('sparring') });
+    this.hp = 100;
+  }
+  openWheel() {
+    if (!this.radio || this.wheel || this.ended || this.sheets.el) return;
+    if (this.audio) this.audio.start();
+    const list = this.radio.list, el = document.createElement('div'); el.className = 'bc-wheel';
+    const R = Math.min(170, Math.min(innerWidth, innerHeight) * 0.34);
+    el.innerHTML = `<div class="bc-wheel-in" style="width:${R * 2 + 140}px;height:${R * 2 + 140}px">` + list.map((st, i) => {
+      const a = -Math.PI / 2 + i / list.length * Math.PI * 2, x = Math.cos(a) * R, y = Math.sin(a) * R;
+      return `<button type="button" data-st="${st.id}" class="${st.id === this.radio.cur ? 'on' : ''}" style="transform:translate(calc(-50% + ${x.toFixed(0)}px), calc(-50% + ${y.toFixed(0)}px))">${st.id === 'off' ? TEXT('radio_off') : st.name}</button>`;
+    }).join('') + `<div class="bc-wheel-mid"><b>${this.radio.stationName(this.radio.cur) === 'Radio off' ? TEXT('radio_off') : this.radio.stationName(this.radio.cur)}</b><small>${this.radio.nowPlaying() || ''}</small></div></div>`;
+    this.ui.el.appendChild(el); this.wheel = { el, pick: this.radio.cur };
+    this.timeScale = 0.25; if (this.audio) this.audio.duck(true);
+    const mark = (id) => { this.wheel.pick = id; el.querySelectorAll('[data-st]').forEach((b) => b.classList.toggle('hi', b.dataset.st === id)); };
+    el.addEventListener('pointermove', (e) => {
+      const r = el.querySelector('.bc-wheel-in').getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+      if (Math.hypot(dx, dy) < 40) return;
+      let a = Math.atan2(dy, dx) + Math.PI / 2; if (a < 0) a += Math.PI * 2;
+      mark(list[Math.round(a / (Math.PI * 2) * list.length) % list.length].id);
+    });
+    el.addEventListener('click', (e) => { const b = e.target.closest('[data-st]'); if (b) { mark(b.dataset.st); this.closeWheel(true); } else if (e.target === el) this.closeWheel(false); });
+  }
+  closeWheel(apply) {
+    const w = this.wheel; if (!w) return;
+    w.el.classList.add('out'); setTimeout(() => w.el.remove(), 180);
+    this.wheel = null; this.timeScale = 1; if (this.audio && this.mode !== 'foot') this.audio.duck(false);
+    if (apply && w.pick !== this.radio.cur) { this.radio.tune(w.pick); const st = this.radio.stationName(w.pick); this.say(w.pick === 'off' ? TEXT('radio_off') : st, this.radio.nowPlaying()); }
+  }
   contextAct() { const a = this.ui.act.dataset.a; if (a === 'car') this.toggleCar(); else if (a === 'use') this.interact(); }
   fade() { this.ui.fade.classList.add('on'); setTimeout(() => this.ui.fade.classList.remove('on'), 320); }
+  /* you got hit: lose health; at zero you're knocked out (no coins lost) */
+  hurt(n, by) {
+    if (this.mode !== 'foot' || this.koT > 0) return;
+    this.hp = Math.max(0, (this.hp == null ? 100 : this.hp) - n); this.hpShow = 4;
+    this.cam.shake = 0.2; this.fcam.lastLook = -10; if (this.audio) this.audio.hit(6);
+    if (this.hp <= 0) {
+      this.koT = 3; this.ui.fade.classList.add('on'); this.say(TEXT('ko'), TEXT('ko_sub'));
+      if (by && this.talk) this.talk.say(by, this.talk.pick('fight_win', by.voice));
+      setTimeout(() => { this.hp = 100; this.ui.fade.classList.remove('on'); if (this.crowd) for (const p of this.crowd.people) if (p.state === 'fight') { p.state = 'walk'; this.crowd.snap(p); } if (this.bout) this.endBout(false); }, 1600);
+    }
+  }
   punch() {
     if (this.mode !== 'foot' || this.sheets.el) return;
     if (!this.foot.human.punch()) return;
     const f = this.foot;
+    /* combat is website only (off in the iPhone app) */
+    if (!this.native) setTimeout(() => {
+      const fx = Math.sin(f.a), fz = Math.cos(f.a);
+      if (this.bout) { const b = this.bout; if (Math.hypot(b.x - f.x, b.z - f.z) < 1.3) this.boutHit(); return; }
+      if (!this.crowd || this.rooms.inside) return;
+      const p = this.crowd.inReach(f.x, f.z, f.a); if (!p) return;
+      const r = this.crowd.hitPerson(p, fx, fz);
+      if (this.audio) this.audio.hit(r === 'down' ? 9 : 5);
+      this.talk.say(p, this.talk.pick(r === 'down' ? 'fight_lose' : 'fight_hit', p.voice));
+      if (this.police) this.police.crime('fight', p.x, p.z);
+    }, 140);
     setTimeout(() => { if (this.rooms.hitBag(f.x + Math.sin(f.a) * 0.6, f.z + Math.cos(f.a) * 0.6, Math.sin(f.a), Math.cos(f.a)) && this.audio) this.audio.hit(5); }, 140);
   }
   /* what E or F would do right now, shown as a button (and a hint on keyboards) */
@@ -500,6 +602,8 @@ export class Game {
   hud(dt) {
     const U2 = this.ui, car = this.me(), t = TEXT;
     U2.speedBox.style.display = this.mode === 'foot' ? 'none' : '';
+    if (!U2.hp) { U2.hp = document.createElement('div'); U2.hp.className = 'bc-hp'; U2.hp.innerHTML = '<i></i>'; this.ui.el.querySelector('.bc-fuel').appendChild(U2.hp); }
+    const hpOn = this.mode === 'foot' && this.hp != null && (this.hp < 100 || this.bout); U2.hp.style.display = hpOn ? 'block' : 'none'; if (hpOn) U2.hp.firstChild.style.width = this.hp + '%';
     U2.mini.style.display = U2.place.style.display = this.rooms.inside ? 'none' : '';
     U2.speed.textContent = Math.round(car.speed * 3.6);
     U2.fuel.textContent = fmt(this.fuel);

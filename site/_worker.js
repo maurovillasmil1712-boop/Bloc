@@ -174,6 +174,7 @@ const ROUTES = {
   'GET /api/farm/plot': farmPlot,
   'POST /api/farm/act': farmAct,
   'POST /api/farm/drive': farmDrive,
+  'POST /api/farm/presence': farmPresence,
   'GET /api/farm/now': farmNow,
   'GET /api/push/key': pushKey,
   'POST /api/push/sub': pushSub,
@@ -253,6 +254,7 @@ async function makeSchema(db) {
       /* the garden (v6.1): each person's coins, seeds and house, and each garden's plots ('u:<user>' or 'g:<garden>') */
       db.prepare('CREATE TABLE IF NOT EXISTS farms (user TEXT PRIMARY KEY, data TEXT NOT NULL, rev INTEGER NOT NULL, updated_at INTEGER NOT NULL)'),
       db.prepare('CREATE TABLE IF NOT EXISTS plotdocs (garden TEXT PRIMARY KEY, data TEXT NOT NULL, rev INTEGER NOT NULL, updated_at INTEGER NOT NULL)'),
+      db.prepare('CREATE TABLE IF NOT EXISTS presence (user TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL)'),
       /* reminders: the browsers that get notifications, and each person's next reminders */
       db.prepare('CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, user TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at INTEGER NOT NULL, fails INTEGER NOT NULL DEFAULT 0)'),
       db.prepare('CREATE INDEX IF NOT EXISTS push_subs_user ON push_subs (user)'),
@@ -2916,6 +2918,7 @@ function accountWipe(c, id) {
     c.db.prepare('DELETE FROM pet_cards WHERE user = ?1').bind(id),
     c.db.prepare('DELETE FROM farms WHERE user = ?1').bind(id),
     c.db.prepare("DELETE FROM plotdocs WHERE garden = 'u:' || ?1").bind(id),
+    c.db.prepare('DELETE FROM presence WHERE user = ?1').bind(id),
     c.db.prepare('DELETE FROM garden_members WHERE user = ?1').bind(id),
     ...gardenCleanup(c),
     /* reminders */
@@ -4407,6 +4410,7 @@ function cleanLook(f) {
 }
 /* what the city needs to draw you */
 function lookOf(f) {
+  if (!f.avatar || !f.outfit || !Array.isArray(f.wardrobe)) cleanLook(f);
   const out = { skin: f.avatar.skin, hair: f.avatar.hair, hairC: f.avatar.hairC };
   for (const slot of OUTFIT_SLOTS) { const it = OUTFIT_BY.get(f.outfit[slot]); out[slot] = { kind: it.kind, c: it.c }; }
   return out;
@@ -4726,8 +4730,8 @@ function publicFarm(f, extra) {
   return Object.assign({
     coins: f.coins, sun: f.sun, fuel: f.fuel, seeds: f.seeds, basket: f.basket, house: f.house, locs: f.locs, deco: f.deco,
     index: f.index, stars: f.stars, cars: f.cars, car: f.car, color: f.color, best: f.best, golds: f.golds, jumps: f.jumps,
-    drive: f.drive, log: f.log.slice(0, 12), seen: f.seen || 0,
-    avatar: f.avatar, wardrobe: f.wardrobe, outfit: f.outfit, look: lookOf(f)
+    drive: f.drive, log: f.log.slice(0, 12), seen: f.seen || 0, look: lookOf(f),
+    avatar: f.avatar, wardrobe: f.wardrobe, outfit: f.outfit
   }, extra || {});
 }
 async function farmPayload(c, s, f, bits, extra) {
@@ -5017,6 +5021,31 @@ function applyFarmDelta(target, before, after) {
 }
 
 /* ---------- Bloc City ---------- */
+/* Bloc City v7.6: friends in the city at the same time. Each driver sends where they are every few seconds
+   (only while a drive is running) and gets back friends seen in the last 12 seconds. Positions only, no chat. */
+async function farmPresence(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  await hit(c, 'pres:' + s.user, 60, MIN, 'slow');
+  const num = (v, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : 0; };
+  const f = await c.db.prepare("SELECT json_extract(data, '$.run') AS run, json_extract(data, '$.car') AS car, json_extract(data, '$.color') AS color FROM farms WHERE user = ?1").bind(s.user).first();
+  const run = f && f.run ? JSON.parse(f.run) : null;
+  if (!run) throw new HttpError(400, 'no_drive');
+  const me = { x: Math.round(num(b.x, -4000, 4000) * 10) / 10, z: Math.round(num(b.z, -4000, 4000) * 10) / 10, y: Math.round(num(b.y, -50, 1000) * 10) / 10, h: Math.round(num(b.h, -10, 10) * 100) / 100,
+    m: ['car', 'foot', 'plane'].includes(b.m) ? b.m : 'car', car: CAR_BY.has(f.car) ? f.car : 'hatch', color: CAR_COLORS.includes(f.color) ? f.color : CAR_COLORS[0], look: b.look && typeof b.look === 'object' ? cleanLookIn(b.look) : null };
+  await c.db.prepare('INSERT INTO presence (user, data, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(user) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at').bind(s.user, JSON.stringify(me), c.now).run();
+  const friends = await friendsOf(c, s);
+  if (!friends.length) return json({ now: c.now, friends: [] });
+  const { results } = await c.db.prepare('SELECT user, data, updated_at FROM presence WHERE updated_at > ?1 AND user IN (SELECT value FROM json_each(?2))').bind(c.now - 12000, JSON.stringify(friends.map((x) => x.id))).all();
+  const name = new Map(friends.map((x) => [x.id, x.name]));
+  return json({ now: c.now, friends: (results || []).map((r) => Object.assign({ id: r.user, name: name.get(r.user) || r.user, age: c.now - r.updated_at }, JSON.parse(r.data))) });
+}
+/* a look sent by a client: only known kinds and colours get through */
+function cleanLookIn(l) {
+  const out = { skin: SKINS.includes(l.skin) ? l.skin : SKINS[1], hair: HAIRS.includes(l.hair) ? l.hair : 'short', hairC: HAIR_COLORS.includes(l.hairC) ? l.hairC : HAIR_COLORS[1] };
+  for (const slot of OUTFIT_SLOTS) { const v = l[slot] || {}, it = OUTFITS.find((x) => x.slot === slot && x.kind === v.kind && x.c === v.c); const d = OUTFIT_BY.get(OUTFIT_START[slot]); out[slot] = it ? { kind: it.kind, c: it.c } : { kind: d.kind, c: d.c }; }
+  return out;
+}
 async function friendsOf(c, s) {
   const res = await c.db.batch([
     c.db.prepare(

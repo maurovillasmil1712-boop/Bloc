@@ -184,7 +184,7 @@ async function boot() {
       const c = freeCam.split(',').map(Number), gy = (x, z) => (Q.get('rel') === '0' ? 0 : groundAt(plan, x, z));
       camera.position.set(c[0], c[1] + gy(c[0], c[2]), c[2]); camera.lookAt(c[3], c[4] + gy(c[3], c[5]), c[5]);
     } else {
-      game.update(Math.min(dt, 0.05));
+      game.update(Math.min(dt, 0.05) * (game.timeScale || 1));
       if (audio) audio.car(game.car, game.mode === 'car' ? game.car.input.throttle || 0 : 0, dt);
     }
     const fo = game.focus(); city.update(freeCam ? camera.position : new THREE.Vector3(fo.x, fo.y, fo.z), 3);

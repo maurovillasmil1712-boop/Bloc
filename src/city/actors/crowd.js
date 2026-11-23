@@ -113,7 +113,7 @@ export class Crowd {
       i, alive: false, e: null, s: 0, dir: 1, side: 1, x: 0, y: 0, z: 0, h: 0, v: 1.1 + R() * 0.5, state: 'walk', t: 0, phase: R() * 6, rt: R() * 10,
       scale: 0.9 + R() * 0.18, top: hex3(pick(TOPS)), bottom: hex3(pick(BOTTOMS)), shoes: hex3(pick(SHOES)), skin: hex3(pick(SKINS)), hairC: hex3(pick(HAIRC)),
       hair: pick(HAIRS), hat: R() < 0.16 ? (R() < 0.6 ? 'cap' : 'beanie') : null, hatC: hex3(pick(TOPS)), sleeve: longS ? 1 : 0.14, leg: shorts ? 0.27 : 1,
-      voice: R() < 0.5 ? 'f' : 'm', name: null, look: 0, lean: 0, fall: 0
+      voice: R() < 0.5 ? 'f' : 'm', name: null, look: 0, lean: 0, fall: 0, hp: 3 + Math.floor(R() * 3), anger: 0, punchT: 0, punchSide: 1, nextPunch: 0
     };
     p.hairS = p.hair === 'none' ? null : p.hair;
     p.hair = p.hairS;
@@ -126,7 +126,7 @@ export class Crowd {
       const mid = e.dense[Math.floor(e.dense.length / 2)], d = Math.hypot(mid[0] - px, mid[1] - pz);
       if (d > 170 || (far && d < 45) || (!far && d < 6)) continue;
       p.e = e; p.s = this.R() * e.len; p.dir = this.R() < 0.5 ? 1 : -1; p.side = this.R() < 0.5 ? 1 : -1; p.off = e.w / 2 + e.sw * (0.45 + this.R() * 0.25);
-      p.alive = true; p.state = 'walk'; p.t = 0; p.fall = 0; this.place(p); return true;
+      p.alive = true; p.state = 'walk'; p.t = 0; p.fall = 0; p.hp = 3 + Math.floor(this.R() * 3); p.anger = 0; this.place(p); return true;
     }
     p.alive = false; return false;
   }
@@ -163,10 +163,31 @@ export class Crowd {
         if (p.state === 'idle' && p.t > p.idleFor) p.state = 'walk';
         if (p.state === 'talk' && p.t > p.talkFor) { p.state = 'walk'; if (p.partner) { p.partner.state = 'walk'; p.partner.partner = null; } p.partner = null; }
         if (p.face != null) p.h += angDiff(p.face, p.h) * Math.min(1, dt * 5);
+      } else if (p.state === 'stagger') {
+        p.x += p.kx * dt * 2.2 * Math.max(0, 1 - p.t * 2.5); p.z += p.kz * dt * 2.2 * Math.max(0, 1 - p.t * 2.5);
+        p.y = sampleHeight(this.plan.height, p.x, p.z) + 0.12;
+        if (p.t > 0.5) {
+          p.t = 0;
+          if (p.anger >= 2 || this.R() < 0.35) { p.state = 'fight'; p.nextPunch = this.t + 0.8; if (hooks.taunt) hooks.taunt(p); }
+          else { p.state = 'flee'; p.fleeH = Math.atan2(p.kx, p.kz); if (hooks.scared) hooks.scared(p); }
+        }
+      } else if (p.state === 'fight') {
+        /* square up to you, close in, throw a punch every second or so */
+        if (!me || Math.hypot(me.x - p.x, me.z - p.z) > 14 || p.t > 40) { p.state = 'walk'; this.snap(p); }
+        else {
+          const dx = me.x - p.x, dz = me.z - p.z, d = Math.hypot(dx, dz);
+          p.h += angDiff(Math.atan2(dx, dz), p.h) * Math.min(1, dt * 8);
+          if (d > 1.05) { const sp = Math.min(2.6, (d - 1.0) * 3); p.x += dx / d * sp * dt; p.z += dz / d * sp * dt; p.y = sampleHeight(this.plan.height, p.x, p.z) + 0.12; }
+          if (this.t > p.nextPunch && d < 1.5) {
+            p.nextPunch = this.t + 0.9 + this.R() * 0.8; p.punchSide = -p.punchSide; p.punchT = 0.32;
+            setTimeout(() => { if (p.state === 'fight' && me && Math.hypot(hooks.meNow().x - p.x, hooks.meNow().z - p.z) < 1.45 && hooks.punchPlayer) hooks.punchPlayer(p); }, 140);
+          }
+        }
+        if (p.punchT > 0) p.punchT -= dt;
       } else if (p.state === 'flee') {
         const sp = 4.6; p.x += Math.sin(p.fleeH) * sp * dt; p.z += Math.cos(p.fleeH) * sp * dt; p.h += angDiff(p.fleeH, p.h) * Math.min(1, dt * 8);
         p.y = sampleHeight(this.plan.height, p.x, p.z) + 0.12;
-        if (p.t > 1.6) { p.state = 'walk'; this.snap(p); }
+        if (p.t > (p.fleeFor || 1.6)) { p.state = 'walk'; p.fleeFor = 0; this.snap(p); }
       } else if (p.state === 'down') {
         p.fall = Math.min(1, p.fall + dt * 3);
         if (p.t > 3.2) { p.state = 'walk'; p.fall = 0; this.snap(p); if (hooks.up) hooks.up(p); }
@@ -188,6 +209,25 @@ export class Crowd {
         }
       }
     }
+  }
+  /* you landed a punch on p from direction (fx, fz) */
+  hitPerson(p, fx, fz) {
+    p.hp -= 1; p.anger += 1; p.kx = fx; p.kz = fz;
+    if (p.hp <= 0) { p.state = 'down'; p.t = 0; p.fall = 0; p.fallDir = Math.atan2(fx, fz) + Math.PI; p.hp = 3; p.anger = 0; return 'down'; }
+    if (p.state === 'fight') { p.x += fx * 0.35; p.z += fz * 0.35; return 'hit'; }
+    p.state = 'stagger'; p.t = 0; return 'hit';
+  }
+  /* someone in front of you, close enough to hit */
+  inReach(x, z, a, r = 1.15) {
+    let best = null, bd = r;
+    for (const p of this.people) {
+      if (!p.alive || p.state === 'down') continue;
+      const dx = p.x - x, dz = p.z - z, d = Math.hypot(dx, dz);
+      if (d > bd || d < 1e-3) continue;
+      const cosA = (dx * Math.sin(a) + dz * Math.cos(a)) / d; if (cosA < 0.45) continue;
+      bd = d; best = p;
+    }
+    return best;
   }
   turnCorner(p) {
     const atEnd = p.s > p.e.len, node = this.plan.nodes[atEnd ? p.e.b : p.e.a];
@@ -215,8 +255,10 @@ export class Crowd {
       if (!p.alive || Math.hypot(p.x - cx, p.z - cz) > 140) continue;
       pose.phase = p.phase; pose.t = p.t;
       const g = pose.group; g.position.set(p.x, p.y - 0.12, p.z); g.rotation.set(0, p.h, 0); pose.root.scale.setScalar(p.scale);
-      const speed = p.state === 'walk' ? p.v : p.state === 'flee' ? 4.6 : 0;
-      pose.animate(dt, { speed });
+      const speed = p.state === 'walk' ? p.v : p.state === 'flee' ? 4.6 : p.state === 'fight' ? 0.6 : 0;
+      pose.punchT = p.punchT || 0; pose.punchSide = p.punchSide || 1;
+      pose.animate(dt, { speed, guard: p.state === 'fight' });
+      if (p.state === 'stagger') { g.rotation.x = -0.25 * Math.max(0, 1 - p.t * 2); }
       if (p.state === 'talk' || p.state === 'chat') { /* talking: a hand moves now and then */ const k = Math.sin(p.t * 3.1 + p.i) * 0.5 + 0.5; pose.arms[0].upper.rotation.x = -0.35 * k; pose.arms[0].fore.rotation.x = -1.2 * k - 0.2; }
       if (p.state === 'down') { const f = p.fall; g.rotation.set(-1.45 * f, p.fallDir || p.h, 0, 'YXZ'); g.position.y -= 0.05 * f; }
       p.phase = pose.phase;
