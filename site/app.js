@@ -115,7 +115,7 @@
   var GUIDE = ['new', 'on', 'done'];
   /* [setting value, name, swatch colour] (Bloc Plus) */
   /* the keys stay from MyIB so saved choices keep working; the colours are Bloc's */
-  var ACCENTS = [['', 'Persimmon', '#D9501F'], ['indigo', 'Ink', '#3D5591'], ['purple', 'Plum', '#8C3B72'], ['pink', 'Rose', '#C93A66'], ['orange', 'Marigold', '#E8930C'], ['green', 'Jade', '#167F59'], ['teal', 'Lagoon', '#0A7684'], ['graphite', 'Graphite', '#5B544C']];
+  var ACCENTS = [['', 'Yellow', '#FFE14D'], ['green', 'Green', '#A8EC8E'], ['pink', 'Pink', '#FFAAD3'], ['orange', 'Orange', '#FFC273'], ['teal', 'Blue', '#9ADAFF'], ['purple', 'Violet', '#D3BCFF'], ['indigo', 'Mint', '#A3EBD5'], ['graphite', 'Pencil', '#D8DBE1']];
   var SESSIONS = { may: 'May', nov: 'November', spec: 'Specimen' };
 
   function cleanSubject(s) {
@@ -728,16 +728,16 @@
     var s = subj(e.subject), p = [];
     if (s) p.push(s.name);
     if (e.title) p.push(e.title);
-    return p.join(' · ') || e.detail || 'Untitled';
+    return p.join(' ') || e.detail || 'Untitled';
   }
   function evShort(e) {
     var s = subj(e.subject), p = [];
     if (s) p.push(s.short);
     if (e.title) p.push(e.title);
-    return p.join(' · ') || e.detail || 'Event';
+    return p.join(' ') || e.detail || 'Event';
   }
   function evDetail(e) { return evTitle(e) === e.detail ? '' : e.detail; }
-  function evFull(e) { var d = evDetail(e); return evTitle(e) + (d ? ' · ' + d : ''); }
+  function evFull(e) { var d = evDetail(e); return evTitle(e) + (d ? ', ' + d : ''); }
   function evSwatch(e) {
     var s = subj(e.subject);
     if (s) return '<i class="sw" style="' + cvar(s) + '"></i>';
@@ -863,7 +863,8 @@
     'n-bone': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.2 14.8l5.6-5.6"/><circle cx="6.9" cy="14.9" r="2.1"/><circle cx="9.1" cy="17.1" r="2.1"/><circle cx="14.9" cy="6.9" r="2.1"/><circle cx="17.1" cy="9.1" r="2.1"/></svg>',
     bow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.2 12L4 8v8zM13.8 12L20 8v8z"/><rect x="10.2" y="10" width="3.6" height="4" rx="1.2"/></svg>',
     more: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="17.5" cy="12" r="1.4" fill="currentColor"/></svg>',
-    spark: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 3.5c.5 3.9 2.6 6 6.5 6.5-3.9.5-6 2.6-6.5 6.5-.5-3.9-2.6-6-6.5-6.5 3.9-.5 6-2.6 6.5-6.5z"/><path d="M18 14.5c.25 1.9 1.1 2.75 3 3-1.9.25-2.75 1.1-3 3-.25-1.9-1.1-2.75-3-3 1.9-.25 2.75-1.1 3-3z"/></svg>',
+    /* the assistant: a marker that just drew a line (v6 replaced the sparkle) */
+    spark: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.2 3.6l5.2 5.2-9.2 9.2L6 12.8z"/><path d="M12.9 5.9l5.2 5.2"/><path d="M6 12.8l-1.9 4.1 3 3 4.1-1.9"/><path d="M14 20.5h6"/></svg>',
     mic: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.8 11.5a6.2 6.2 0 0 0 12.4 0M12 17.7v2.8M9.2 20.5h5.6"/></svg>',
     nowifi: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.2a12.5 12.5 0 0 1 4.3-2.6M11.5 6a12.6 12.6 0 0 1 9 3.2M6.5 12.5a8 8 0 0 1 3.6-1.9M14.6 10.9a8 8 0 0 1 2.9 1.6M9.6 15.8a3.6 3.6 0 0 1 4.8 0M4 4l16 16"/><circle cx="12" cy="19" r=".9" fill="currentColor"/></svg>'
   };
@@ -887,7 +888,7 @@
     if (acc) root.setAttribute('data-accent', acc); else root.removeAttribute('data-accent');
     $$('meta[name="theme-color"]').forEach(function (m) {
       var dark = t === 'auto' ? /dark/.test(m.getAttribute('media') || '') : t === 'dark';
-      m.setAttribute('content', dark ? '#13100D' : '#F4EFE6');
+      m.setAttribute('content', dark ? '#111318' : '#FFFFFF');
     });
     /* auto: the app follows the phone, so the page's prefers-color-scheme keeps working */
     toNative({ type: 'theme', mode: t, dark: effectiveDark() });
@@ -1197,12 +1198,8 @@
     UI.enter = false;
     if (entering && !calm()) {
       v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter');
-      $$('#view > *:not(.today-cols):not(.hero), #view .hero > div:first-child > *, #view .hero > :not(:first-child), #view .today-cols .col > *', v).forEach(function (el, i) {
-        el.classList.add('rise'); el.style.setProperty('--i', Math.min(i, 10));
-      });
-      $$('.count-num', v).forEach(countUp);
       clearTimeout(UI.enterT);
-      UI.enterT = setTimeout(function () { v.classList.remove('enter'); }, 1100);
+      UI.enterT = setTimeout(function () { v.classList.remove('enter'); }, 300);
     }
     ringMount(entering);
     updateTimerUI();
@@ -1229,26 +1226,6 @@
       chatWake(tab === 'chat' ? 60 : null);
     }
   }
-  /* the light on glass follows the pointer (mouse and trackpad only) */
-  (function () {
-    if (!window.matchMedia || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;
-    var lit = null, raf = 0, ev = null;
-    document.addEventListener('pointermove', function (e) {
-      ev = e;
-      if (raf) return;
-      raf = requestAnimationFrame(function () {
-        raf = 0;
-        var el = ev.target && ev.target.closest ? ev.target.closest('.card, .count') : null;
-        if (lit && lit !== el) lit.classList.remove('lit');
-        lit = el;
-        if (!el) return;
-        var r = el.getBoundingClientRect();
-        el.style.setProperty('--mx', (ev.clientX - r.left) + 'px');
-        el.style.setProperty('--my', (ev.clientY - r.top) + 'px');
-        el.classList.add('lit');
-      });
-    }, { passive: true });
-  })();
   var scrolledNow = false;
   window.addEventListener('scroll', function () {
     UI.scrollAt = performance.now();
@@ -1308,7 +1285,7 @@
     if (!x.due) return null;
     var n = diff(t, x.due);
     if (x.done) return { txt: 'Due ' + fDay(x.due), cls: '' };
-    if (n < 0) return { txt: n === -1 ? 'Overdue · yesterday' : 'Overdue · ' + fDay(x.due), cls: 'overdue' };
+    if (n < 0) return { txt: n === -1 ? 'Overdue since yesterday' : 'Overdue since ' + fDay(x.due), cls: 'overdue' };
     if (n === 0) return { txt: 'Due today', cls: 'today' };
     if (n === 1) return { txt: 'Due tomorrow', cls: '' };
     if (n < 7) return { txt: 'Due ' + DAYS_LONG[dow(x.due)], cls: '' };
@@ -1338,8 +1315,7 @@
     var td = fromISO(t);
     return '<section class="hero">' +
         '<div>' +
-          '<p class="hero-day">' + DAYS_LONG[dow(t)] + '</p>' +
-          '<h1 class="display">' + td.getDate() + ' ' + MONTH_LONG[td.getMonth()] + '</h1>' +
+          '<h1 class="display">' + DAYS_LONG[dow(t)] + ' ' + td.getDate() + ' ' + MONTH_LONG[td.getMonth()] + '</h1>' +
           '<p class="sub">' + esc(greet) + (name ? ', ' + esc(name) : '') + '</p>' +
           winsRow(t) + headsUp(t) + petNudge() +
         '</div>' +
@@ -1364,16 +1340,13 @@
   function winsRow(t) {
     var list = tasksOn(t), n = list.length, done = list.filter(function (x) { return x.done; }).length, st = streakDays(t), out = '';
     if (n) {
-      var full = done === n, p = (done / n).toFixed(3);
-      out += '<button type="button" class="win ring-win' + (full ? ' full' : '') + '" data-act="tab" data-tab="tasks" aria-label="' + done + ' of ' + n + ' tasks done today">' +
-        '<svg class="wring" viewBox="0 0 36 36" aria-hidden="true"><circle class="wring-bg" cx="18" cy="18" r="15.5"/><circle class="wring-fg" cx="18" cy="18" r="15.5" data-p="' + p + '" style="--p:' + p + '"/></svg>' +
-        '<span class="two-line"><b>' + (full ? 'All done' : done + ' of ' + n) + '</b><span>' + (full ? 'for today' : n === 1 ? 'task today' : 'tasks today') + '</span></span></button>';
+      var full = done === n;
+      out += '<button type="button" class="win' + (full ? ' full' : '') + '" data-act="tab" data-tab="tasks" aria-label="' + done + ' of ' + n + ' tasks done today">' +
+        (full ? (n === 1 ? '<b>Today’s task</b> is done' : '<b>All ' + n + '</b> of today’s tasks done') : '<b>' + done + ' of ' + n + '</b> ' + (n === 1 ? 'task' : 'tasks') + ' done today') + '</button>';
     }
     if (st.n || n) {
-      var hot = st.today;
-      out += '<span class="win streak-win' + (hot ? ' hot' : st.n ? '' : ' cold') + '" title="Days in a row with a finished task or study time">' +
-        '<span class="flame" aria-hidden="true">' + icon('flame') + '</span><span class="two-line"><b>' + (st.n ? st.n + (st.n === 1 ? ' day' : ' days') : 'No streak yet') + '</b><span>' +
-        (hot ? 'in a row' : st.n ? 'finish one today to keep it' : 'finish a task to start one') + '</span></span></span>';
+      out += '<span class="win streak-win" title="Days in a row with a finished task or study time">' +
+        (st.n ? '<b>' + st.n + (st.n === 1 ? ' day' : ' days') + '</b> in a row' + (st.today ? '' : ', finish one today to keep it going') : 'No streak yet. Finish a task to start one.') + '</span>';
     }
     return out ? '<div class="wins">' + out + '</div>' : '';
   }
@@ -1455,40 +1428,42 @@
 
   function countdown(t) {
     var exams = S.events.filter(function (e) { return e.type === 'exam'; }).sort(byStart);
-    var num, label, sub;
-    if (!exams.length) { num = '–'; label = ''; sub = 'Add your exam dates in the calendar.'; }
+    var val, sub;
+    function days(n) { return n + (n === 1 ? ' day' : ' days'); }
+    if (!exams.length) { val = 'None yet'; sub = 'Add your exam dates in the calendar.'; }
     else if (!isIB()) {
       /* exams all year round: count down to the next one */
       var nx = exams.filter(function (e) { return !e.done && evEnd(e) >= t; })[0];
-      if (!nx) { num = '–'; label = ''; sub = 'No exams coming up.'; }
+      if (!nx) { val = 'None'; sub = 'No exams coming up.'; }
       else {
         var dn = diff(t, nx.start);
-        num = dn <= 0 ? 'Today' : String(dn); label = dn <= 0 ? '' : dn === 1 ? 'day to go' : 'days to go';
-        sub = evFull(nx) + ' · ' + fDay(nx.start);
+        val = dn <= 0 ? 'Today' : days(dn);
+        sub = evFull(nx) + ', ' + fDay(nx.start);
       }
     } else {
       var first = exams[0], last = exams[exams.length - 1];
       if (t < first.start) {
-        var n = diff(t, first.start);
-        num = String(n); label = n === 1 ? 'day to go' : 'days to go';
-        sub = 'First paper ' + fDay(first.start) + ' · ' + (subj(first.subject) ? subj(first.subject).name : evTitle(first));
+        val = days(diff(t, first.start));
+        sub = 'First paper ' + fDay(first.start) + ', ' + (subj(first.subject) ? subj(first.subject).name : evTitle(first));
       } else if (t <= evEnd(last)) {
         var left = exams.filter(function (e) { return e.start >= t; });
-        num = String(left.length); label = left.length === 1 ? 'exam left' : 'exams left';
-        sub = left.length ? 'Next: ' + evFull(left[0]) + ' · ' + fDay(left[0].start) : '';
-      } else { num = '0'; label = 'to go'; sub = 'Exams are done.'; }
+        val = left.length + ' left';
+        sub = left.length ? 'Next: ' + evFull(left[0]) + ', ' + fDay(left[0].start) : '';
+      } else { val = 'Done'; sub = 'Exams are done.'; }
     }
     var mock = S.events.filter(function (e) { return e.type === 'mock' && evEnd(e) >= t; }).sort(byStart)[0];
     var mockVal = !mock ? '–' : mock.start <= t ? 'On now' : diff(t, mock.start) === 1 ? 'Tomorrow' : 'in ' + diff(t, mock.start) + ' days';
     var n14 = S.events.filter(function (e) { return e.type === 'deadline' && !e.done && e.start >= t && diff(t, e.start) <= 14; }).length;
-    return '<div class="count" role="group" aria-label="Countdowns">' +
-        '<p class="count-cap">' + esc(LV().exams) + '</p>' +
-        '<div class="count-row"><span class="count-num">' + esc(num) + '</span><span class="count-label">' + esc(label) + '</span></div>' +
-        '<p class="count-sub">' + esc(sub) + '</p>' +
-        schoolEnds(t) +
-        '<ul class="count-mini">' +
-          '<li><span>' + esc(mock ? evTitle(mock) : 'Mock exams') + '</span><b>' + esc(mockVal) + '</b></li>' +
-          '<li><span>Deadlines, next 14 days</span><b>' + n14 + '</b></li>' +
+    function row(what, note, v, cls) {
+      return '<li' + (cls ? ' class="' + cls + '"' : '') + '><span class="cl-what"><b>' + esc(what) + '</b>' + (note ? '<span>' + esc(note) + '</span>' : '') + '</span><b class="cl-val">' + esc(v) + '</b></li>';
+    }
+    return '<div class="count" role="group" aria-labelledby="h-count">' +
+        '<h2 class="count-cap" id="h-count">Countdowns</h2>' +
+        '<ul class="count-list">' +
+          row(LV().exams, sub, val, 'lead') +
+          (mock ? row(evTitle(mock), mock.start <= t ? 'until ' + fDay(evEnd(mock)) : fDay(mock.start), mockVal) : '') +
+          schoolEnds(t) +
+          row('Deadlines', 'in the next 14 days', String(n14)) +
         '</ul>' +
       '</div>';
   }
@@ -1497,11 +1472,11 @@
   var SCHOOL_END = (Array.isArray(window.IB_SCHOOL_END) ? window.IB_SCHOOL_END : []).filter(function (x) { return Array.isArray(x) && typeof x[0] === 'string' && DATE.test(x[1]); });
   function schoolEnds(t) {
     if (!SCHOOL_END.length || isFree()) return '';
-    return '<div class="count-school"><p class="count-cap school">School ends</p><ul class="count-mini school">' + SCHOOL_END.map(function (x) {
+    return SCHOOL_END.map(function (x) {
       var n = diff(t, x[1]);
       var val = n > 1 ? n + ' days' : n === 1 ? 'Tomorrow' : n === 0 ? 'Today' : 'Done';
-      return '<li><span>' + esc(x[0]) + ' · ' + esc(fDay(x[1])) + '</span><b>' + esc(val) + '</b></li>';
-    }).join('') + '</ul></div>';
+      return '<li><span class="cl-what"><b>School ends, ' + esc(x[0]) + '</b><span>' + esc(fDay(x[1])) + '</span></span><b class="cl-val">' + esc(val) + '</b></li>';
+    }).join('');
   }
 
   function cardClasses(t) {
@@ -1543,23 +1518,23 @@
     var html = '', prevEnd = null, nextMarked = false;
     items.forEach(function (it) {
       if (prevEnd != null && it.st - prevEnd >= 25) {
-        html += '<li class="dl-row free"><span class="dl-time">' + minToTime(prevEnd) + '</span><div class="dl-block"><span class="dl-meta">Free · ' + esc(dur(it.st - prevEnd)) + '</span></div></li>';
+        html += '<li class="dl-row free"><span class="dl-time">' + minToTime(prevEnd) + '</span><div class="dl-block"><span class="dl-meta">Free for ' + esc(dur(it.st - prevEnd)) + '</span></div></li>';
       }
       if (it.kind === 'br') {
-        html += '<li class="dl-row brk"><span class="dl-time">' + it.p.start + '</span><div class="dl-band">' + esc(it.p.label || 'Break') + ' · ' + esc(dur(it.en - it.st)) + '</div></li>';
+        html += '<li class="dl-row brk"><span class="dl-time">' + it.p.start + '</span><div class="dl-band">' + esc(it.p.label || 'Break') + ', ' + esc(dur(it.en - it.st)) + '</div></li>';
       } else {
         var b = it.b, cls = '', tag = '', fill = false;
         if (live) {
           if (nm >= it.en) { cls = 'past'; fill = true; }
           else if (nm >= it.st) {
             cls = 'now'; fill = true;
-            tag = '<span class="now-tag">Now · ' + esc(dur(Math.max(1, Math.ceil(it.en - nm)))) + ' left</span>';
+            tag = '<span class="now-tag">' + esc(dur(Math.max(1, Math.ceil(it.en - nm)))) + ' left</span>';
           } else if (!nextMarked) {
             nextMarked = true;
-            tag = '<span class="next-tag">Next' + (it.st - nm <= 120 ? ' · in ' + esc(dur(Math.max(1, Math.ceil(it.st - nm)))) : '') + '</span>';
+            tag = '<span class="next-tag">Next' + (it.st - nm <= 120 ? ', in ' + esc(dur(Math.max(1, Math.ceil(it.st - nm)))) : '') + '</span>';
           }
         }
-        var meta = [b.sl.teacher || b.s.teacher, b.sl.room, b.sl.note].filter(Boolean).join(' · ');
+        var meta = [b.sl.teacher || b.s.teacher, b.sl.room, b.sl.note].filter(Boolean).join(', ');
         var inner = '<span class="dl-top"><span class="dl-name">' + esc(b.s.name) + '</span>' + tag + '</span>' +
           (meta ? '<span class="dl-meta">' + esc(meta) + '</span>' : '');
         html += '<li class="dl-row ' + cls + '"><span class="dl-time">' + b.start + '<small>' + b.end + '</small></span>' +
@@ -1760,7 +1735,7 @@
       (hasIBSubjects() ? 'Tap a slot to add a class. Tap a time to change it to your school’s times.' : 'Add your subjects first, then tap a slot to put a class in it.') + '</p>' +
       (hasIBSubjects() ? '' : '<button type="button" class="btn primary" data-act="guide-subjects">' + icon('plus') + 'Add Subjects</button>') + '</div>';
     return '<div class="page-head">' +
-        '<div><h1 class="display">Timetable</h1><p class="sub">' + (isFree() ? 'Tap a slot to add a class. Tap a time to edit the row.' : '2º BI B · tap a class to change it, tap a time to edit the row.') + '</p></div>' +
+        '<div><h1 class="display">Timetable</h1><p class="sub">' + (isFree() ? 'Tap a slot to add a class. Tap a time to edit the row.' : '2º BI B. Tap a class to change it, or a time to edit the row.') + '</p></div>' +
         '<div class="actions">' +
           '<label class="switch"><input type="checkbox" id="tt-weekend" data-change="tt-weekend"' + (S.settings.weekend ? ' checked' : '') + '>Weekend</label>' +
           '<button type="button" class="btn" data-act="tt-add-row">' + icon('plus') + 'Add row</button>' +
@@ -1781,7 +1756,7 @@
     if (!s) return '<button type="button" class="tt-cell empty" data-act="tt-cell" data-p="' + p.id + '" data-d="' + d + '" aria-label="Add a class on ' + DAYS_LONG[d] + ' at ' + p.start + '">' + icon('plus') + '</button>';
     var tm = slotTimes(p, sl);
     var live = !hol && d === td && nm >= toMin(tm.start) && nm < toMin(tm.end);
-    var meta = [sl.teacher || s.teacher, sl.room].filter(Boolean).join(' · ');
+    var meta = [sl.teacher || s.teacher, sl.room].filter(Boolean).join(', ');
     var inner = '<span class="n">' + esc(s.short) + '</span>' +
       (meta ? '<span class="m">' + esc(meta) + '</span>' : '') +
       (sl.start ? '<span class="x">' + sl.start + '–' + sl.end + '</span>' : '') +
@@ -2356,7 +2331,7 @@
     if (!open.length) body = emptyTasks(t) + body;
     var dueWeek = open.filter(function (x) { return x.due && diff(t, x.due) <= 7; }).length;
     var pre = f !== 'all' && f !== '_none' ? f : '';
-    return '<div class="page-head"><div><h1 class="display">Tasks</h1><p class="sub">' + open.length + ' open' + (dueWeek ? ' · ' + dueWeek + ' due within a week' : '') + '</p></div></div>' +
+    return '<div class="page-head"><div><h1 class="display">Tasks</h1><p class="sub">' + open.length + ' open' + (dueWeek ? ', ' + dueWeek + ' due this week' : '') + '</p></div></div>' +
       '<form class="task-add" data-form="task-add" autocomplete="off">' +
         '<input class="ta-title" type="text" name="title" id="ta-title" maxlength="200" placeholder="New task (#math sets the subject)" aria-label="New task">' +
         '<span class="select-pill"><select name="subject" id="ta-subject" aria-label="Subject">' + subjectOptions(pre, 'No subject') + '</select>' + icon('updown') + '</span>' +
@@ -2394,14 +2369,14 @@
       var doneN = S.tasks.filter(function (x) { return x.subject === s.id && x.done; }).length;
       var n = counts[s.id] || 0;
       var slotsTxt = n ? (s.group === 'other' ? n + '× a week' : n + ' class' + (n > 1 ? 'es' : '') + ' a week') : '';
-      var line = [s.teacher, slotsTxt].filter(Boolean).join(' · ');
+      var line = [s.teacher, slotsTxt].filter(Boolean).join(', ');
       var rows = [];
       if (next) {
-        var what = [next.title, evDetail(next)].filter(Boolean).join(' · ') || evTitle(next);
-        rows.push('<span class="kv"><span class="k">Next</span><span>' + esc(what) + ' · ' + esc(fDay(next.start)) + ' <em>' + esc(rel(diff(t, next.start)).toLowerCase()) + '</em></span></span>');
+        var what = [next.title, evDetail(next)].filter(Boolean).join(', ') || evTitle(next);
+        rows.push('<span class="kv"><span class="k">Next</span><span>' + esc(what) + ', ' + esc(fDay(next.start)) + ' <em>' + esc(rel(diff(t, next.start)).toLowerCase()) + '</em></span></span>');
       }
       if (exams.length) rows.push('<span class="kv"><span class="k">Exams</span><span>' + exams.map(function (e) { return esc(shortPaper(e.detail) + ' ' + fDay(e.start)); }).join('<br>') + '</span></span>');
-      if (open || doneN) rows.push('<span class="kv"><span class="k">Tasks</span><span>' + open + ' open' + (doneN ? ' · ' + doneN + ' done' : '') + '</span></span>');
+      if (open || doneN) rows.push('<span class="kv"><span class="k">Tasks</span><span>' + open + ' open' + (doneN ? ', ' + doneN + ' done' : '') + '</span></span>');
       if (s.goal) {
         var m = studied[s.id] || 0;
         rows.push('<span class="kv"><span class="k">Study</span><span>' + esc(dur(m)) + ' of ' + esc(dur(s.goal)) + ' this week<span class="meter" aria-hidden="true"><i style="width:' + Math.min(100, m / s.goal * 100).toFixed(0) + '%"></i></span></span></span>');
@@ -2538,41 +2513,11 @@
   /* confetti from what you tapped (or the middle of the screen), and a tap you can feel on a phone */
   var REDUCED = window.matchMedia ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
   function calm() { return !!REDUCED.matches; }
-  var CONFETTI = ['#D9501F', '#FFC24A', '#1E9E6A', '#E0527D', '#1597A8', '#F28C28', '#FFF4E2'];
   function celebrate(el, big) {
     toNative({ type: 'haptic', kind: 'success' });
     try { if (navigator.vibrate && coarse.matches) navigator.vibrate(big ? [14, 60, 22] : 12); } catch (e) { /* ignore */ }
     if (el && el.closest) { var row = el.closest('.task, .guide-step'); if (row) { row.classList.remove('pop'); void row.offsetWidth; row.classList.add('pop'); } }
-    if (calm()) return;
-    var r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
-    var x = r && r.width ? r.left + r.width / 2 : innerWidth / 2, y = r && r.height ? r.top + r.height / 2 : innerHeight * .38;
-    var cv = document.createElement('canvas'), dpr = Math.min(2, window.devicePixelRatio || 1), W = innerWidth, H = innerHeight;
-    cv.className = 'confetti'; cv.width = W * dpr; cv.height = H * dpr; cv.setAttribute('aria-hidden', 'true');
-    (dlg.open ? dlg : document.body).appendChild(cv);
-    var ctx = cv.getContext('2d');
-    if (!ctx) { cv.remove(); return; }
-    ctx.scale(dpr, dpr);
-    var parts = [], n = big ? 120 : 46;
-    for (var i = 0; i < n; i++) {
-      var a = -Math.PI / 2 + (Math.random() - .5) * Math.PI * (big ? 1.6 : 1.1), sp = (big ? 8 : 5.5) + Math.random() * (big ? 9 : 6.5);
-      parts.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1.5, g: .3 + Math.random() * .14, w: 5 + Math.random() * 5, h: 8 + Math.random() * 7,
-        r: Math.random() * 6.28, vr: (Math.random() - .5) * .45, c: CONFETTI[i % CONFETTI.length], round: Math.random() < .28 });
-    }
-    var t0 = performance.now(), life = big ? 1.9 : 1.3;
-    (function frame(t) {
-      var k = (t - t0) / 1000;
-      ctx.clearRect(0, 0, W, H);
-      parts.forEach(function (p) {
-        p.vx *= .984; p.vy = p.vy * .984 + p.g; p.x += p.vx; p.y += p.vy; p.r += p.vr;
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, 1 - Math.max(0, k - (life - .5)) / .5);
-        ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c;
-        if (p.round) { ctx.beginPath(); ctx.arc(0, 0, p.w / 2, 0, 6.3); ctx.fill(); }
-        else { ctx.scale(1, Math.cos(p.r * 2.2)); ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); }
-        ctx.restore();
-      });
-      if (k < life && cv.isConnected) requestAnimationFrame(frame); else cv.remove();
-    })(t0);
+    /* v6: no confetti. The haptic tap says it; the task gets an ink line drawn through it. */
   }
   function repFrom(fd) { return fd.getAll('rep').map(Number).filter(function (d, i, a) { return d >= 0 && d <= 6 && a.indexOf(d) === i; }).sort(); }
 
@@ -2849,7 +2794,7 @@
         }).join(''), 'What you study', 'Your subjects, dates and tasks stay as they are. The subject list and a few words change.')
     });
   }
-  function plusLabel() { return ME.plus === 'admin' ? 'Bloc Plus · owner' : ME.plus === 'class' ? 'Bloc Plus · class code' : 'Bloc Plus'; }
+  function plusLabel() { return ME.plus === 'admin' ? 'Bloc Plus, owner' : ME.plus === 'class' ? 'Bloc Plus, class code' : 'Bloc Plus'; }
   function syncText() {
     if (!SYNC.online) return 'Offline. Changes are saved on this device and sync when you’re back online.';
     if (SYNC.pending || dirty) return 'Saving your changes…';
@@ -2858,9 +2803,9 @@
   function accentGroup() {
     if (!plusOn() && !sellHere()) return '';
     var cur = plusOn() ? S.settings.accent || '' : '';
-    return grp('<div class="swatches accents" role="group" aria-label="App colour">' + ACCENTS.map(function (a) {
+    return grp('<div class="swatches accents" role="group" aria-label="Highlighter colour">' + ACCENTS.map(function (a) {
         return '<button type="button" class="accent-sw" data-act="set-accent" data-accent="' + a[0] + '" style="--c:' + a[2] + '" aria-pressed="' + (cur === a[0]) + '" aria-label="' + a[1] + '" title="' + a[1] + '">' + icon('check') + '</button>';
-      }).join('') + '</div>', 'App colour', plusOn() ? '' : 'Colours come with Bloc Plus.');
+      }).join('') + '</div>', 'Highlighter', plusOn() ? 'The mark on today, the class that’s on and your next exam.' : 'Highlighter colours come with Bloc Plus.');
   }
   function calUrl() { return CONF.cal && /^[A-Za-z0-9_-]{32}$/.test(CONF.cal) ? location.origin + '/api/cal/' + CONF.cal + '.ics' : ''; }
   function liveCalGroup() {
@@ -3154,7 +3099,7 @@
   var PLUS_PERKS = [
     ['calendar', '#E4572E', 'Live calendar', 'Your deadlines and exams in Apple or Google Calendar, updating by themselves.'],
     ['paper', '#1597A8', 'Past-paper tracker', 'Log every past paper you do and see your average per subject.'],
-    ['palette', '#E0527D', 'App colours', 'Pick the colour Bloc uses for buttons and highlights.'],
+    ['palette', '#E0527D', 'Highlighter colours', 'Pick your highlighter: green, pink, orange, blue and more, for today, the class that’s on and your next exam.'],
     ['timer', '#F28C28', 'Any timer length', 'Focus sessions from 5 to 180 minutes.'],
     ['quiet', '#1E9E6A', 'No more pop-ups', 'The support pop-up stops showing up.'],
     ['pet', '#E8930C', 'More for your puppy', 'Dalmatian, Husky and Corgi, plus a scarf, sunglasses, headphones and a crown.']
@@ -6952,7 +6897,7 @@
         '</div>' +
         '<button type="button" class="btn quiet pet-throw" data-act="pet-throw"' + (PETUI.playing ? '' : ' hidden') + '>Throw the Ball</button>';
     var season = seasonText(p, s);
-    return '<div class="page-head pet-head"><div><h1 class="display">' + esc(p.name) + '</h1><p class="sub">' + esc(br.name) + ' · ' + esc(petStageName(s.stage)) + '</p></div>' +
+    return '<div class="page-head pet-head"><div><h1 class="display">' + esc(p.name) + '</h1><p class="sub">' + esc(br.name) + ', ' + esc(petStageName(s.stage).toLowerCase()) + '</p></div>' +
         '<div class="actions"><button type="button" class="btn" data-act="pet-wardrobe">' + icon('bow') + 'Wardrobe</button>' +
         '<button type="button" class="icon-btn" data-act="pet-more" aria-label="' + esc(p.name) + ' settings" title="Pet settings">' + icon('more') + '</button></div></div>' +
       '<div class="pet-layout"><section class="card pet-card' + (s.dead ? ' ghost' : '') + '" aria-label="' + esc(p.name) + '’s garden">' +
@@ -8349,12 +8294,12 @@
             : reset ? 'Enter the code Mauro gave you, then pick a new password.'
             : AUTH.reason || 'Log in with your username.';
     function field(label, name, id, auto, max, value, extra) {
-      return '<label class="row"><span class="sr">' + label + '</span><input class="row-field" type="text" name="' + name + '" id="' + id + '" maxlength="' + max +
-        '" autocomplete="' + auto + '" spellcheck="false" placeholder="' + label + '" value="' + esc(value || '') + '"' + (extra || '') + '></label>';
+      return '<label class="row stack"><span class="row-cap">' + label + '</span><input class="row-field" type="text" name="' + name + '" id="' + id + '" maxlength="' + max +
+        '" autocomplete="' + auto + '" spellcheck="false" value="' + esc(value || '') + '"' + (extra || '') + '></label>';
     }
     function pw(label, name, id, auto, withShow) {
-      return '<label class="row"><span class="sr">' + label + '</span><input class="row-field" type="' + type + '" name="' + name + '" id="' + id + '" maxlength="128" autocomplete="' + auto +
-        '" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="' + label + '">' +
+      return '<label class="row stack"><span class="row-cap">' + label + '</span><input class="row-field" type="' + type + '" name="' + name + '" id="' + id + '" maxlength="128" autocomplete="' + auto +
+        '" autocapitalize="off" autocorrect="off" spellcheck="false">' +
         (withShow ? '<button type="button" class="show-pw" data-act="auth-show" aria-pressed="' + AUTH.show + '" aria-controls="' + id + '">' + (AUTH.show ? 'Hide' : 'Show') + '</button>' : '') + '</label>';
     }
     var lv = deviceLevel() || 'ib';
