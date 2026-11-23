@@ -15343,17 +15343,17 @@ var init_three_core = __esm({
         const uvs = [];
         let numberOfVertices = 0;
         let groupStart = 0;
-        buildPlane("z", "y", "x", -1, -1, depth2, height, width, depthSegments, heightSegments, 0);
-        buildPlane("z", "y", "x", 1, -1, depth2, height, -width, depthSegments, heightSegments, 1);
-        buildPlane("x", "z", "y", 1, 1, width, depth2, height, widthSegments, depthSegments, 2);
-        buildPlane("x", "z", "y", 1, -1, width, depth2, -height, widthSegments, depthSegments, 3);
-        buildPlane("x", "y", "z", 1, -1, width, height, depth2, widthSegments, heightSegments, 4);
-        buildPlane("x", "y", "z", -1, -1, width, height, -depth2, widthSegments, heightSegments, 5);
+        buildPlane2("z", "y", "x", -1, -1, depth2, height, width, depthSegments, heightSegments, 0);
+        buildPlane2("z", "y", "x", 1, -1, depth2, height, -width, depthSegments, heightSegments, 1);
+        buildPlane2("x", "z", "y", 1, 1, width, depth2, height, widthSegments, depthSegments, 2);
+        buildPlane2("x", "z", "y", 1, -1, width, depth2, -height, widthSegments, depthSegments, 3);
+        buildPlane2("x", "y", "z", 1, -1, width, height, depth2, widthSegments, heightSegments, 4);
+        buildPlane2("x", "y", "z", -1, -1, width, height, -depth2, widthSegments, heightSegments, 5);
         this.setIndex(indices);
         this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
         this.setAttribute("normal", new Float32BufferAttribute(normals, 3));
         this.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
-        function buildPlane(u2, v, w, udir, vdir, width2, height2, depth3, gridX, gridY, materialIndex) {
+        function buildPlane2(u2, v, w, udir, vdir, width2, height2, depth3, gridX, gridY, materialIndex) {
           const segmentWidth = width2 / gridX;
           const segmentHeight = height2 / gridY;
           const widthHalf = width2 / 2;
@@ -82076,6 +82076,68 @@ var Traffic = class {
     c.y = f.y + 0.02;
     c.h = h;
   }
+  /* the traffic lights you can see: a pole at the right of every approach to a signalled junction, three lamps
+     that follow the same phases as signalRed (green, amber for the last 3 s, red) */
+  buildLights(scene) {
+    const poles = [], items = [];
+    for (const n2 of this.plan.nodes) {
+      if (!n2.signal) continue;
+      for (const id of n2.edges) {
+        const e = this.plan.edges[id];
+        if (!e || e.kind === "lane" || e.bridge) continue;
+        const atB = e.b === n2.id, s = atB ? e.len - (e.tb || 0) - 1.5 : (e.ta || 0) + 1.5;
+        if (s < 2 || s > e.len - 2) continue;
+        const f = frame(e, s), dx = atB ? f.dx : -f.dx, dz = atB ? f.dz : -f.dz, h = Math.atan2(dx, dz);
+        const off2 = e.w / 2 + 0.7, x = f.x - Math.cos(h) * off2, z = f.z + Math.sin(h) * off2;
+        const ang = Math.atan2(e.pts[1][1] - e.pts[0][1], e.pts[1][0] - e.pts[0][0]), group = Math.abs(Math.cos(ang)) > 0.7 ? 0 : 1;
+        items.push({ x, y: f.y, z, h, node: n2, group });
+      }
+    }
+    this.lights = items;
+    const N2 = items.length;
+    if (!N2) return;
+    const poleG = new CylinderGeometry(0.06, 0.07, 3.4, 8).translate(0, 1.7, 0);
+    const headG = new BoxGeometry(0.32, 0.9, 0.24).translate(0, 3.3, 0);
+    const dark = new MeshStandardNodeMaterial({ color: "#202327", roughness: 0.5, metalness: 0.4 });
+    const pole = new InstancedMesh(poleG, dark, N2), head = new InstancedMesh(headG, dark, N2);
+    const lampG = new CircleGeometry(0.095, 14);
+    this.lamps = [0, 1, 2].map((k) => {
+      const m = new InstancedMesh(lampG, new MeshBasicNodeMaterial({ color: "#FFFFFF" }), N2);
+      m.frustumCulled = false;
+      return m;
+    });
+    pole.castShadow = head.castShadow = true;
+    pole.frustumCulled = head.frustumCulled = false;
+    const L = new Matrix4(), off = new Vector3();
+    items.forEach((it2, i) => {
+      Q3.setFromAxisAngle(UP2, it2.h + Math.PI);
+      P2.set(it2.x, it2.y, it2.z);
+      M4.compose(P2, Q3, S1);
+      pole.setMatrixAt(i, M4);
+      head.setMatrixAt(i, M4);
+      for (let k = 0; k < 3; k++) {
+        off.set(0, 3.6 - k * 0.29, 0.125);
+        L.copy(M4).multiply(new Matrix4().makeTranslation(off.x, off.y, off.z));
+        this.lamps[k].setMatrixAt(i, L);
+      }
+    });
+    scene.add(pole, head, ...this.lamps);
+    this.lightT = 0;
+    this.updateLights(true);
+  }
+  updateLights(force) {
+    if (!this.lights || !this.lamps) return;
+    if (!force && (this.lightT += 1) % 6) return;
+    const cols = [new Color(4, 0.25, 0.15), new Color(3.5, 1.9, 0.1), new Color(0.2, 3.2, 1.2)], dim = new Color(0.05, 0.05, 0.05);
+    this.lights.forEach((it2, i) => {
+      const t2 = (this.signalT + it2.node.id * 7.3) % 26;
+      const green = it2.group === 0 ? t2 <= 11 : t2 > 13 && t2 <= 24, amber = green && (it2.group === 0 ? t2 > 8 : t2 > 21);
+      this.lamps[0].setColorAt(i, !green ? cols[0] : dim);
+      this.lamps[1].setColorAt(i, amber ? cols[1] : dim);
+      this.lamps[2].setColorAt(i, green && !amber ? cols[2] : dim);
+    });
+    for (const m of this.lamps) m.instanceColor.needsUpdate = true;
+  }
   signalRed(node, e) {
     if (!node.signal) return false;
     const cyc = 26, t2 = (this.signalT + node.id * 7.3) % cyc;
@@ -82085,6 +82147,7 @@ var Traffic = class {
   }
   update(dt2, player) {
     this.signalT += dt2;
+    this.updateLights();
     const px = player.x, pz = player.z;
     for (const c of this.cars) {
       if (!c.alive || Math.hypot(c.x - px, c.z - pz) > 430) {
@@ -83006,8 +83069,59 @@ var Vehicle = class {
       this.body.add(o);
       return o;
     };
-    add2(parts2.paint, this.paint);
-    add2(parts2.glass, M3.glass);
+    this.paintMesh = add2(parts2.paint, this.paint);
+    this.glassMesh = add2(parts2.glass, M3.glass);
+    const T0 = parts2.T;
+    {
+      const src = parts2.paint.index ? parts2.paint.toNonIndexed() : parts2.paint, P3 = src.attributes.position.array, belt = T0.H * 0.62, keep = [];
+      for (let i = 0; i < P3.length; i += 9) if (P3[i + 1] < belt && P3[i + 4] < belt && P3[i + 7] < belt) for (let k = 0; k < 9; k++) keep.push(P3[i + k]);
+      const g2 = new BufferGeometry();
+      g2.setAttribute("position", new Float32BufferAttribute(keep, 3));
+      g2.computeVertexNormals();
+      this.body.add(new Mesh(g2, new MeshStandardNodeMaterial({ color: "#2B2D31", roughness: 0.9, side: BackSide })));
+    }
+    const trimM = new MeshStandardNodeMaterial({ color: "#1C1D20", roughness: 0.7 }), seatM = new MeshStandardNodeMaterial({ color: "#3A3530", roughness: 0.95 });
+    const box = (w, h, d, m, x, y2, z, rx = 0) => {
+      const o = new Mesh(new BoxGeometry(w, h, d), m);
+      o.position.set(x, y2, z);
+      o.rotation.x = rx;
+      this.body.add(o);
+      return o;
+    };
+    if (T0.top !== false) {
+      box(T0.W * 0.84, 0.16, 0.42, trimM, 0, T0.H * 0.6, T0.L * 0.13, -0.15);
+      for (const sx of [0.36, -0.36]) {
+        box(0.46, 0.12, 0.48, seatM, sx, T0.H * 0.36, -0.18);
+        box(0.46, 0.62, 0.1, seatM, sx, T0.H * 0.58, -0.44, -0.18);
+        box(0.26, 0.16, 0.08, seatM, sx, T0.H * 0.95, -0.5, -0.1);
+      }
+      box(0.18, 0.2, 0.7, trimM, 0, T0.H * 0.42, 0);
+      const gauge = new MeshBasicNodeMaterial({ color: "#3E7FB8" });
+      for (const gx of [0.29, 0.43]) {
+        const g2 = new Mesh(new CircleGeometry(0.016, 14), gauge);
+        g2.position.set(gx, T0.H * 0.655, T0.L * 0.13 - 0.215);
+        g2.rotation.set(-0.5, Math.PI, 0);
+        this.body.add(g2);
+      }
+      const col = new Group();
+      col.position.set(0.36, T0.H * 0.62, T0.L * 0.06);
+      col.rotation.x = -1.1;
+      this.body.add(col);
+      this.wheelSpin = new Group();
+      col.add(this.wheelSpin);
+      const ring2 = new Mesh(new TorusGeometry(0.17, 0.022, 8, 28), trimM);
+      this.wheelSpin.add(ring2);
+      const hub = new Mesh(new CylinderGeometry(0.05, 0.05, 0.04, 12).rotateX(Math.PI / 2), trimM);
+      this.wheelSpin.add(hub);
+      for (const a of [0, 2.1, 4.2]) {
+        const sp = new Mesh(new BoxGeometry(0.16, 0.02, 0.015), trimM);
+        sp.position.set(Math.cos(a) * 0.08, Math.sin(a) * 0.08, 0);
+        sp.rotation.z = a;
+        this.wheelSpin.add(sp);
+      }
+    }
+    this.base = { paint: parts2.paint.attributes.position.array.slice(), glass: parts2.glass ? parts2.glass.attributes.position.array.slice() : null };
+    this.dmg = 0;
     add2(parts2.trim, M3.trim);
     add2(parts2.light, M3.light);
     add2(parts2.tail, M3.tail);
@@ -83051,6 +83165,41 @@ var Vehicle = class {
     this.p = { m: T4.mass, a: T4.wb * 0.48, b: T4.wb * 0.52, hcg: 0.5 + (T4.H - 1.4) * 0.3, top: T4.top, F: T4.mass * T4.acc, mu: 1.05 * T4.grip, C: T4.mass * 42 * T4.grip, maxSteer: 0.62 };
     this.p.Iz = this.p.m * (T4.L * T4.L + T4.W * T4.W) / 12 * 1.1;
   }
+  /* a hit from the direction (nx, nz) (pointing from the obstacle to the car), strength in m/s:
+     dent the body around the contact point, crack the glass, lose some performance, smoke when it's bad */
+  damage(nx, nz, strength) {
+    if (strength < 3.5) return;
+    const T4 = this.T, fx = Math.sin(this.h), fz = Math.cos(this.h), lx = Math.cos(this.h), lz = -Math.sin(this.h);
+    const df = -(nx * fx + nz * fz), dl = -(nx * lx + nz * lz), k = Math.max(Math.abs(df) / (T4.L / 2), Math.abs(dl) / (T4.W / 2)) || 1;
+    const cx = dl / k, cz = df / k, cy = T4.H * 0.42, depth2 = Math.min(0.2, (strength - 3) * 0.012), R = 0.55 + Math.min(0.6, strength * 0.03);
+    const dent = (geo2, base) => {
+      if (!geo2 || !base) return;
+      const P3 = geo2.attributes.position.array;
+      for (let i = 0; i < P3.length; i += 3) {
+        const dx = P3[i] - cx, dy = (P3[i + 1] - cy) * 0.8, dz = P3[i + 2] - cz, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d > R) continue;
+        const f = (1 - d / R) ** 2 * depth2;
+        P3[i] -= Math.sign(cx) * f * Math.min(1, Math.abs(cx) / (T4.W / 2) + 0.2) * (Math.abs(dl) > Math.abs(df) * 0.6 ? 1 : 0.3);
+        P3[i + 2] -= Math.sign(cz) * f * (Math.abs(df) > Math.abs(dl) * 0.6 ? 1 : 0.3);
+        P3[i + 1] -= f * 0.25 * (0.5 + Math.sin(i * 12.9898) * 0.5);
+        for (let a = 0; a < 3; a++) P3[i + a] = Math.max(base[i + a] - 0.3, Math.min(base[i + a] + 0.3, P3[i + a]));
+      }
+      geo2.attributes.position.needsUpdate = true;
+      geo2.computeVertexNormals();
+    };
+    dent(this.paintMesh && this.paintMesh.geometry, this.base.paint);
+    dent(this.glassMesh && this.glassMesh.geometry, this.base.glass);
+    this.dmg = Math.min(1, this.dmg + (strength - 3) / 60);
+  }
+  repair() {
+    for (const [mesh2, base] of [[this.paintMesh, this.base.paint], [this.glassMesh, this.base.glass]]) {
+      if (!mesh2 || !base) continue;
+      mesh2.geometry.attributes.position.array.set(base);
+      mesh2.geometry.attributes.position.needsUpdate = true;
+      mesh2.geometry.computeVertexNormals();
+    }
+    this.dmg = 0;
+  }
   place(x, z, h, y2) {
     this.x = x;
     this.z = z;
@@ -83077,7 +83226,7 @@ var Vehicle = class {
       const L = P3.a + P3.b;
       const Nf = P3.m * G * P3.b / L - P3.m * this.ax * P3.hcg / L, Nr = P3.m * G * P3.a / L + P3.m * this.ax * P3.hcg / L;
       let Fx = 0;
-      const topNow = P3.top * (road ? 1 : 0.6);
+      const topNow = P3.top * (road ? 1 : 0.6) * (1 - this.dmg * 0.35);
       if (I2.throttle > 0) Fx += vf < -0.5 ? P3.m * 9 : P3.F * I2.throttle * Math.max(0, 1 - Math.max(0, vf) / topNow);
       if (I2.brake > 0) Fx += vf > 0.5 ? -P3.m * 9.5 * I2.brake : -P3.F * 0.5 * I2.brake * Math.max(0, 1 + vf / 10);
       Fx -= vf * Math.abs(vf) * 0.42 + vf * (road ? 12 : 60) * P3.m / 1e3;
@@ -83172,7 +83321,11 @@ var Vehicle = class {
         this.r = Math.max(-2.5, Math.min(2.5, this.r));
       }
     }
-    if (hit > 3) this.lastHit = hit;
+    if (hit > 3) {
+      this.lastHit = hit;
+      this.lastN = { x: best.x, z: best.z };
+      this.damage(best.x, best.z, hit);
+    }
     const rollT = Math.max(-0.09, Math.min(0.09, -this.ay * 0.011)) + surf.roll, pitchT = Math.max(-0.07, Math.min(0.07, -this.ax * 8e-3)) + surf.pitch;
     this.rollV += ((rollT - this.roll) * 90 - this.rollV * 12) * dt2;
     this.roll += this.rollV * dt2;
@@ -83188,6 +83341,7 @@ var Vehicle = class {
     this.group.rotation.set(0, this.h, 0);
     this.body.rotation.set(this.air ? -this.vy * 0.012 + this.pitch : this.pitch, 0, this.roll);
     this.body.position.y = -Math.abs(this.roll) * 0.4;
+    if (this.wheelSpin) this.wheelSpin.rotation.z = -this.steer * 2.4;
     this.wheels.forEach((w, i) => {
       w.rotation.set(this.spin, i < 2 ? -this.steer * 0.85 : 0, 0, "YXZ");
       w.position.y = w.userData.base.y + (i % 2 ? 1 : -1) * this.roll * 0.15 * 0;
@@ -83198,7 +83352,7 @@ var Vehicle = class {
 // game/camera.js
 var V = new Vector3();
 var T2 = new Vector3();
-var CAR_VIEWS = ["near", "far", "bonnet"];
+var CAR_VIEWS = ["near", "far", "bonnet", "cockpit"];
 var ChaseCam = class {
   constructor(camera) {
     this.cam = camera;
@@ -83296,8 +83450,10 @@ var Input = class {
     this.k = { up: 0, down: 0, left: 0, right: 0, hand: 0, run: 0 };
     this.pressed = /* @__PURE__ */ new Set();
     this.handlers = /* @__PURE__ */ new Map();
+    this.raw = {};
     this.onKey = (e) => {
       if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+      this.raw[e.code] = e.type === "keydown" ? 1 : 0;
       const k = KEYS[e.code];
       if (k) {
         this.k[k] = e.type === "keydown" ? 1 : 0;
@@ -83316,6 +83472,7 @@ var Input = class {
     window.addEventListener("keyup", this.onKey, true);
     window.addEventListener("blur", () => {
       for (const key in this.k) this.k[key] = 0;
+      this.raw = {};
     });
     root.addEventListener("pointerdown", (e) => this.touchStart(e), { passive: false });
   }
@@ -83644,7 +83801,17 @@ var S3 = {
     need_foot: "This one is on foot",
     passenger: "Passenger",
     customer: "Customer",
-    jobs: "Jobs"
+    jobs: "Jobs",
+    repair: "Repair the car",
+    repair_sub: "Free, dents and smoke gone",
+    repaired: "Good as new",
+    plane: "Flight school plane",
+    fly: "Fly the plane",
+    plane_keys: "W and S power, arrows to climb and dive, A and D to turn, F to get out once landed",
+    plane_touch: "Up and down to climb, left and right to turn, Drift for more power",
+    land_first: "Land and stop first",
+    crash: "Crash landing",
+    crash_sub: "The plane is back at the airport"
   },
   es: {
     fuel: "gasolina",
@@ -83794,7 +83961,17 @@ var S3 = {
     need_foot: "Este es a pie",
     passenger: "Pasajera",
     customer: "Cliente",
-    jobs: "Trabajos"
+    jobs: "Trabajos",
+    repair: "Reparar el coche",
+    repair_sub: "Gratis, sin abolladuras ni humo",
+    repaired: "Como nuevo",
+    plane: "Avioneta de la escuela",
+    fly: "Pilotar la avioneta",
+    plane_keys: "W y S potencia, flechas para subir y bajar, A y D para girar, F para bajar al aterrizar",
+    plane_touch: "Arriba y abajo para subir y bajar, izquierda y derecha para girar, Derrapar para m\xE1s potencia",
+    land_first: "Aterriza y para primero",
+    crash: "Aterrizaje forzoso",
+    crash_sub: "La avioneta vuelve al aeropuerto"
   }
 };
 var LANG = { v: "en" };
@@ -84585,7 +84762,7 @@ var Sheets = class {
   }
   /* ---- the garage ---- */
   async garage() {
-    const el = this.frame(T3("place_garage"), `<h4>${T3("cars")}</h4><div class="bc-grid cars"></div><h4>${T3("paint")}</h4><div class="bc-sw paint"></div>`);
+    const el = this.frame(T3("place_garage"), `<button type="button" class="bc-item" data-fix><span>${T3("repair")}</span><small>${T3("repair_sub")}</small></button><h4>${T3("cars")}</h4><div class="bc-grid cars"></div><h4>${T3("paint")}</h4><div class="bc-sw paint"></div>`);
     try {
       await this.load();
     } catch (e) {
@@ -84603,6 +84780,11 @@ var Sheets = class {
     };
     draw();
     el.addEventListener("click", async (e) => {
+      if (e.target.closest("[data-fix]")) {
+        this.g.car.repair();
+        this.say(T3("repaired"));
+        return;
+      }
       const car = e.target.closest("[data-car]"), col = e.target.closest("[data-c]");
       if (!car && !col) return;
       try {
@@ -84812,6 +84994,198 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
+// actors/plane.js
+function buildPlane() {
+  const g2 = new Group();
+  const white = new MeshPhysicalNodeMaterial({ color: "#F2F3F5", roughness: 0.35, metalness: 0.1, clearcoat: 0.8, clearcoatRoughness: 0.1 });
+  const hl = new MeshStandardNodeMaterial({ color: "#FFE14D", roughness: 0.5 }), ink = new MeshStandardNodeMaterial({ color: "#191D29", roughness: 0.5 });
+  const glass = new MeshPhysicalNodeMaterial({ color: "#203040", roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.75 });
+  const add2 = (geo2, m, x = 0, y2 = 0, z = 0) => {
+    const o = new Mesh(geo2, m);
+    o.position.set(x, y2, z);
+    o.castShadow = true;
+    o.receiveShadow = true;
+    g2.add(o);
+    return o;
+  };
+  const pts = [[1e-3, -4.6], [0.25, -4.4], [0.45, -3.2], [0.62, -1.2], [0.72, 0.2], [0.74, 1.4], [0.66, 2.6], [0.45, 3.4], [0.2, 3.75], [1e-3, 3.8]].map(([r, y2]) => new Vector2(r, y2));
+  const body = new LatheGeometry(pts, 20);
+  body.rotateX(Math.PI / 2);
+  body.scale(1, 1.05, 1);
+  add2(body, white, 0, 1.6, 0);
+  const stripe = new LatheGeometry(pts.map((p) => new Vector2(p.x * 1.005, p.y)).slice(2, 7), 20, -0.35, 0.7);
+  stripe.rotateX(Math.PI / 2);
+  add2(stripe, hl, 0, 1.6, 0).rotation.z = Math.PI / 2;
+  const can = new SphereGeometry(0.62, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+  can.scale(0.85, 0.75, 1.8);
+  add2(can, glass, 0, 2.1, 1);
+  add2(new BoxGeometry(10.4, 0.14, 1.55), white, 0, 1.75, 0.6);
+  for (const sx of [1, -1]) add2(new BoxGeometry(0.9, 0.15, 1.56), hl, sx * 4.8, 1.75, 0.6);
+  add2(new BoxGeometry(3.6, 0.1, 0.9), white, 0, 1.75, -4);
+  const fin = new BoxGeometry(0.1, 1.5, 1.1);
+  add2(fin, white, 0, 2.45, -4.1).rotation.x = -0.25;
+  add2(new BoxGeometry(0.11, 0.5, 0.6), hl, 0, 3, -4.35).rotation.x = -0.25;
+  const spinner = new ConeGeometry(0.22, 0.45, 14);
+  spinner.rotateX(Math.PI / 2);
+  add2(spinner, ink, 0, 1.6, 4);
+  const prop = new Group();
+  prop.position.set(0, 1.6, 4.15);
+  g2.add(prop);
+  for (const a of [0, Math.PI]) {
+    const b = new Mesh(new BoxGeometry(0.12, 1.9, 0.04), ink);
+    b.position.y = 0;
+    b.rotation.z = a;
+    prop.add(b);
+  }
+  const tyre = new CylinderGeometry(0.28, 0.28, 0.16, 14).rotateZ(Math.PI / 2);
+  for (const [x, z] of [[1, 0.8], [-1, 0.8], [0, 3]]) {
+    add2(limb(0.9, 0.04, 0.04, 6), ink, x * 0.6, 1.3, z);
+    add2(tyre, ink, x, 0.28, z);
+  }
+  return { group: g2, prop };
+}
+var Plane2 = class {
+  constructor(world) {
+    this.world = world;
+    const p = buildPlane();
+    this.group = p.group;
+    this.prop = p.prop;
+    this.pos = new Vector3();
+    this.q = new Quaternion();
+    this.v = 0;
+    this.vy = 0;
+    this.power = 0;
+    this.bank = 0;
+    this.pitch = 0;
+    this.yaw = 0;
+    this.ground = true;
+    this.crashed = false;
+  }
+  place(x, z, yaw, y2) {
+    this.pos.set(x, y2, z);
+    this.yaw = yaw;
+    this.pitch = 0;
+    this.bank = 0;
+    this.v = 0;
+    this.vy = 0;
+    this.power = 0;
+    this.ground = true;
+    this.crashed = false;
+    this.sync();
+  }
+  get x() {
+    return this.pos.x;
+  }
+  get z() {
+    return this.pos.z;
+  }
+  get y() {
+    return this.pos.y;
+  }
+  get h() {
+    return this.yaw;
+  }
+  get speed() {
+    return this.v;
+  }
+  /* k: keys from Input (up, down, left, right, run, hand), pitchIn: -1..1 from the arrow keys */
+  step(dt2, k, pitchIn, touch) {
+    const gy = this.world.surface(this.pos.x, this.pos.z, this.pos.y + 1).y;
+    if (touch) this.power += ((k.hand ? 1 : 0.7) - this.power) * Math.min(1, dt2 * 0.8);
+    else this.power = Math.max(0, Math.min(1, this.power + ((k.up ? 1 : 0) - (k.down ? 1 : 0)) * dt2 * 0.6));
+    const turn = (k.right ? 1 : 0) - (k.left ? 1 : 0);
+    const stall = 26, top = 64;
+    const thrust = this.power * 6.2 - this.v * this.v * (6.2 / (top * top)) - (this.ground ? 0.5 : 0);
+    this.v = Math.max(0, this.v + thrust * dt2);
+    if (this.ground) {
+      this.bank += (0 - this.bank) * Math.min(1, dt2 * 5);
+      this.yaw -= turn * dt2 * Math.min(1, this.v / 8) * 0.6;
+      const lift = this.v > stall && pitchIn > 0.2;
+      this.pitch += ((lift ? 0.18 : 0) - this.pitch) * Math.min(1, dt2 * 3);
+      this.pos.y = gy;
+      this.vy = 0;
+      if (lift) {
+        this.ground = false;
+        this.vy = 2;
+      }
+    } else {
+      this.bank += (turn * 0.75 - this.bank) * Math.min(1, dt2 * 2.2);
+      const stallF = Math.max(0, Math.min(1, (this.v - stall * 0.7) / (stall * 0.5)));
+      this.pitch += (pitchIn * 0.55 * stallF - (1 - stallF) * 0.4 - this.pitch * 0.3) * dt2 * 1.6;
+      this.pitch = Math.max(-0.6, Math.min(0.42, this.pitch));
+      this.yaw -= Math.tan(this.bank) * 9.81 / Math.max(15, this.v) * dt2;
+      const targetVy = Math.sin(this.pitch) * this.v * stallF - (1 - stallF) * 9;
+      this.vy += (targetVy - this.vy) * Math.min(1, dt2 * 1.5);
+      this.v = Math.max(0, this.v - Math.sin(this.pitch) * 9.81 * dt2 * 0.9);
+      if (this.pos.y + this.vy * dt2 <= gy + 0.02) {
+        if (this.vy < -6.5 || Math.abs(this.bank) > 0.45 || this.world.inWater(this.pos.x, this.pos.z, gy)) {
+          this.crashed = true;
+          return "crash";
+        }
+        this.ground = true;
+        this.pos.y = gy;
+        this.vy = 0;
+        this.pitch = 0;
+      }
+    }
+    const fx = Math.sin(this.yaw) * Math.cos(this.pitch), fz = Math.cos(this.yaw) * Math.cos(this.pitch);
+    this.pos.x += fx * this.v * dt2;
+    this.pos.z += fz * this.v * dt2;
+    this.pos.y += this.vy * dt2;
+    if (!this.ground || this.v > 6) {
+      const p = { x: this.pos.x, z: this.pos.z };
+      if (this.world.collide.resolve(p, 1.2, this.pos.y + 1, { x: 0, z: 0 }) > 0.2 && this.v > 8) {
+        this.crashed = true;
+        return "crash";
+      }
+      if (this.ground) {
+        this.pos.x = p.x;
+        this.pos.z = p.z;
+      }
+    }
+    if (this.pos.y > 900) {
+      this.pos.y = 900;
+      this.vy = Math.min(0, this.vy);
+    }
+    this.sync(dt2);
+    return null;
+  }
+  sync(dt2 = 0) {
+    this.group.position.copy(this.pos);
+    this.group.rotation.set(-this.pitch, this.yaw, -this.bank, "YXZ");
+    this.prop.rotation.z += dt2 * (8 + this.power * 60);
+  }
+};
+var PlaneCam = class {
+  constructor(camera) {
+    this.cam = camera;
+    this.pos = new Vector3();
+    this.init = false;
+  }
+  update(dt2, p) {
+    const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw), back = 15 + p.v * 0.08, up = 4.5 + p.v * 0.02;
+    const tx = p.pos.x - fx * back, tz = p.pos.z - fz * back, ty = p.pos.y + up - Math.sin(p.pitch) * back * 0.6;
+    if (!this.init) {
+      this.pos.set(tx, ty, tz);
+      this.init = true;
+    }
+    const k = Math.min(1, dt2 * 3.5);
+    this.pos.x += (tx - this.pos.x) * k;
+    this.pos.y += (ty - this.pos.y) * k;
+    this.pos.z += (tz - this.pos.z) * k;
+    const g2 = p.world.surface(this.pos.x, this.pos.z, this.pos.y).y;
+    if (this.pos.y < g2 + 1.5) this.pos.y = g2 + 1.5;
+    this.cam.position.copy(this.pos);
+    this.cam.up.set(Math.sin(p.bank) * Math.cos(p.yaw) * 0.3, 1, -Math.sin(p.bank) * Math.sin(p.yaw) * 0.3).normalize();
+    this.cam.lookAt(p.pos.x + fx * 8, p.pos.y + 1.6, p.pos.z + fz * 8);
+    const fov2 = 62 + Math.min(12, p.v * 0.15);
+    if (Math.abs(this.cam.fov - fov2) > 0.05) {
+      this.cam.fov += (fov2 - this.cam.fov) * Math.min(1, dt2 * 2);
+      this.cam.updateProjectionMatrix();
+    }
+  }
+};
+
 // game/game.js
 function qNow() {
   let q = null;
@@ -84877,6 +85251,11 @@ var Game = class {
     this.sheets = new Sheets(this, !!ctx.test);
     this.talk = new Talk(this);
     this.remarkT = 4;
+    this.plane = new Plane2(this.world);
+    this.planeHome = { x: 1210, z: 1590, yaw: 0 };
+    this.plane.place(this.planeHome.x, this.planeHome.z, this.planeHome.yaw, sampleHeight(this.plan.height, this.planeHome.x, this.planeHome.z));
+    this.scene.add(this.plane.group);
+    this.pcam = new PlaneCam(this.camera);
     this.input.on("KeyM", () => this.toggleMap());
     this.input.on("KeyV", () => this.nextView());
     this.input.on("KeyF", () => this.toggleCar());
@@ -85077,6 +85456,7 @@ var Game = class {
     this.fuel -= dt2;
     this.world.wet = U.wet.value;
     if (this.mode === "car") this.updateCar(dt2);
+    else if (this.mode === "plane") this.updatePlane(dt2);
     else this.updateFoot(dt2);
     this.updateCrowd(dt2);
     this.pickups();
@@ -85126,6 +85506,7 @@ var Game = class {
       const d = this.rooms.inside.door;
       return { x: d.x, y: d.y, z: d.z };
     }
+    if (this.mode === "plane") return { x: this.plane.x, y: this.plane.y, z: this.plane.z };
     return this.mode === "car" ? { x: this.car.x, y: this.car.y, z: this.car.z } : { x: this.foot.x, y: this.foot.y, z: this.foot.z };
   }
   stepCar(dt2, input) {
@@ -85147,6 +85528,7 @@ var Game = class {
           car.z += nz * pen;
           const vn = car.vx * nx + car.vz * nz;
           if (vn < 0) {
+            car.damage(nx, nz, -vn);
             car.vx -= 1.1 * vn * nx;
             car.vz -= 1.1 * vn * nz;
             car.vx *= 0.9;
@@ -85182,6 +85564,7 @@ var Game = class {
       setTimeout(() => this.ui.fade.classList.remove("on"), 380);
     } else if (!car.air && Math.abs(car.vf || 0) > 2 && this.world.surface(car.x, car.z, car.y).road) this.safe = { x: car.x, z: car.z, h: car.h };
     car.sync();
+    this.smoke(dt2);
     this.cam.update(dt2, car, (x, z) => sampleHeight(this.plan.height, x, z));
     POST.motion.value = Math.max(0, Math.min(1, (car.speed - 22) / 30));
   }
@@ -85218,6 +85601,77 @@ var Game = class {
     });
     POST.motion.value = 0;
   }
+  /* a damaged engine smokes: grey puffs from the bonnet, darker as it gets worse */
+  smoke(dt2) {
+    const car = this.car;
+    if (!this.puffs) {
+      const g2 = new SphereGeometry(0.35, 8, 6), m = new MeshBasicNodeMaterial({ color: "#6E6E6E", transparent: true, opacity: 0.35, depthWrite: false });
+      this.puffs = { mesh: new InstancedMesh(g2, m, 40), list: [], t: 0 };
+      this.puffs.mesh.frustumCulled = false;
+      this.puffs.mesh.count = 0;
+      this.scene.add(this.puffs.mesh);
+    }
+    const P3 = this.puffs;
+    if (car.dmg > 0.45) {
+      P3.t -= dt2;
+      if (P3.t <= 0 && P3.list.length < 40) {
+        P3.t = 0.12 / car.dmg;
+        const fx = Math.sin(car.h), fz = Math.cos(car.h);
+        P3.list.push({ x: car.x + fx * car.T.L * 0.32, y: car.y + car.T.H * 0.75, z: car.z + fz * car.T.L * 0.32, a: 0, s: 0.4 });
+      }
+    }
+    const M3 = new Matrix4();
+    let n2 = 0;
+    P3.list = P3.list.filter((q) => (q.a += dt2) < 2.2);
+    for (const q of P3.list) {
+      q.y += dt2 * 1.1;
+      q.s += dt2 * 0.9;
+      M3.makeScale(q.s, q.s, q.s);
+      M3.setPosition(q.x, q.y, q.z);
+      P3.mesh.setMatrixAt(n2++, M3);
+    }
+    P3.mesh.count = n2;
+    P3.mesh.instanceMatrix.needsUpdate = true;
+  }
+  updatePlane(dt2) {
+    const P3 = this.plane, k = this.input.k, raw = this.input.raw, touch = this.ui.el.querySelector(".bc-touch.on") != null;
+    const keys = touch ? k : { up: raw.KeyW, down: raw.KeyS, left: k.left, right: k.right, hand: k.hand };
+    const pitchIn = touch ? (k.up ? 1 : 0) - (k.down ? 1 : 0) : (raw.ArrowUp ? 1 : 0) - (raw.ArrowDown ? 1 : 0);
+    const res = P3.step(dt2, keys, pitchIn, touch);
+    if (res === "crash") {
+      this.ui.fade.classList.add("on");
+      this.say(T3("crash"), T3("crash_sub"));
+      if (this.audio) this.audio.hit(25);
+      const h = this.planeHome;
+      P3.place(h.x, h.z, h.yaw, sampleHeight(this.plan.height, h.x, h.z));
+      this.leavePlane(true);
+      setTimeout(() => this.ui.fade.classList.remove("on"), 500);
+      return;
+    }
+    if (this.traffic) this.traffic.update(dt2, { x: P3.x, z: P3.z, forwardSpeed: 0 });
+    this.pcam.update(dt2, P3);
+    if (this.audio) this.audio.car({ vf: P3.v * 0.6, p: { top: 45 }, air: !P3.ground, vl: 0 }, P3.power, dt2);
+  }
+  enterPlane() {
+    this.mode = "plane";
+    this.foot.group.visible = false;
+    this.fcam.active = false;
+    this.pcam.init = false;
+    this.say(T3("plane"), T3(this.ui.el.querySelector(".bc-touch.on") ? "plane_touch" : "plane_keys"));
+    if (this.audio) this.audio.duck(false);
+  }
+  leavePlane(crashed) {
+    const P3 = this.plane, fx = Math.cos(P3.yaw), fz = -Math.sin(P3.yaw);
+    this.foot.place(P3.x + fx * 3, P3.z + fz * 3, P3.yaw);
+    this.mode = "foot";
+    this.foot.group.visible = true;
+    this.fcam.active = true;
+    this.fcam.init = false;
+    this.fcam.placed = false;
+    this.fcam.yaw = P3.yaw;
+    this.camera.up.set(0, 1, 0);
+    if (!crashed && this.audio) this.audio.duck(true);
+  }
   nextView() {
     if (this.mode === "car") this.say(T3("view_" + this.cam.next()));
     else this.say(T3("view_" + this.fcam.next()));
@@ -85225,6 +85679,11 @@ var Game = class {
   /* F: get out of the car or back in */
   toggleCar() {
     if (this.sheets.el || this.rooms.inside) return;
+    if (this.mode === "plane") {
+      if (this.plane.ground && this.plane.v < 3) this.leavePlane();
+      else this.say(T3("land_first"));
+      return;
+    }
     const car = this.car, f = this.foot;
     if (this.mode === "car") {
       if (car.speed > 5) {
@@ -85287,6 +85746,10 @@ var Game = class {
       return;
     }
     const d = this.rooms.near(f.x, f.z);
+    if (!d && this.plane.ground && Math.hypot(this.plane.x - f.x, this.plane.z - f.z) < 7) {
+      this.enterPlane();
+      return;
+    }
     if (!d && this.crowd) {
       const p = this.crowd.nearest(f.x, f.z);
       if (p) {
@@ -85335,6 +85798,11 @@ var Game = class {
         label2 = T3("get_out");
         a = "car";
       }
+    } else if (this.mode === "plane") {
+      if (this.plane.ground && this.plane.v < 3) {
+        label2 = T3("get_out");
+        a = "car";
+      }
     } else if (this.rooms.inside) {
       const s = this.rooms.spotAt(this.foot.x, this.foot.z);
       if (s) {
@@ -85345,6 +85813,9 @@ var Game = class {
       const d = this.rooms.near(this.foot.x, this.foot.z);
       if (d) {
         label2 = T3("enter") + ": " + T3("place_" + d.id);
+        a = "use";
+      } else if (this.plane.ground && Math.hypot(this.plane.x - this.foot.x, this.plane.z - this.foot.z) < 7) {
+        label2 = T3("fly");
         a = "use";
       } else if (this.crowd && !this.talk.convo && this.crowd.nearest(this.foot.x, this.foot.z)) {
         const p = this.crowd.nearest(this.foot.x, this.foot.z);
@@ -85519,12 +85990,13 @@ var Game = class {
   /* the body you're in right now, for the HUD and maps */
   me() {
     if (this.mode === "car") return this.car;
+    if (this.mode === "plane") return { x: this.plane.x, z: this.plane.z, h: this.plane.yaw, speed: this.plane.v };
     const fo = this.rooms.inside ? this.rooms.inside.door : null;
     return fo ? { x: fo.x, z: fo.z, h: fo.a, speed: 0 } : { x: this.foot.x, z: this.foot.z, h: this.foot.a, speed: this.foot.speed };
   }
   hud(dt2) {
     const U2 = this.ui, car = this.me(), t2 = T3;
-    U2.speedBox.style.display = this.mode === "car" ? "" : "none";
+    U2.speedBox.style.display = this.mode === "foot" ? "none" : "";
     U2.mini.style.display = U2.place.style.display = this.rooms.inside ? "none" : "";
     U2.speed.textContent = Math.round(car.speed * 3.6);
     U2.fuel.textContent = fmt(this.fuel);
@@ -85593,6 +86065,7 @@ var Game = class {
     this.homes.forEach((h) => dot2(h.x, h.z, h.me ? "#FFE14D" : "#9ADAFF", 7));
     this.trials.forEach((t2) => dot2(t2.pts[0][0], t2.pts[0][1], "#FFE14D", 5));
     if (this.rooms) this.rooms.doors.forEach((d2) => dot2(d2.x, d2.z, "#FFFFFF", 5));
+    if (this.mode !== "plane") dot2(this.plane.x, this.plane.z, "#C9A0FF", 7);
     if (this.job) dot2(this.job.j.b[0], this.job.j.b[1], "#FF5A5F", 9);
     else this.jobs.forEach((j) => {
       if (!this.result.jobs.some((r) => r.id === j.id)) dot2(j.a[0], j.a[1], "#7CE3FF", 6);
@@ -85614,7 +86087,8 @@ var Game = class {
     g2.fill();
     g2.stroke();
     const d = districtAt(car.x, car.z), name = (DISTRICTS.find((q) => q.id === d) || {}).name || "";
-    if (this.ui.place.textContent !== name) this.ui.place.textContent = name;
+    const label2 = this.mode === "plane" ? name + ", " + Math.round(this.plane.y - sampleHeight(this.plan.height, this.plane.x, this.plane.z)) + " m" : name;
+    if (this.ui.place.textContent !== label2) this.ui.place.textContent = label2;
   }
   drawBigMap() {
     const c = this.ui.map.querySelector("canvas"), img = this.mapImg;
@@ -85657,6 +86131,7 @@ var Game = class {
     });
     this.trials.forEach((t2) => pin(t2.pts[0][0], t2.pts[0][1], "#FFE14D", t2.name));
     this.rooms.doors.forEach((d) => pin(d.x, d.z, "#FFFFFF", T3("place_" + d.id)));
+    pin(this.plane.x, this.plane.z, "#C9A0FF", T3("plane"));
     if (this.job) pin(this.job.j.b[0], this.job.j.b[1], "#FF5A5F", T3("job_" + this.job.j.type));
     else this.jobs.forEach((j) => {
       if (!this.result.jobs.some((r) => r.id === j.id)) pin(j.a[0], j.a[1], "#7CE3FF", T3("job_" + j.type) + " " + j.pay);
@@ -86148,6 +86623,20 @@ async function boot() {
   if (Q4.get("traffic") !== "0" && P3.cars > 0) {
     game.traffic = new Traffic(scene, plan, P3.cars);
     game.traffic.init(game.car.x, game.car.z);
+    game.traffic.buildLights(scene);
+  }
+  if (Q4.get("view")) game.cam.mode = Q4.get("view");
+  if (Q4.get("plane")) {
+    game.toggleCar();
+    game.foot.place(game.plane.x + 3, game.plane.z, 0);
+    game.enterPlane();
+    if (Q4.get("plane") === "air") {
+      const a = (Q4.get("pat") || "600,900,-0.9,180").split(",").map(Number);
+      game.plane.place(a[0], a[1], a[2], a[3]);
+      game.plane.ground = false;
+      game.plane.v = 42;
+      game.plane.power = 0.7;
+    }
   }
   if (Q4.get("foot") === "1" || Q4.get("room")) game.toggleCar();
   if (Q4.get("room")) {

@@ -13,6 +13,7 @@ import { OnFoot, FootCam } from './foot.js';
 import { Interiors } from './interiors.js';
 import { Sheets } from './sheets.js';
 import { Talk } from './talk.js';
+import { Plane, PlaneCam } from '../actors/plane.js';
 
 function qNow() { let q = null; try { q = localStorage.getItem('bloc:city:q'); } catch (e) { /* ignore */ } return ['low', 'medium', 'high', 'ultra'].indexOf(q) >= 0 ? q : 'auto'; }
 const fmt = (s) => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
@@ -54,6 +55,10 @@ export class Game {
     this.rooms = new Interiors(this.scene, this.plan, this.homes);
     this.sheets = new Sheets(this, !!ctx.test);
     this.talk = new Talk(this); this.remarkT = 4;
+    /* the flight-school plane waits on the airport apron */
+    this.plane = new Plane(this.world); this.planeHome = { x: 1210, z: 1590, yaw: 0 };
+    this.plane.place(this.planeHome.x, this.planeHome.z, this.planeHome.yaw, sampleHeight(this.plan.height, this.planeHome.x, this.planeHome.z));
+    this.scene.add(this.plane.group); this.pcam = new PlaneCam(this.camera);
     this.input.on('KeyM', () => this.toggleMap());
     this.input.on('KeyV', () => this.nextView());
     this.input.on('KeyF', () => this.toggleCar());
@@ -172,7 +177,7 @@ export class Game {
     if (this.mapOpen || this.paused) { if (this.mode === 'foot') this.foot.sync(dt); return; }
     this.driven += dt; this.fuel -= dt;
     this.world.wet = U.wet.value;
-    if (this.mode === 'car') this.updateCar(dt); else this.updateFoot(dt);
+    if (this.mode === 'car') this.updateCar(dt); else if (this.mode === 'plane') this.updatePlane(dt); else this.updateFoot(dt);
     this.updateCrowd(dt);
     this.pickups();
     this.prompt();
@@ -207,6 +212,7 @@ export class Game {
   /* where the world should stream and traffic should gather: you, or the door you went in by */
   focus() {
     if (this.rooms.inside) { const d = this.rooms.inside.door; return { x: d.x, y: d.y, z: d.z }; }
+    if (this.mode === 'plane') return { x: this.plane.x, y: this.plane.y, z: this.plane.z };
     return this.mode === 'car' ? { x: this.car.x, y: this.car.y, z: this.car.z } : { x: this.foot.x, y: this.foot.y, z: this.foot.z };
   }
   stepCar(dt, input) {
@@ -223,7 +229,7 @@ export class Game {
     if (this.traffic) {
       for (const o of this.traffic.near(car.x, car.z, 6)) {
         const dx = car.x - o.x, dz = car.z - o.z, d = Math.hypot(dx, dz);
-        if (d < 3.6 && d > 0.01) { const nx = dx / d, nz = dz / d, pen = 3.6 - d; car.x += nx * pen; car.z += nz * pen; const vn = car.vx * nx + car.vz * nz; if (vn < 0) { car.vx -= 1.1 * vn * nx; car.vz -= 1.1 * vn * nz; car.vx *= 0.9; car.vz *= 0.9; if (-vn > 4) { this.cam.shake = Math.min(0.3, -vn / 45); if (this.audio) { this.audio.hit(-vn); this.audio.honk(); } this.talk.remark({ x: o.x, z: o.z, voice: Math.random() < 0.5 ? 'f' : 'm', i: null }, 'rage'); } } o.v = 0; }
+        if (d < 3.6 && d > 0.01) { const nx = dx / d, nz = dz / d, pen = 3.6 - d; car.x += nx * pen; car.z += nz * pen; const vn = car.vx * nx + car.vz * nz; if (vn < 0) { car.damage(nx, nz, -vn); car.vx -= 1.1 * vn * nx; car.vz -= 1.1 * vn * nz; car.vx *= 0.9; car.vz *= 0.9; if (-vn > 4) { this.cam.shake = Math.min(0.3, -vn / 45); if (this.audio) { this.audio.hit(-vn); this.audio.honk(); } this.talk.remark({ x: o.x, z: o.z, voice: Math.random() < 0.5 ? 'f' : 'm', i: null }, 'rage'); } } o.v = 0; }
       }
       this.traffic.update(dt, { x: car.x, z: car.z, forwardSpeed: car.vf });
     }
@@ -237,6 +243,7 @@ export class Game {
       setTimeout(() => this.ui.fade.classList.remove('on'), 380);
     } else if (!car.air && Math.abs(car.vf || 0) > 2 && this.world.surface(car.x, car.z, car.y).road) this.safe = { x: car.x, z: car.z, h: car.h };
     car.sync();
+    this.smoke(dt);
     this.cam.update(dt, car, (x, z) => sampleHeight(this.plan.height, x, z));
     POST.motion.value = Math.max(0, Math.min(1, (car.speed - 22) / 30));
   }
@@ -266,6 +273,55 @@ export class Game {
     });
     POST.motion.value = 0;
   }
+  /* a damaged engine smokes: grey puffs from the bonnet, darker as it gets worse */
+  smoke(dt) {
+    const car = this.car;
+    if (!this.puffs) {
+      const g = new THREE.SphereGeometry(0.35, 8, 6), m = new THREE.MeshBasicNodeMaterial({ color: '#6E6E6E', transparent: true, opacity: 0.35, depthWrite: false });
+      this.puffs = { mesh: new THREE.InstancedMesh(g, m, 40), list: [], t: 0 }; this.puffs.mesh.frustumCulled = false; this.puffs.mesh.count = 0; this.scene.add(this.puffs.mesh);
+    }
+    const P = this.puffs;
+    if (car.dmg > 0.45) {
+      P.t -= dt;
+      if (P.t <= 0 && P.list.length < 40) {
+        P.t = 0.12 / car.dmg;
+        const fx = Math.sin(car.h), fz = Math.cos(car.h);
+        P.list.push({ x: car.x + fx * car.T.L * 0.32, y: car.y + car.T.H * 0.75, z: car.z + fz * car.T.L * 0.32, a: 0, s: 0.4 });
+      }
+    }
+    const M = new THREE.Matrix4(); let n = 0;
+    P.list = P.list.filter((q) => (q.a += dt) < 2.2);
+    for (const q of P.list) { q.y += dt * 1.1; q.s += dt * 0.9; M.makeScale(q.s, q.s, q.s); M.setPosition(q.x, q.y, q.z); P.mesh.setMatrixAt(n++, M); }
+    P.mesh.count = n; P.mesh.instanceMatrix.needsUpdate = true;
+  }
+  updatePlane(dt) {
+    const P = this.plane, k = this.input.k, raw = this.input.raw, touch = this.ui.el.querySelector('.bc-touch.on') != null;
+    const keys = touch ? k : { up: raw.KeyW, down: raw.KeyS, left: k.left, right: k.right, hand: k.hand };
+    const pitchIn = touch ? (k.up ? 1 : 0) - (k.down ? 1 : 0) : (raw.ArrowUp ? 1 : 0) - (raw.ArrowDown ? 1 : 0);
+    const res = P.step(dt, keys, pitchIn, touch);
+    if (res === 'crash') {
+      this.ui.fade.classList.add('on'); this.say(TEXT('crash'), TEXT('crash_sub')); if (this.audio) this.audio.hit(25);
+      const h = this.planeHome; P.place(h.x, h.z, h.yaw, sampleHeight(this.plan.height, h.x, h.z));
+      this.leavePlane(true);
+      setTimeout(() => this.ui.fade.classList.remove('on'), 500);
+      return;
+    }
+    if (this.traffic) this.traffic.update(dt, { x: P.x, z: P.z, forwardSpeed: 0 });
+    this.pcam.update(dt, P);
+    if (this.audio) this.audio.car({ vf: P.v * 0.6, p: { top: 45 }, air: !P.ground, vl: 0 }, P.power, dt);
+  }
+  enterPlane() {
+    this.mode = 'plane'; this.foot.group.visible = false; this.fcam.active = false; this.pcam.init = false;
+    this.say(TEXT('plane'), TEXT(this.ui.el.querySelector('.bc-touch.on') ? 'plane_touch' : 'plane_keys'));
+    if (this.audio) this.audio.duck(false);
+  }
+  leavePlane(crashed) {
+    const P = this.plane, fx = Math.cos(P.yaw), fz = -Math.sin(P.yaw);
+    this.foot.place(P.x + fx * 3, P.z + fz * 3, P.yaw);
+    this.mode = 'foot'; this.foot.group.visible = true; this.fcam.active = true; this.fcam.init = false; this.fcam.placed = false; this.fcam.yaw = P.yaw;
+    this.camera.up.set(0, 1, 0);
+    if (!crashed && this.audio) this.audio.duck(true);
+  }
   nextView() {
     if (this.mode === 'car') this.say(TEXT('view_' + this.cam.next()));
     else this.say(TEXT('view_' + this.fcam.next()));
@@ -273,6 +329,7 @@ export class Game {
   /* F: get out of the car or back in */
   toggleCar() {
     if (this.sheets.el || this.rooms.inside) return;
+    if (this.mode === 'plane') { if (this.plane.ground && this.plane.v < 3) this.leavePlane(); else this.say(TEXT('land_first')); return; }
     const car = this.car, f = this.foot;
     if (this.mode === 'car') {
       if (car.speed > 5) { this.say(TEXT('slow_down')); return; }
@@ -311,6 +368,7 @@ export class Game {
       return;
     }
     const d = this.rooms.near(f.x, f.z);
+    if (!d && this.plane.ground && Math.hypot(this.plane.x - f.x, this.plane.z - f.z) < 7) { this.enterPlane(); return; }
     if (!d && this.crowd) { const p = this.crowd.nearest(f.x, f.z); if (p) { this.talk.converse(p); return; } }
     if (d) {
       const r = this.rooms.enter(d); f.indoor = r;
@@ -334,10 +392,12 @@ export class Game {
     let label = null, a = null;
     const keys = !this.ui.el.querySelector('.bc-touch.on');
     if (this.mode === 'car') { if (this.car.speed < 5) { label = TEXT('get_out'); a = 'car'; } }
+    else if (this.mode === 'plane') { if (this.plane.ground && this.plane.v < 3) { label = TEXT('get_out'); a = 'car'; } }
     else if (this.rooms.inside) { const s = this.rooms.spotAt(this.foot.x, this.foot.z); if (s) { label = TEXT('p_' + s.act); a = 'use'; } }
     else {
       const d = this.rooms.near(this.foot.x, this.foot.z);
       if (d) { label = TEXT('enter') + ': ' + TEXT('place_' + d.id); a = 'use'; }
+      else if (this.plane.ground && Math.hypot(this.plane.x - this.foot.x, this.plane.z - this.foot.z) < 7) { label = TEXT('fly'); a = 'use'; }
       else if (this.crowd && !this.talk.convo && this.crowd.nearest(this.foot.x, this.foot.z)) { const p = this.crowd.nearest(this.foot.x, this.foot.z); label = TEXT('talk') + ': ' + this.talk.nameOf(p); a = 'use'; }
       else if (Math.hypot(this.foot.x - this.car.x, this.foot.z - this.car.z) < 3.6) { label = TEXT('get_in'); a = 'car'; }
     }
@@ -432,12 +492,13 @@ export class Game {
   /* the body you're in right now, for the HUD and maps */
   me() {
     if (this.mode === 'car') return this.car;
+    if (this.mode === 'plane') return { x: this.plane.x, z: this.plane.z, h: this.plane.yaw, speed: this.plane.v };
     const fo = this.rooms.inside ? this.rooms.inside.door : null;
     return fo ? { x: fo.x, z: fo.z, h: fo.a, speed: 0 } : { x: this.foot.x, z: this.foot.z, h: this.foot.a, speed: this.foot.speed };
   }
   hud(dt) {
     const U2 = this.ui, car = this.me(), t = TEXT;
-    U2.speedBox.style.display = this.mode === 'car' ? '' : 'none';
+    U2.speedBox.style.display = this.mode === 'foot' ? 'none' : '';
     U2.mini.style.display = U2.place.style.display = this.rooms.inside ? 'none' : '';
     U2.speed.textContent = Math.round(car.speed * 3.6);
     U2.fuel.textContent = fmt(this.fuel);
@@ -478,13 +539,15 @@ export class Game {
     this.homes.forEach((h) => dot(h.x, h.z, h.me ? '#FFE14D' : '#9ADAFF', 7));
     this.trials.forEach((t) => dot(t.pts[0][0], t.pts[0][1], '#FFE14D', 5));
     if (this.rooms) this.rooms.doors.forEach((d) => dot(d.x, d.z, '#FFFFFF', 5));
+    if (this.mode !== 'plane') dot(this.plane.x, this.plane.z, '#C9A0FF', 7);
     if (this.job) dot(this.job.j.b[0], this.job.j.b[1], '#FF5A5F', 9); else this.jobs.forEach((j) => { if (!this.result.jobs.some((r) => r.id === j.id)) dot(j.a[0], j.a[1], '#7CE3FF', 6); });
     if (this.trial) { const p = this.trial.t.pts[this.trial.i]; dot(p[0], p[1], '#FF5A5F', 8); }
     g.restore();
     g.fillStyle = '#FFFFFF'; g.strokeStyle = '#191D29'; g.lineWidth = 3;
     g.beginPath(); g.moveTo(half, half * 1.25 - 13); g.lineTo(half + 9, half * 1.25 + 10); g.lineTo(half, half * 1.25 + 5); g.lineTo(half - 9, half * 1.25 + 10); g.closePath(); g.fill(); g.stroke();
     const d = districtAt(car.x, car.z), name = (DISTRICTS.find((q) => q.id === d) || {}).name || '';
-    if (this.ui.place.textContent !== name) this.ui.place.textContent = name;
+    const label = this.mode === 'plane' ? name + ', ' + Math.round(this.plane.y - sampleHeight(this.plan.height, this.plane.x, this.plane.z)) + ' m' : name;
+    if (this.ui.place.textContent !== label) this.ui.place.textContent = label;
   }
   drawBigMap() {
     const c = this.ui.map.querySelector('canvas'), img = this.mapImg;
@@ -498,6 +561,7 @@ export class Game {
     this.crates.forEach((p, i) => { if (!this.crateTaken.has(i)) pin(p.x, p.z, '#C98A50'); });
     this.trials.forEach((t) => pin(t.pts[0][0], t.pts[0][1], '#FFE14D', t.name));
     this.rooms.doors.forEach((d) => pin(d.x, d.z, '#FFFFFF', TEXT('place_' + d.id)));
+    pin(this.plane.x, this.plane.z, '#C9A0FF', TEXT('plane'));
     if (this.job) pin(this.job.j.b[0], this.job.j.b[1], '#FF5A5F', TEXT('job_' + this.job.j.type)); else this.jobs.forEach((j) => { if (!this.result.jobs.some((r) => r.id === j.id)) pin(j.a[0], j.a[1], '#7CE3FF', TEXT('job_' + j.type) + ' ' + j.pay); });
     this.homes.forEach((h) => pin(h.x, h.z, h.me ? '#FFE14D' : '#9ADAFF', h.me ? TEXT('home') : String(h.name).split(' ')[0]));
     const me = this.me(), [a, b] = P(me.x, me.z);

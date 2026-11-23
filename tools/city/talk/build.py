@@ -3,6 +3,11 @@ import json, os, sys
 here = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, here)
 from lines_a import SINGLE
 from lines_b import PAIRS, CONVOS
+try:
+    from lines_c import SINGLE2, PAIRS2, CONVOS2
+    for k, v in SINGLE2.items(): k = k[:-1] if k.endswith('2') else k; SINGLE[k] = SINGLE.get(k, []) + v
+    PAIRS = PAIRS + PAIRS2; CONVOS = CONVOS + CONVOS2
+except ImportError: pass
 lines, cats, pairs, convos = {}, {}, [], []
 def add(prefix, n, v, en, es):
     k = '%s%03d' % (prefix, n); lines[k] = {'v': v, 'en': en, 'es': es}; return k

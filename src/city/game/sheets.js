@@ -92,7 +92,7 @@ export class Sheets {
   }
   /* ---- the garage ---- */
   async garage() {
-    const el = this.frame(T('place_garage'), `<h4>${T('cars')}</h4><div class="bc-grid cars"></div><h4>${T('paint')}</h4><div class="bc-sw paint"></div>`);
+    const el = this.frame(T('place_garage'), `<button type="button" class="bc-item" data-fix><span>${T('repair')}</span><small>${T('repair_sub')}</small></button><h4>${T('cars')}</h4><div class="bc-grid cars"></div><h4>${T('paint')}</h4><div class="bc-sw paint"></div>`);
     try { await this.load(); } catch (e) { this.say(T('try_again')); return; }
     const draw = () => {
       this.coins();
@@ -103,6 +103,7 @@ export class Sheets {
     };
     draw();
     el.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-fix]')) { this.g.car.repair(); this.say(T('repaired')); return; }
       const car = e.target.closest('[data-car]'), col = e.target.closest('[data-c]');
       if (!car && !col) return;
       try { await this.act(car ? { a: 'car', id: car.dataset.car } : { a: 'color', c: col.dataset.c }); this.g.setCar(this.farm.car, this.farm.color); draw(); this.say(''); }

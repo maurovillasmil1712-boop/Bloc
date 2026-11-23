@@ -143,7 +143,12 @@ async function boot() {
     for (const t of inst.types) if (t.id.startsWith('parked-')) for (const cells of t.grid.values()) for (const it of cells) game.world.collide.addBox(it.x, it.z, 0.95, 2.15, -it.r, it.y + 1.6);
   }
   if (Q.get('peds') !== '0' && P.peds > 0) game.crowd = new Crowd(scene, plan, Math.round(P.peds * 0.6));
-  if (Q.get('traffic') !== '0' && P.cars > 0) { game.traffic = new Traffic(scene, plan, P.cars); game.traffic.init(game.car.x, game.car.z); }
+  if (Q.get('traffic') !== '0' && P.cars > 0) { game.traffic = new Traffic(scene, plan, P.cars); game.traffic.init(game.car.x, game.car.z); game.traffic.buildLights(scene); }
+  if (Q.get('view')) game.cam.mode = Q.get('view');
+  if (Q.get('plane')) {
+    game.toggleCar(); game.foot.place(game.plane.x + 3, game.plane.z, 0); game.enterPlane();
+    if (Q.get('plane') === 'air') { const a = (Q.get('pat') || '600,900,-0.9,180').split(',').map(Number); game.plane.place(a[0], a[1], a[2], a[3]); game.plane.ground = false; game.plane.v = 42; game.plane.power = 0.7; }
+  }
   /* tests: start on foot, or inside a place */
   if (Q.get('foot') === '1' || Q.get('room')) game.toggleCar();
   if (Q.get('room')) { const d = game.rooms.doors.find((x) => x.id === Q.get('room')); if (d) { game.foot.place(d.x, d.z, d.a, d.y); game.interact(); } }

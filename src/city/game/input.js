@@ -3,15 +3,16 @@ const KEYS = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA:
 export class Input {
   constructor(root) {
     this.k = { up: 0, down: 0, left: 0, right: 0, hand: 0, run: 0 };
-    this.pressed = new Set(); this.handlers = new Map();
+    this.pressed = new Set(); this.handlers = new Map(); this.raw = {};
     this.onKey = (e) => {
       if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+      this.raw[e.code] = e.type === 'keydown' ? 1 : 0;
       const k = KEYS[e.code];
       if (k) { this.k[k] = e.type === 'keydown' ? 1 : 0; e.preventDefault(); return; }
       if (e.type === 'keydown' && !e.repeat) { const h = this.handlers.get(e.code); if (h) { e.preventDefault(); h(); } }
     };
     window.addEventListener('keydown', this.onKey, true); window.addEventListener('keyup', this.onKey, true);
-    window.addEventListener('blur', () => { for (const key in this.k) this.k[key] = 0; });
+    window.addEventListener('blur', () => { for (const key in this.k) this.k[key] = 0; this.raw = {}; });
     root.addEventListener('pointerdown', (e) => this.touchStart(e), { passive: false });
   }
   on(code, fn) { this.handlers.set(code, fn); }

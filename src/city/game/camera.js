@@ -3,8 +3,7 @@
 import * as THREE from 'three/webgpu';
 
 const V = new THREE.Vector3(), T = new THREE.Vector3();
-/* the inside-the-car view comes back with car interiors (stage 4) */
-export const CAR_VIEWS = ['near', 'far', 'bonnet'];
+export const CAR_VIEWS = ['near', 'far', 'bonnet', 'cockpit'];
 export class ChaseCam {
   constructor(camera) {
     this.cam = camera; this.pos = new THREE.Vector3(); this.vel = new THREE.Vector3(); this.look = new THREE.Vector3();

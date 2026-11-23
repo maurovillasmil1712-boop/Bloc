@@ -54,6 +54,53 @@ export class Traffic {
     const h = Math.atan2(dx, dz);
     c.x = f.x - Math.cos(h) * off; c.z = f.z + Math.sin(h) * off; c.y = f.y + 0.02; c.h = h;
   }
+  /* the traffic lights you can see: a pole at the right of every approach to a signalled junction, three lamps
+     that follow the same phases as signalRed (green, amber for the last 3 s, red) */
+  buildLights(scene) {
+    const poles = [], items = [];
+    for (const n of this.plan.nodes) {
+      if (!n.signal) continue;
+      for (const id of n.edges) {
+        const e = this.plan.edges[id]; if (!e || e.kind === 'lane' || e.bridge) continue;
+        const atB = e.b === n.id, s = atB ? e.len - (e.tb || 0) - 1.5 : (e.ta || 0) + 1.5;
+        if (s < 2 || s > e.len - 2) continue;
+        const f = frame(e, s), dx = atB ? f.dx : -f.dx, dz = atB ? f.dz : -f.dz, h = Math.atan2(dx, dz);
+        const off = e.w / 2 + 0.7, x = f.x - Math.cos(h) * off, z = f.z + Math.sin(h) * off;
+        const ang = Math.atan2(e.pts[1][1] - e.pts[0][1], e.pts[1][0] - e.pts[0][0]), group = Math.abs(Math.cos(ang)) > 0.7 ? 0 : 1;
+        items.push({ x, y: f.y, z, h, node: n, group });
+      }
+    }
+    this.lights = items;
+    const N = items.length; if (!N) return;
+    const poleG = new THREE.CylinderGeometry(0.06, 0.07, 3.4, 8).translate(0, 1.7, 0);
+    const headG = new THREE.BoxGeometry(0.32, 0.9, 0.24).translate(0, 3.3, 0);
+    const dark = new THREE.MeshStandardNodeMaterial({ color: '#202327', roughness: 0.5, metalness: 0.4 });
+    const pole = new THREE.InstancedMesh(poleG, dark, N), head = new THREE.InstancedMesh(headG, dark, N);
+    const lampG = new THREE.CircleGeometry(0.095, 14);
+    this.lamps = [0, 1, 2].map((k) => { const m = new THREE.InstancedMesh(lampG, new THREE.MeshBasicNodeMaterial({ color: '#FFFFFF' }), N); m.frustumCulled = false; return m; });
+    pole.castShadow = head.castShadow = true; pole.frustumCulled = head.frustumCulled = false;
+    const L = new THREE.Matrix4(), off = new THREE.Vector3();
+    items.forEach((it, i) => {
+      Q.setFromAxisAngle(UP, it.h + Math.PI); P.set(it.x, it.y, it.z); M4.compose(P, Q, S1);
+      pole.setMatrixAt(i, M4); head.setMatrixAt(i, M4);
+      for (let k = 0; k < 3; k++) { off.set(0, 3.6 - k * 0.29, 0.125); L.copy(M4).multiply(new THREE.Matrix4().makeTranslation(off.x, off.y, off.z)); this.lamps[k].setMatrixAt(i, L); }
+    });
+    scene.add(pole, head, ...this.lamps);
+    this.lightT = 0; this.updateLights(true);
+  }
+  updateLights(force) {
+    if (!this.lights || !this.lamps) return;
+    if (!force && (this.lightT += 1) % 6) return;
+    const cols = [new THREE.Color(4, 0.25, 0.15), new THREE.Color(3.5, 1.9, 0.1), new THREE.Color(0.2, 3.2, 1.2)], dim = new THREE.Color(0.05, 0.05, 0.05);
+    this.lights.forEach((it, i) => {
+      const t = (this.signalT + it.node.id * 7.3) % 26;
+      const green = it.group === 0 ? t <= 11 : t > 13 && t <= 24, amber = green && (it.group === 0 ? t > 8 : t > 21);
+      this.lamps[0].setColorAt(i, !green ? cols[0] : dim);
+      this.lamps[1].setColorAt(i, amber ? cols[1] : dim);
+      this.lamps[2].setColorAt(i, green && !amber ? cols[2] : dim);
+    });
+    for (const m of this.lamps) m.instanceColor.needsUpdate = true;
+  }
   signalRed(node, e) {
     if (!node.signal) return false;
     const cyc = 26, t = (this.signalT + node.id * 7.3) % cyc;
@@ -63,6 +110,7 @@ export class Traffic {
   }
   update(dt, player) {
     this.signalT += dt;
+    this.updateLights();
     const px = player.x, pz = player.z;
     for (const c of this.cars) {
       if (!c.alive || Math.hypot(c.x - px, c.z - pz) > 430) { this.spawn(c, px, pz, true); if (c.alive) this.pose(c); continue; }
