@@ -194,6 +194,8 @@ async function boot() {
     if (game.traffic) game.traffic.draw();
     if (probe && !freeCam) probe.update(dt, game.car, game.mode === 'car' && !game.rooms.inside);
     pipeline.render();
+    /* photo mode: read back the frame just drawn, in the same task, before the browser presents it */
+    if (game.wantShot) { const cb = game.wantShot; game.wantShot = null; try { renderer.domElement.toBlob(cb, 'image/png'); } catch (e) { cb(null); } }
     frames++;
     /* dynamic resolution: hold the frame rate on phones and laptops */
     if (!TEST && frames > 30) {

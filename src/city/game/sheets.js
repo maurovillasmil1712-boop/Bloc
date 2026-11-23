@@ -18,6 +18,7 @@ const FAKE = {
   cars: [{ id: 'hatch', name: 'Hatchback', cost: 0, house: 0 }, { id: 'buggy', name: 'Beach Buggy', cost: 1500, house: 1 }, { id: 'van', name: 'Garden Van', cost: 2500, house: 2 }, { id: 'gt', name: 'Sunset GT', cost: 6000, house: 3 }, { id: 'moto', name: 'Street Bike', cost: 2200, house: 1 }],
   colors: ['#FFE14D', '#FF5A5F', '#3E9BD6', '#1E9E6A', '#F28C28', '#8C3B72', '#191D29', '#F3F4F6']
 };
+const FAKE_MODS = [{ id: 'spoiler', price: 400, values: [true, false] }, { id: 'tint', price: 250, values: [true, false] }, { id: 'glow', price: 600, values: [false, '#7CE3FF', '#FF5AD7', '#FFE14D', '#5CFF8A', '#FF5A5F'] }, { id: 'rims', price: 300, values: ['chrome', 'black', 'gold', 'white'] }];
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 export class Sheets {
@@ -38,6 +39,7 @@ export class Sheets {
       if (body.a === 'avatar') Object.assign(f.avatar, Object.fromEntries(Object.entries(body).filter(([k]) => k !== 'a')));
       if (body.a === 'car') { const c = cat.cars.find((x) => x.id === body.id); if (!f.cars.includes(c.id)) { if (f.coins < c.cost) throw new Error('coins'); f.coins -= c.cost; f.cars.push(c.id); } f.car = c.id; }
       if (body.a === 'color') f.color = body.c;
+      if (body.a === 'mod') { f.modsOwn = f.modsOwn || ['spoiler', 'glow', 'rims', 'tint']; f.mods = Object.assign({}, f.mods || this.g.mods, { [body.id]: body.v }); }
       if (body.a === 'furn') { f.furn = f.furn || [...(this.g.rooms.furn || [])]; if (!f.furn.includes(body.id)) { if (f.coins < 200) throw new Error('coins'); f.coins -= 200; f.furn.push(body.id); } }
       if (body.a === 'plane') { if (!f.plane || !f.plane.own) { if (f.coins < 30000) throw new Error('coins'); f.coins -= 30000; } f.plane = { own: true, c: body.c }; }
       if (body.a === 'arm' || body.a === 'armour' || body.a === 'gore') {
@@ -167,7 +169,7 @@ export class Sheets {
   }
   /* ---- the garage ---- */
   async garage() {
-    const el = this.frame(T('place_garage'), `<button type="button" class="bc-item" data-fix><span>${T('repair')}</span><small>${T('repair_sub')}</small></button><h4>${T('cars')}</h4><div class="bc-grid cars"></div><h4>${T('paint')}</h4><div class="bc-sw paint"></div><h4>${T('your_plane')}</h4><div class="bc-plane"></div>`);
+    const el = this.frame(T('place_garage'), `<button type="button" class="bc-item" data-fix><span>${T('repair')}</span><small>${T('repair_sub')}</small></button><h4>${T('cars')}</h4><div class="bc-grid cars"></div><h4>${T('paint')}</h4><div class="bc-sw paint"></div><h4>${T('mods')}</h4><div class="bc-mods"></div><h4>${T('your_plane')}</h4><div class="bc-plane"></div>`);
     try { await this.load(); } catch (e) { this.say(T('try_again')); return; }
     const draw = () => {
       this.coins();
@@ -175,6 +177,12 @@ export class Sheets {
       el.querySelector('.cars').innerHTML = cat.cars.map((c) => { const own = f.cars.includes(c.id), on = f.car === c.id, locked = !own && f.house < c.house;
         return `<button type="button" class="bc-item${on ? ' on' : ''}" data-car="${c.id}"${locked ? ' disabled' : ''}><span>${esc(c.name)}</span><small>${on ? T('driving') : own ? T('owned') : locked ? T('need_house') : c.cost + ' ' + T('cash')}</small></button>`; }).join('');
       el.querySelector('.paint').innerHTML = cat.colors.map((c) => `<button type="button" aria-label="${c}" aria-pressed="${f.color === c}" data-c="${c}" style="background:${c}"></button>`).join('');
+      const mods = cat.mods || FAKE_MODS, own = f.modsOwn || [], cur = f.mods || {};
+      el.querySelector('.bc-mods').innerHTML = mods.map((x) => {
+        const has = own.includes(x.id);
+        if (!has) return `<button type="button" class="bc-item" data-mod="${x.id}" data-v='${JSON.stringify(x.values.find((v) => v !== false))}'><span>${esc(T('mod_' + x.id))}</span><small>${x.price} ${T('cash')}</small></button>`;
+        return `<div class="bc-modrow"><b>${esc(T('mod_' + x.id))}</b><div class="bc-chips">${x.values.map((v) => `<button type="button" aria-pressed="${cur[x.id] === v}" data-mod="${x.id}" data-v='${JSON.stringify(v)}'${typeof v === 'string' && v[0] === '#' ? ` style="background:${v}"` : ''}>${typeof v === 'string' && v[0] === '#' ? '&nbsp;' : esc(T('modv_' + String(v)))}</button>`).join('')}</div></div>`;
+      }).join('');
       const pl = f.plane || { own: false }, price = cat.plane || 30000;
       el.querySelector('.bc-plane').innerHTML = pl.own
         ? `<p class="bc-note">${T('plane_owned')}</p><div class="bc-sw">${cat.colors.map((c) => `<button type="button" aria-label="${c}" aria-pressed="${pl.c === c}" data-pc="${c}" style="background:${c}"></button>`).join('')}</div>`
@@ -183,6 +191,12 @@ export class Sheets {
     draw();
     el.addEventListener('click', async (e) => {
       if (e.target.closest('[data-fix]')) { this.g.car.repair(); this.say(T('repaired')); return; }
+      const mb = e.target.closest('[data-mod]');
+      if (mb) {
+        try { await this.act({ a: 'mod', id: mb.dataset.mod, v: JSON.parse(mb.dataset.v) }); this.g.mods = this.farm.mods || {}; this.g.car.setMods(this.g.mods); this.say(''); draw(); }
+        catch (x) { this.err(x); }
+        return;
+      }
       const pb = e.target.closest('[data-plane],[data-pc]');
       if (pb) {
         try { await this.act({ a: 'plane', c: pb.dataset.pc || this.farm.color }); const pl = this.farm.plane; if (pl && pl.own) this.g.ownPlane(pl); this.say(pb.dataset.plane ? T('plane_bought') : ''); draw(); }

@@ -84,6 +84,37 @@ export class Vehicle {
     dent(this.glassMesh && this.glassMesh.geometry, this.base.glass);
     this.dmg = Math.min(1, this.dmg + (strength - 3) / 60);
   }
+  /* garage mods (v7.6): a spoiler, tinted windows, neon under the car, rims; m = { spoiler, tint, glow, rims } */
+  setMods(m) {
+    m = m || {}; const T = this.T;
+    if (this.modGroup) { this.body.remove(this.modGroup); this.modGroup = null; }
+    const g = new THREE.Group(); this.body.add(g); this.modGroup = g;
+    if (m.spoiler && !this.moto && !T.bus) {
+      const ink = new THREE.MeshStandardNodeMaterial({ color: '#15171A', roughness: 0.4, metalness: 0.3 });
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(T.W * 0.86, 0.04, 0.32), ink); wing.position.set(0, T.tail + 0.22, -T.L / 2 + 0.22); wing.rotation.x = -0.12; wing.castShadow = true; g.add(wing);
+      for (const sx of [-1, 1]) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.2, 0.08), ink); st.position.set(sx * T.W * 0.3, T.tail + 0.11, -T.L / 2 + 0.24); g.add(st); }
+    }
+    if (this.glassMesh) {
+      if (!this.glassBase) this.glassBase = this.glassMesh.material;
+      if (m.tint) { if (!this.tintMat) this.tintMat = new THREE.MeshPhysicalNodeMaterial({ color: 0x020304, metalness: 0.3, roughness: 0.02, clearcoat: 1 }); this.glassMesh.material = this.tintMat; }
+      else this.glassMesh.material = this.glassBase;
+    }
+    if (m.glow) {
+      /* light spilling on the road around the car: a soft oval that fades out at the edge */
+      const sz = this.moto ? [1.4, 2.4] : [T.W * 1.9, T.L * 1.25], cv = document.createElement('canvas'); cv.width = cv.height = 64;
+      const cx = cv.getContext('2d'), grd = cx.createRadialGradient(32, 32, 4, 32, 32, 32); grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.55, 'rgba(255,255,255,0.55)'); grd.addColorStop(1, 'rgba(255,255,255,0)'); cx.fillStyle = grd; cx.fillRect(0, 0, 64, 64);
+      const tex = new THREE.CanvasTexture(cv);
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(sz[0], sz[1]).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: m.glow, map: tex, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }));
+      plane.position.y = 0.21; plane.renderOrder = 2; g.add(plane);
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(this.moto ? 0.3 : T.W * 0.8, 0.02, this.moto ? 1.2 : T.L * 0.8), new THREE.MeshBasicNodeMaterial({ color: m.glow })); strip.position.y = (T.cl || 0.2) - 0.02; g.add(strip);
+      this.glowCol = m.glow;
+    }
+    const rimCol = { chrome: null, black: '#121315', gold: '#C9A23C', white: '#E9E9E6' }[m.rims];
+    if (rimCol !== undefined) {
+      const mat = rimCol ? new THREE.MeshStandardNodeMaterial({ color: rimCol, roughness: m.rims === 'black' ? 0.5 : 0.2, metalness: m.rims === 'white' ? 0.2 : 0.9 }) : null;
+      for (const w of this.wheels) { const r = w.children[1]; if (!r) continue; if (!r.userData.base) r.userData.base = r.material; r.material = mat || r.userData.base; }
+    }
+  }
   repair() {
     for (const [mesh, base] of [[this.paintMesh, this.base.paint], [this.glassMesh, this.base.glass]]) { if (!mesh || !base) continue; mesh.geometry.attributes.position.array.set(base); mesh.geometry.attributes.position.needsUpdate = true; mesh.geometry.computeVertexNormals(); }
     this.dmg = 0;

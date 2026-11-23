@@ -4457,6 +4457,19 @@ const MISSIONS = [
   { id: 'm4', pay: 300, min: 45, need: 'm2' }, { id: 'm5', pay: 400, min: 70, need: 'm4' }
 ];
 const MISSION_BY = new Map(MISSIONS.map((x) => [x.id, x]));
+/* garage mods (v7.6): each bought once, then free to switch; they go on whichever of your cars you drive */
+const MODS = [
+  { id: 'spoiler', name: 'Rear spoiler', price: 400, values: [true, false] },
+  { id: 'tint', name: 'Tinted windows', price: 250, values: [true, false] },
+  { id: 'glow', name: 'Neon underglow', price: 600, values: [false, '#7CE3FF', '#FF5AD7', '#FFE14D', '#5CFF8A', '#FF5A5F'] },
+  { id: 'rims', name: 'Rims', price: 300, values: ['chrome', 'black', 'gold', 'white'] }
+];
+const MOD_BY = new Map(MODS.map((x) => [x.id, x]));
+function modsOf(f) {
+  const m = f.mods && typeof f.mods === 'object' ? f.mods : {}, own = Array.isArray(f.modsOwn) ? f.modsOwn : [], out = {};
+  for (const x of MODS) if (own.includes(x.id) && x.values.includes(m[x.id])) out[x.id] = m[x.id];
+  return out;
+}
 function furnOf(f) { return (Array.isArray(f.furn) ? f.furn : []).filter((id, i, a) => FURN_BY.has(id) && a.indexOf(id) === i); }
 function cleanArms(f) {
   f.arms = (Array.isArray(f.arms) ? f.arms : []).filter((id, i, a) => ARM_BY.has(id) && a.indexOf(id) === i);
@@ -4529,7 +4542,7 @@ function trialTimes(t) {
 function farmCatalog() {
   return {
     rarity: RARITY, species: SPECIES, houses: HOUSES, locs: LOCS, decos: DECOS, cars: CARS, colors: CAR_COLORS,
-    outfits: OUTFITS, arms: ARMS, armour: ARMOUR_PRICE, plane: PLANE_PRICE, furn: FURN, skins: SKINS, hairs: HAIRS, hairColors: HAIR_COLORS, jobs: JOBS,
+    outfits: OUTFITS, arms: ARMS, armour: ARMOUR_PRICE, plane: PLANE_PRICE, furn: FURN, mods: MODS, skins: SKINS, hairs: HAIRS, hairColors: HAIR_COLORS, jobs: JOBS,
     trials: TRIALS.map((t) => Object.assign({ id: t.id, name: t.name, pts: t.pts }, trialTimes(t))),
     rules: { fuelPerMin: FARM.FUEL_PER_MIN, fuelMax: FARM.FUEL_MAX, sunMax: FARM.SUN_MAX, dayCap: FARM.DAY_CAP, noteN: FARM.NOTE_N, noteCoins: FARM.NOTE_COINS, crateN: FARM.CRATE_N, jumpN: FARM.JUMP_N, starStep: FARM.STAR_STEP, starBase: FARM.STAR_BASE }
   };
@@ -4781,7 +4794,7 @@ function publicFarm(f, extra) {
   return Object.assign({
     coins: f.coins, sun: f.sun, fuel: f.fuel, seeds: f.seeds, basket: f.basket, house: f.house, locs: f.locs, deco: f.deco,
     index: f.index, stars: f.stars, cars: f.cars, car: f.car, color: f.color, best: f.best, golds: f.golds, jumps: f.jumps,
-    drive: f.drive, log: f.log.slice(0, 12), seen: f.seen || 0, look: lookOf(f), arms: armsOf(f), plane: planeOf(f), furn: furnOf(f),
+    drive: f.drive, log: f.log.slice(0, 12), seen: f.seen || 0, look: lookOf(f), arms: armsOf(f), plane: planeOf(f), furn: furnOf(f), mods: modsOf(f), modsOwn: Array.isArray(f.modsOwn) ? f.modsOwn : [],
     avatar: f.avatar, wardrobe: f.wardrobe, outfit: f.outfit
   }, extra || {});
 }
@@ -4967,6 +4980,15 @@ async function farmAct(c) {
         if (f.coins < PLANE_PRICE) throw new HttpError(400, 'coins');
         f.coins -= PLANE_PRICE; f.plane = { c: CAR_COLORS.includes(b.c) ? b.c : CAR_COLORS[0] }; msg = 'Plane';
       } else if (CAR_COLORS.includes(b.c)) f.plane.c = b.c;
+    } else if (a === 'mod') {
+      const it = MOD_BY.get(b.id);
+      if (!it || !it.values.includes(b.v)) throw new HttpError(400, 'mod');
+      f.modsOwn = Array.isArray(f.modsOwn) ? f.modsOwn.filter((id) => MOD_BY.has(id)) : [];
+      if (!f.modsOwn.includes(it.id)) {
+        if (f.coins < it.price) throw new HttpError(400, 'coins');
+        f.coins -= it.price; f.modsOwn.push(it.id); msg = it.name;
+      }
+      f.mods = Object.assign({}, f.mods && typeof f.mods === 'object' ? f.mods : {}, { [it.id]: b.v });
     } else if (a === 'furn') {
       const it = FURN_BY.get(b.id);
       if (!it) throw new HttpError(400, 'furn');
@@ -5171,7 +5193,7 @@ async function farmDrive(c) {
       loc: locOf.get(id) || 'oldtown', house: (hmap.get(id) || {}).house || 0, visited: f.drive.visits.includes(id) }));
     /* it rains in Bloc City when it rains on your garden */
     const weather = weatherAt(locOf.get(s.user) || 'oldtown', c.now).rain ? 1 : 0;
-    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather, look: lookOf(f), arms: armsOf(f), plane: planeOf(f), furn: furnOf(f), missions: Array.isArray(f.missions) ? f.missions : [], coins: f.coins, jobs: jobsToday(today).filter((id) => !(f.drive.jobs || []).includes(id)) });
+    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather, look: lookOf(f), arms: armsOf(f), plane: planeOf(f), furn: furnOf(f), mods: modsOf(f), missions: Array.isArray(f.missions) ? f.missions : [], coins: f.coins, jobs: jobsToday(today).filter((id) => !(f.drive.jobs || []).includes(id)) });
   }
   if (b.a !== 'end') throw new HttpError(400, 'action');
   const friends = await friendsOf(c, s);

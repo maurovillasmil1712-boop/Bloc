@@ -75,7 +75,12 @@ Object.assign(S.en, {
   mi_m2: 'Borrowed wheels', mi_m2_go: 'My cousin’s garage needs a car to fix. Any car. Don’t ask questions, and don’t bring the police with you.', mi_m2_done: 'Perfect. They’ll have it back on the road by Monday. Probably.',
   mi_m3: 'Range day', mi_m3_go: 'Everyone in this city should know their way around Bullseye. Five targets. Show me.', mi_m3_done: 'Five for five. Remind me never to annoy you.',
   mi_m4: 'Special delivery', mi_m4_go: 'A parcel is waiting at the port. Bring it to your flat in five minutes. Bike, car, bus, I don’t care.', mi_m4_done: 'Delivered, still in one piece. You’d make a great courier.',
-  mi_m5: 'Sky tour', mi_m5_go: 'Ever seen the beach from up there? Take a plane, go through my four rings, land it back. Gently.', mi_m5_done: 'You actually landed it. I owe you a coffee.'
+  mi_m5: 'Sky tour', mi_m5_go: 'Ever seen the beach from up there? Take a plane, go through my four rings, land it back. Gently.', mi_m5_done: 'You actually landed it. I owe you a coffee.',
+  phone: 'Phone', home_screen: 'Home screen', app_missions: 'Missions', app_camera: 'Camera', app_map: 'Map', app_radio: 'Radio', app_help: 'Keys',
+  cam_sub: 'The city pauses and the screen clears. Drag to move around, scroll to zoom, then press the shutter.', cam_go: 'Open the camera', cam_exit: 'Done', cam_snap: 'Take a photo', cam_drag: 'Drag to move, scroll to zoom',
+  call_rosa: 'Call Rosa', mi_come: 'Come and see me by the café first.', mi_state_done: 'Done', mi_state_open: 'Not started', mi_state_side: 'Side mission',
+  k_move: 'Walk or drive', k_run: 'Run', k_drift: 'Handbrake, jump', k_car: 'Get in or out, take a car', k_use: 'Use, talk, go in', k_punch: 'Punch', k_gun: 'Draw or switch weapon', k_radio: 'Radio (hold)', k_view: 'Camera', k_map: 'Map', k_phone: 'Phone',
+  mods: 'Mods', mod_spoiler: 'Rear spoiler', mod_tint: 'Tinted windows', mod_glow: 'Neon underglow', mod_rims: 'Rims', modv_true: 'On', modv_false: 'Off', modv_chrome: 'Chrome', modv_black: 'Black', modv_gold: 'Gold', modv_white: 'White'
 });
 Object.assign(S.es, {
   place_arms: 'Galería Bullseye', p_arms: 'Armas y chaleco', p_lane: 'Calles de tiro', staff_gunsmith: 'Encargado de la galería',
@@ -99,7 +104,12 @@ Object.assign(S.es, {
   mi_m2: 'Ruedas prestadas', mi_m2_go: 'El taller de mi primo necesita un coche para arreglar. El que sea. No hagas preguntas y no traigas a la policía.', mi_m2_done: 'Perfecto. Lo tendrán listo el lunes. Seguramente.',
   mi_m3: 'Día de galería', mi_m3_go: 'Todo el mundo en esta ciudad debería saber moverse por Bullseye. Cinco dianas. Demuéstramelo.', mi_m3_done: 'Cinco de cinco. Recuérdame no enfadarte nunca.',
   mi_m4: 'Entrega especial', mi_m4_go: 'Hay un paquete esperando en el puerto. Llévalo a tu piso en cinco minutos. En moto, en coche o en bus, me da igual.', mi_m4_done: 'Entregado y de una pieza. Serías un repartidor estupendo.',
-  mi_m5: 'Paseo por el cielo', mi_m5_go: '¿Has visto la playa desde arriba? Coge una avioneta, pasa por mis cuatro aros y aterriza. Con cuidado.', mi_m5_done: 'Has aterrizado de verdad. Te debo un café.'
+  mi_m5: 'Paseo por el cielo', mi_m5_go: '¿Has visto la playa desde arriba? Coge una avioneta, pasa por mis cuatro aros y aterriza. Con cuidado.', mi_m5_done: 'Has aterrizado de verdad. Te debo un café.',
+  phone: 'Móvil', home_screen: 'Inicio', app_missions: 'Misiones', app_camera: 'Cámara', app_map: 'Mapa', app_radio: 'Radio', app_help: 'Teclas',
+  cam_sub: 'La ciudad se para y la pantalla se limpia. Arrastra para moverte, rueda para acercar y pulsa el disparador.', cam_go: 'Abrir la cámara', cam_exit: 'Listo', cam_snap: 'Hacer una foto', cam_drag: 'Arrastra para moverte, rueda para acercar',
+  call_rosa: 'Llamar a Rosa', mi_come: 'Pásate antes a verme por la cafetería.', mi_state_done: 'Hecha', mi_state_open: 'Sin empezar', mi_state_side: 'Misión secundaria',
+  k_move: 'Andar o conducir', k_run: 'Correr', k_drift: 'Freno de mano, saltar', k_car: 'Subir o bajar, llevarte un coche', k_use: 'Usar, hablar, entrar', k_punch: 'Puñetazo', k_gun: 'Sacar o cambiar de arma', k_radio: 'Radio (mantener)', k_view: 'Cámara', k_map: 'Mapa', k_phone: 'Móvil',
+  mods: 'Mejoras', mod_spoiler: 'Alerón', mod_tint: 'Lunas tintadas', mod_glow: 'Neón inferior', mod_rims: 'Llantas', modv_true: 'Sí', modv_false: 'No', modv_chrome: 'Cromo', modv_black: 'Negras', modv_gold: 'Doradas', modv_white: 'Blancas'
 });
 export function setLang(l) { LANG.v = l === 'es' ? 'es' : 'en'; try { localStorage.setItem('bloc:city:lang', LANG.v); } catch (e) { /* private mode */ } }
 export function initLang(fromApp) {

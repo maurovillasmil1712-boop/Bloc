@@ -14,6 +14,7 @@ import { Interiors } from './interiors.js';
 import { Sheets } from './sheets.js';
 import { Arms } from './arms.js';
 import { Missions } from './missions.js';
+import { Phone } from './phone.js';
 import { Talk } from './talk.js';
 import { Plane, PlaneCam } from '../actors/plane.js';
 import { Human } from '../actors/human.js';
@@ -61,8 +62,9 @@ export class Game {
     this.rooms = new Interiors(this.scene, this.plan, this.homes, this.native);
     this.rooms.setFurn(ctx.test ? ['rug', 'neon', 'console', 'plants'] : d.furn);
     { const ds = this.rooms.doors.filter((x) => x.id !== 'flat'); if (ds.length) { const cx = ds.reduce((a, x) => a + x.x, 0) / ds.length, cz = ds.reduce((a, x) => a + x.z, 0) / ds.length; const near = ds.reduce((b, x) => (Math.hypot(x.x - cx, x.z - cz) < Math.hypot(b.x - cx, b.z - cz) ? x : b)); this.startPos(near.x, near.z); this.safe = { x: this.car.x, z: this.car.z, h: this.car.h }; } }
-    this.car.own = true; this.parked = [];
+    this.car.own = true; this.parked = []; this.mods = d.mods || (ctx.test ? { spoiler: true, glow: '#7CE3FF', rims: 'gold', tint: true } : {}); this.car.setMods(this.mods);
     this.missions = new Missions(this);
+    this.phone = new Phone(this);
     this.sheets = new Sheets(this, !!ctx.test);
     this.arms = new Arms(this);
     this.talk = new Talk(this); this.remarkT = 4; this.timeScale = 1;
@@ -83,7 +85,7 @@ export class Game {
     this.input.on('KeyF', () => this.toggleCar());
     this.input.on('KeyE', () => this.interact());
     this.input.on('KeyJ', () => this.punch());
-    this.input.on('Escape', () => { if (this.talk.convo) this.talk.cancel(); else if (this.sheets.el) this.sheets.close(); else if (this.mapOpen) this.toggleMap(); else this.finish('exit'); });
+    this.input.on('Escape', () => { if (this.phone && this.phone.photo) this.phone.photoEnd(); else if (this.phone && this.phone.el) this.phone.close(); else if (this.talk.convo) this.talk.cancel(); else if (this.sheets.el) this.sheets.close(); else if (this.mapOpen) this.toggleMap(); else this.finish('exit'); });
     this.root.addEventListener('pointerup', () => setTimeout(() => { if (this.fcam.clicked && this.mode === 'foot') { this.fcam.clicked = false; this.punch(); } }, 0));
     this.input.on('KeyN', () => this.cycleSky());
   }
@@ -669,7 +671,7 @@ export class Game {
     const old = this.car, type = { hatch: 'hatch', buggy: 'buggy', van: 'van', gt: 'gt', moto: 'moto' }[id] || 'hatch';
     this.unride();
     const ownParked = this.parked.find((v) => v.own); if (ownParked) { this.scene.remove(ownParked.group); this.parked = this.parked.filter((v) => v !== ownParked); }
-    const c = new Vehicle(type, color, this.world); c.own = true;
+    const c = new Vehicle(type, color, this.world); c.own = true; c.setMods(this.mods);
     c.place(old.x, old.z, old.h, old.y); this.scene.remove(old.group); this.scene.add(c.group); c.sync(); this.car = c;
     if (this.mode === 'car' && c.moto) this.ride();
   }
