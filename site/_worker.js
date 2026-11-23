@@ -4450,6 +4450,13 @@ const FURN = [
   { id: 'telescope', name: 'Telescope', price: 700 }, { id: 'aquarium', name: 'Aquarium', price: 900 }, { id: 'arcade', name: 'Arcade cabinet', price: 2000 }
 ];
 const FURN_BY = new Map(FURN.map((x) => [x.id, x]));
+/* Rosa's missions in Bloc City (v7.5): each pays once, in order (Range day only needs the first one), and only if it
+   took at least min seconds and no longer than the drive itself. Same ids as MISSIONS in src/city/game/missions.js. */
+const MISSIONS = [
+  { id: 'm1', pay: 150, min: 25, need: null }, { id: 'm2', pay: 250, min: 40, need: 'm1' }, { id: 'm3', pay: 200, min: 15, need: 'm1' },
+  { id: 'm4', pay: 300, min: 45, need: 'm2' }, { id: 'm5', pay: 400, min: 70, need: 'm4' }
+];
+const MISSION_BY = new Map(MISSIONS.map((x) => [x.id, x]));
 function furnOf(f) { return (Array.isArray(f.furn) ? f.furn : []).filter((id, i, a) => FURN_BY.has(id) && a.indexOf(id) === i); }
 function cleanArms(f) {
   f.arms = (Array.isArray(f.arms) ? f.arms : []).filter((id, i, a) => ARM_BY.has(id) && a.indexOf(id) === i);
@@ -5164,7 +5171,7 @@ async function farmDrive(c) {
       loc: locOf.get(id) || 'oldtown', house: (hmap.get(id) || {}).house || 0, visited: f.drive.visits.includes(id) }));
     /* it rains in Bloc City when it rains on your garden */
     const weather = weatherAt(locOf.get(s.user) || 'oldtown', c.now).rain ? 1 : 0;
-    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather, look: lookOf(f), arms: armsOf(f), plane: planeOf(f), furn: furnOf(f), coins: f.coins, jobs: jobsToday(today).filter((id) => !(f.drive.jobs || []).includes(id)) });
+    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather, look: lookOf(f), arms: armsOf(f), plane: planeOf(f), furn: furnOf(f), missions: Array.isArray(f.missions) ? f.missions : [], coins: f.coins, jobs: jobsToday(today).filter((id) => !(f.drive.jobs || []).includes(id)) });
   }
   if (b.a !== 'end') throw new HttpError(400, 'action');
   const friends = await friendsOf(c, s);
@@ -5222,6 +5229,14 @@ async function farmDrive(c) {
       if (!j || !offer.includes(j.id) || f.drive.jobs.includes(j.id) || !(ms >= jobFloor(j) && ms <= used * 1000 + 1000)) continue;
       const pay = Math.max(0, Math.min(j.pay, FARM.JOB_CAP - f.drive.jobCoins));
       f.drive.jobs.push(j.id); f.drive.jobCoins += pay; out.coins += pay; out.jobs.push({ id: j.id, coins: pay });
+    }
+    /* missions: once each, in order, believable times */
+    if (!Array.isArray(f.missions)) f.missions = [];
+    out.missions = [];
+    for (const r of (Array.isArray(b.missions) ? b.missions : []).slice(0, 6)) {
+      const m = r && MISSION_BY.get(r.id), ms = Math.round(Number(r && r.ms));
+      if (!m || f.missions.includes(m.id) || (m.need && !f.missions.includes(m.need)) || !(ms >= m.min * 1000 && ms <= used * 1000 + 1000)) continue;
+      f.missions.push(m.id); out.coins += m.pay; out.missions.push({ id: m.id, coins: m.pay });
     }
     /* driving past a friend's house: 10 coins for both of you, once a day */
     const visits = [...new Set((Array.isArray(b.visits) ? b.visits : []).filter((id) => typeof id === 'string' && friendIds.has(id) && !f.drive.visits.includes(id)))].slice(0, 20);

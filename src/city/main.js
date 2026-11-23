@@ -1,6 +1,7 @@
 /* Bloc City v7: boot. The app opens /city/ in a full-screen frame after /api/farm/drive says go and hands over the
    run by postMessage. Opened on its own, the page starts the run itself. ?test=1 runs on made-up data for tests. */
 import * as THREE from 'three/webgpu';
+import { Probe } from './render/probe.js';
 import { makeRenderer, makePipeline, detectPreset, PRESETS, POST } from './render/pipeline.js';
 import { SkySystem } from './render/sky.js';
 import { loadSet, tiersFor, loadIndex, RAW } from './render/textures.js';
@@ -59,7 +60,7 @@ async function sendEnd(start, result) {
   if (inFrame) { post({ type: 'bloc-city-end', result }); return; }
   const d = start.data;
   await fetch('/api/farm/drive', { method: 'POST', credentials: 'same-origin', keepalive: true, headers: { 'Content-Type': 'application/json', 'X-MyIB': '1' },
-    body: JSON.stringify({ a: 'end', run: d.run.id, secs: result.secs, notes: result.notes, crates: result.crates, jumps: result.jumps, visits: result.visits, trial: result.trial, jobs: result.jobs }) }).catch(() => {});
+    body: JSON.stringify({ a: 'end', run: d.run.id, secs: result.secs, notes: result.notes, crates: result.crates, jumps: result.jumps, visits: result.visits, trial: result.trial, jobs: result.jobs, missions: result.missions || [] }) }).catch(() => {});
 }
 /* the plan: in a worker when we can, so the bar keeps moving */
 function planInWorker() {
@@ -116,6 +117,7 @@ async function boot() {
 
   /* the game: the player's car first, so the city warms up around it */
   const audio = TEST && Q.get('sound') !== '1' ? null : new Audio();
+  const probe = Q.get('probe') === '0' ? null : new Probe(renderer, scene, preset);
   const game = new Game({ renderer, scene, camera, plan, city, sky, data: start.data, root: ui, lang: start.lang, native: !!start.native, audio, test: TEST });
   const freeCam = Q.get('cam');
   if (Q.get('at')) { const a = Q.get('at').split(',').map(Number); game.car.place(a[0], a[1], a[2] || 0, groundAt(plan, a[0], a[1])); game.safe = { x: a[0], z: a[1], h: a[2] || 0 }; }
@@ -190,6 +192,7 @@ async function boot() {
     const fo = game.focus(); city.update(freeCam ? camera.position : new THREE.Vector3(fo.x, fo.y, fo.z), 3);
     inst.update(camera);
     if (game.traffic) game.traffic.draw();
+    if (probe && !freeCam) probe.update(dt, game.car, game.mode === 'car' && !game.rooms.inside);
     pipeline.render();
     frames++;
     /* dynamic resolution: hold the frame rate on phones and laptops */

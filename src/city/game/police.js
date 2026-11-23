@@ -4,6 +4,7 @@
    you're busted; get 160 m clear for 12 s and you've lost them. Neither costs coins. */
 import * as THREE from 'three/webgpu';
 import { T } from './i18n.js';
+import { FootCops, Heli } from './cops.js';
 
 export class Police {
   constructor(game, traffic, scene) {
@@ -12,6 +13,7 @@ export class Police {
     const geo = new THREE.BoxGeometry(0.28, 0.12, 0.22);
     this.beacons = new THREE.InstancedMesh(geo, new THREE.MeshBasicNodeMaterial({ color: '#FFFFFF' }), 64); this.beacons.count = 0; this.beacons.frustumCulled = false;
     scene.add(this.beacons);
+    this.foot = new FootCops(game); this.heli = new Heli(game);
     const el = document.createElement('div'); el.className = 'bc-wanted'; el.setAttribute('aria-live', 'polite'); game.ui.el.appendChild(el); this.el = el;
   }
   get cops() { return this.tr.cars.filter((c) => c.alive && c.type === 'police'); }
@@ -44,7 +46,7 @@ export class Police {
   free(c) { if (c.target) { c.target.mode = 'lane'; c.target = null; } c.mode = 'free'; c.v = Math.max(c.v, 8); c.siren = true; }
   release() {
     const me = this.g.me();
-    for (const c of this.tr.cars) if (c.mode === 'free') { c.siren = false; this.tr.spawn(c, me.x, me.z, true); }
+    for (const c of this.tr.cars) if (c.mode === 'free') { c.siren = false; c.dropped = 0; this.tr.spawn(c, me.x, me.z, true); }
   }
   update(dt) {
     const g = this.g, me = g.me(), tr = this.tr, W = g.world;
@@ -64,6 +66,8 @@ export class Police {
       if (pen > 0.05) { c.x = p.x; c.z = p.z; c.v *= 0.92; c.h += dh > 0 ? 0.04 : -0.04; }
       c.y = W.surface(c.x, c.z, c.y + 1).y + 0.02;
       if (d < 7) closeCop = true;
+      /* stopped near you on foot: an officer gets out (two at three stars) */
+      if (g.mode === 'foot' && this.stars > 0 && d < 14 && c.v < 2.5 && (c.dropped || 0) < (this.stars >= 3 ? 2 : 1)) this.foot.spawnFrom(c);
       /* at two stars or more, officers shoot at you when you're on foot and they can see you */
       if (this.stars >= 2 && g.mode === 'foot' && g.arms && !g.arms.off && d < 34 && d > 3) {
         c.gunT = (c.gunT == null ? 0.8 + Math.random() : c.gunT) - dt;
@@ -74,13 +78,15 @@ export class Police {
     }
     if (this.stars > 0) {
       const slow = g.mode !== 'car' || g.car.speed < 2.5;
-      this.close = closeCop && slow ? this.close + dt : Math.max(0, this.close - dt * 2);
+      /* on foot it's the officers who arrest you (see cops.js); in a car, boxing you in does it */
+      this.close = closeCop && slow && g.mode !== 'foot' ? this.close + dt : Math.max(0, this.close - dt * 2);
       if (this.close > 2.5) this.busted();
       this.calm = nearest > 160 ? this.calm + dt : 0;
       if (this.calm > 12) { this.stars = 0; this.calm = 0; g.say(T('lost_them'), T('lost_them_sub')); this.release(); }
       if (g.audio) g.audio.siren(nearest);
     } else if (g.audio) g.audio.siren(1e9);
     this.stopsTick(dt);
+    this.foot.update(dt); this.heli.update(dt);
     this.draw();
     const txt = this.stars ? '★'.repeat(this.stars) + '☆'.repeat(3 - this.stars) : '';
     if (this.el.textContent !== txt) { this.el.textContent = txt; this.el.classList.toggle('on', !!txt); }
@@ -92,7 +98,7 @@ export class Police {
     return true;
   }
   busted() {
-    const g = this.g; this.stars = 0; this.close = 0; this.calm = 0;
+    const g = this.g; this.stars = 0; this.close = 0; this.calm = 0; this.foot.clear();
     g.ui.fade.classList.add('on'); g.say(T('busted'), T('busted_sub'));
     g.talk.say(null, g.talk.pick('cop_bust'), { name: T('officer') });
     if (g.mode === 'car') { g.car.vx = g.car.vz = 0; }

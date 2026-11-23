@@ -13,6 +13,7 @@ import { OnFoot, FootCam } from './foot.js';
 import { Interiors } from './interiors.js';
 import { Sheets } from './sheets.js';
 import { Arms } from './arms.js';
+import { Missions } from './missions.js';
 import { Talk } from './talk.js';
 import { Plane, PlaneCam } from '../actors/plane.js';
 import { Human } from '../actors/human.js';
@@ -61,6 +62,7 @@ export class Game {
     this.rooms.setFurn(ctx.test ? ['rug', 'neon', 'console', 'plants'] : d.furn);
     { const ds = this.rooms.doors.filter((x) => x.id !== 'flat'); if (ds.length) { const cx = ds.reduce((a, x) => a + x.x, 0) / ds.length, cz = ds.reduce((a, x) => a + x.z, 0) / ds.length; const near = ds.reduce((b, x) => (Math.hypot(x.x - cx, x.z - cz) < Math.hypot(b.x - cx, b.z - cz) ? x : b)); this.startPos(near.x, near.z); this.safe = { x: this.car.x, z: this.car.z, h: this.car.h }; } }
     this.car.own = true; this.parked = [];
+    this.missions = new Missions(this);
     this.sheets = new Sheets(this, !!ctx.test);
     this.arms = new Arms(this);
     this.talk = new Talk(this); this.remarkT = 4; this.timeScale = 1;
@@ -197,6 +199,7 @@ export class Game {
     if (this.radio && this.audio.ctx) { const v = this.mode !== 'foot' && !this.rooms.inside; if (v !== this.radio.inVehicle || !this.radio.bus) this.radio.setVehicle(v); }
     if (this.mode === 'car') this.updateCar(dt); else if (this.mode === 'plane') this.updatePlane(dt); else this.updateFoot(dt);
     if (this.arms) this.arms.update(dt);
+    if (this.missions) this.missions.update(dt);
     /* a bus at its stop near you: the driver announces it */
     if (this.traffic && !this.rooms.inside) { const me = this.me(); for (const c of this.traffic.cars) if (c.busStop && c.mode === 'stop' && !c.announced && Math.hypot(c.x - me.x, c.z - me.z) < 26) { c.announced = true; setTimeout(() => { c.announced = false; }, 20000); this.talk.say({ x: c.x, z: c.z }, this.talk.pick('bus'), { name: TEXT('bus_driver') }); } }
     this.updateCrowd(dt);
@@ -535,6 +538,7 @@ export class Game {
       return;
     }
     const d = this.rooms.near(f.x, f.z);
+    if (!d && this.missions && this.missions.nearRosa()) { this.missions.talk(); return; }
     if (!d && this.plane.ground && Math.hypot(this.plane.x - f.x, this.plane.z - f.z) < 7) { this.enterPlane(); return; }
     if (!d && this.crowd) { const p = this.crowd.nearest(f.x, f.z); if (p) { this.talk.converse(p); return; } }
     if (d) {
@@ -629,6 +633,7 @@ export class Game {
       const fx = Math.sin(f.a), fz = Math.cos(f.a);
       if (this.bout) { const b = this.bout; if (Math.hypot(b.x - f.x, b.z - f.z) < 1.3) this.boutHit(); return; }
       if (!this.crowd || this.rooms.inside) return;
+      if (this.police) { const cop = this.police.foot.nearest(f.x + fx * 0.6, f.z + fz * 0.6, 1.0); if (cop) { const r = this.police.foot.hit(cop, 34, fx, fz, false); if (this.audio) this.audio.hit(r === 'down' ? 9 : 5); this.police.crime('fight', cop.x, cop.z); return; } }
       const p = this.crowd.inReach(f.x, f.z, f.a); if (!p) return;
       const r = this.crowd.hitPerson(p, fx, fz);
       if (this.audio) this.audio.hit(r === 'down' ? 9 : 5);
@@ -647,6 +652,7 @@ export class Game {
     else {
       const d = this.rooms.near(this.foot.x, this.foot.z);
       if (d) { label = TEXT('enter') + ': ' + TEXT('place_' + d.id); a = 'use'; }
+      else if (this.missions && this.missions.nearRosa()) { label = TEXT('mi_talk'); a = 'use'; }
       else if (this.plane.ground && Math.hypot(this.plane.x - this.foot.x, this.plane.z - this.foot.z) < 7) { label = TEXT('fly'); a = 'use'; }
       else if (this.crowd && !this.talk.convo && this.crowd.nearest(this.foot.x, this.foot.z)) { const p = this.crowd.nearest(this.foot.x, this.foot.z); label = TEXT('talk') + ': ' + this.talk.nameOf(p); a = 'use'; }
       else if (Math.hypot(this.foot.x - this.car.x, this.foot.z - this.car.z) < 3.6 || this.parked.some((v) => Math.hypot(this.foot.x - v.x, this.foot.z - v.z) < 3.6)) { label = TEXT('get_in'); a = 'car'; }

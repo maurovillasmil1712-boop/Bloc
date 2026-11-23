@@ -200,6 +200,12 @@ export class Arms {
         if (y < p.y - 0.15 || y > top) continue;
         best = { t, kind: 'person', who: p, head: y > top - 0.27 * p.scale };
       }
+      /* officers on foot */
+      if (g.police) for (const cop of g.police.foot.list) {
+        const down = cop.state === 'down';
+        const t = rayCyl(o, d, cop.x, cop.z, down ? 0.8 : 0.32, cop.y - 0.1, cop.y + (down ? 0.35 : 1.78));
+        if (t != null && t > t0 && t < best.t) best = { t, kind: 'cop', who: cop, head: !down && o.y + d.y * t > cop.y + 1.5 };
+      }
       /* cars: a box in each car's own frame */
       const cars = (g.traffic ? g.traffic.near(f.x, f.z, range + 4) : []).concat([g.car]);
       for (const c of cars) {
@@ -222,6 +228,7 @@ export class Arms {
   }
   impact(hit, w, d) {
     const g = this.g, p = hit.p;
+    if (hit.kind === 'cop') { g.police.foot.hit(hit.who, w.dmg * (hit.head ? 2.5 : 1), d.x, d.z, this.blood); this.bleed(hit.p, d, 8); return; }
     if (hit.kind === 'person') this.hitPerson(hit, w, d);
     else if (hit.kind === 'car') {
       for (let i = 0; i < 5; i++) this.sparks.add({ x: p.x, y: p.y, z: p.z, vx: (Math.random() - 0.5) * 4 - d.x * 2, vy: Math.random() * 3, vz: (Math.random() - 0.5) * 4 - d.z * 2, a: 0, life: 0.35, s: 1, floor: p.y - 2 });
@@ -233,7 +240,7 @@ export class Arms {
     } else if (hit.kind === 'target') {
       const tg = hit.tg, room = g.rooms.inside.room, lx = p.x - room.o.x - tg.x, ly = p.y - room.o.y - tg.y;
       const ring = Math.hypot(lx, ly) / (tg.w / 2);
-      tg.v = (tg.v || 0) + 3.5;
+      tg.v = (tg.v || 0) + 3.5; if (g.missions && g.missions.cur) g.missions.targets++;
       g.say(ring < 0.15 ? T('bullseye') : T('target_hit'), (ring > 1 ? 0 : 10 - Math.min(9, Math.floor(ring * 10))) + ' / 10');
       this.dust.add({ x: p.x, y: p.y, z: p.z, a: 0, life: 0.3, s: 0.6 });
     } else if (hit.kind !== 'air') {
@@ -353,3 +360,10 @@ function slab(o, d, x0, y0, z0, x1, y1, z1) {
   return tf < 0 ? null : tn;
 }
 void V; void Q; void S3; void UP;
+/* ray against an upright cylinder (centre x, z, radius r, from y0 to y1): the entry distance, or null */
+function rayCyl(o, d, cx, cz, r, y0, y1) {
+  const ox = o.x - cx, oz = o.z - cz, a = d.x * d.x + d.z * d.z; if (a < 1e-8) return null;
+  const b = ox * d.x + oz * d.z, c = ox * ox + oz * oz - r * r, disc = b * b - a * c; if (disc < 0) return null;
+  const t = (-b - Math.sqrt(disc)) / a, y = o.y + d.y * t;
+  return y < y0 || y > y1 ? null : t;
+}

@@ -115,6 +115,19 @@ export class Audio {
     eg.gain.setValueAtTime(0.0001, t); eg.gain.exponentialRampToValueAtTime(0.18 * P[1] * far, t + 0.09); eg.gain.exponentialRampToValueAtTime(0.0001, t + 0.09 + P[2] * 1.4);
     echo.connect(ef).connect(eg).connect(this.sfx); echo.start(t, Math.random()); echo.stop(t + 0.15 + P[2] * 1.4);
   }
+  /* a helicopter overhead: low noise chopped about 17 times a second, louder as it gets closer */
+  rotor(dist) {
+    if (!this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    if (!this.rot) {
+      const s = c.createBufferSource(); s.buffer = this.noise; s.loop = true;
+      const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420;
+      const chop = c.createGain(); chop.gain.value = 0.5; const lfo = c.createOscillator(); lfo.frequency.value = 17; const depth = c.createGain(); depth.gain.value = 0.5; lfo.connect(depth).connect(chop.gain);
+      const g = c.createGain(); g.gain.value = 0; s.connect(f).connect(chop).connect(g).connect(this.sfx); s.start(); lfo.start(); this.rot = { g };
+    }
+    const vol = dist > 400 ? 0 : Math.min(0.32, 0.32 * (1 - dist / 400));
+    this.rot.g.gain.setTargetAtTime(vol, t, 0.3);
+  }
   /* small mechanical sounds: reload, empty click, a bullet hitting metal */
   click(kind = 'empty') {
     if (!this.ctx) return;
