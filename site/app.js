@@ -8456,7 +8456,7 @@
           '<p class="pet-note">Drive into a yellow ring to start. A medal pays coins once a day; your first gold on each route gives a rare seed.</p></section>' +
         '<section class="card farm-card" aria-labelledby="h-garage"><header class="card-head"><h2 id="h-garage">Garage</h2></header>' + grp(cars) + '<div class="car-sws" role="group" aria-label="Car colour">' + swatches + '</div></section>' +
         '<section class="card farm-card" aria-labelledby="h-keys"><header class="card-head"><h2 id="h-keys">Controls</h2></header><ul class="farm-list">' +
-          '<li><span>Drive</span><span class="hint">W A S D or the arrows</span></li><li><span>Handbrake and drift</span><span class="hint">Space</span></li><li><span>Camera</span><span class="hint">V</span></li><li><span>Map</span><span class="hint">M</span></li><li><span>Leave</span><span class="hint">Esc</span></li></ul>' +
+          '<li><span>Drive</span><span class="hint">W A S D or the arrows</span></li><li><span>Handbrake and drift</span><span class="hint">Space</span></li><li><span>Get out, get in</span><span class="hint">F</span></li><li><span>Go in, use</span><span class="hint">E</span></li><li><span>Camera</span><span class="hint">V</span></li><li><span>Map</span><span class="hint">M</span></li><li><span>Leave</span><span class="hint">Esc</span></li></ul>' +
           '<div class="row"><span>Language in the city</span><span class="seg" role="group" aria-label="Language in the city"><button type="button" data-act="city-lang" data-l="en" aria-pressed="' + (cityLang() === 'en') + '">English</button><button type="button" data-act="city-lang" data-l="es" aria-pressed="' + (cityLang() === 'es') + '">Español</button></span></div>' +
           '<p class="pet-note">On a phone: steer with the left buttons, gas and brake on the right.</p></section>' +
       '</div>';
@@ -8477,7 +8477,7 @@
   function cityLang() { var l = sget('bloc:city:lang'); return l === 'es' || l === 'en' ? l : (/^es\b/i.test(navigator.language || '') ? 'es' : 'en'); }
   function cityOpen(data) {
     var f = document.createElement('iframe'), ended = false, opener = document.activeElement;
-    f.className = 'city-frame'; f.title = 'Bloc City'; f.src = '/city/?v=7.0.3';
+    f.className = 'city-frame'; f.title = 'Bloc City'; f.src = '/city/?v=7.1.0';
     f.setAttribute('allow', 'fullscreen; gamepad; autoplay');
     function onMsg(e) {
       if (e.origin !== location.origin || e.source !== f.contentWindow || !e.data) return;

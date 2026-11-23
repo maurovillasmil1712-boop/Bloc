@@ -31,7 +31,8 @@ function fakeData() {
   return {
     data: { now: Date.now(), run: { id: 'test' }, fuel: +(Q.get('fuel') || 900), car: { id: Q.get('car') || 'hatch' }, color: Q.get('color') ? '#' + Q.get('color') : '#FFE14D',
       homes: [{ id: 'me', name: 'Home', me: true, loc: 'oldtown' }, { id: 'luca', name: 'Luca', loc: 'beach' }, { id: 'sofia', name: 'Sofía', loc: 'ensanche' }],
-      drive: { notes: [], crates: [], visits: [] }, jumps: [], cat: null, seed: 'test' },
+      drive: { notes: [], crates: [], visits: [] }, jumps: [], cat: null, seed: 'test', coins: 2000,
+      look: { skin: '#C98E66', hair: 'curly', hairC: '#1B1714', top: { kind: 'hoodie', c: '#1D1F24' }, bottom: { kind: 'joggers', c: '#7E8288' }, shoes: { kind: 'sneaker', c: '#F4F4F2' }, hat: { kind: 'none', c: '#000000' } } },
     me: 'me', native: Q.get('native') === '1', lang: Q.get('lang')
   };
 }
@@ -113,7 +114,7 @@ async function boot() {
 
   /* the game: the player's car first, so the city warms up around it */
   const audio = TEST && Q.get('sound') !== '1' ? null : new Audio();
-  const game = new Game({ renderer, scene, camera, plan, city, sky, data: start.data, root: ui, lang: start.lang, native: !!start.native, audio });
+  const game = new Game({ renderer, scene, camera, plan, city, sky, data: start.data, root: ui, lang: start.lang, native: !!start.native, audio, test: TEST });
   const freeCam = Q.get('cam');
   if (Q.get('at')) { const a = Q.get('at').split(',').map(Number); game.car.place(a[0], a[1], a[2] || 0, groundAt(plan, a[0], a[1])); game.safe = { x: a[0], z: a[1], h: a[2] || 0 }; }
   game.car.sync();
@@ -141,6 +142,9 @@ async function boot() {
     for (const t of inst.types) if (t.id.startsWith('parked-')) for (const cells of t.grid.values()) for (const it of cells) game.world.collide.addBox(it.x, it.z, 0.95, 2.15, -it.r, it.y + 1.6);
   }
   if (Q.get('traffic') !== '0' && P.cars > 0) { game.traffic = new Traffic(scene, plan, P.cars); game.traffic.init(game.car.x, game.car.z); }
+  /* tests: start on foot, or inside a place */
+  if (Q.get('foot') === '1' || Q.get('room')) game.toggleCar();
+  if (Q.get('room')) { const d = game.rooms.doors.find((x) => x.id === Q.get('room')); if (d) { game.foot.place(d.x, d.z, d.a, d.y); game.interact(); } }
   progress(0.92, T('loading_light'));
   sky.update(Date.now(), camera.position, rain);
   fogCol.value.copy(sky.fogColor);
@@ -173,9 +177,9 @@ async function boot() {
       camera.position.set(c[0], c[1] + gy(c[0], c[2]), c[2]); camera.lookAt(c[3], c[4] + gy(c[3], c[5]), c[5]);
     } else {
       game.update(Math.min(dt, 0.05));
-      if (audio) audio.car(game.car, game.car.input.throttle || 0, dt);
+      if (audio) audio.car(game.car, game.mode === 'car' ? game.car.input.throttle || 0 : 0, dt);
     }
-    city.update(freeCam ? camera.position : game.car.group.position, 3);
+    const fo = game.focus(); city.update(freeCam ? camera.position : new THREE.Vector3(fo.x, fo.y, fo.z), 3);
     inst.update(camera);
     if (game.traffic) game.traffic.draw();
     pipeline.render();

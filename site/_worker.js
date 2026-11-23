@@ -4355,6 +4355,62 @@ const CARS = [
 ];
 const CAR_BY = new Map(CARS.map((x) => [x.id, x]));
 const CAR_COLORS = ['#FFE14D', '#FF5A5F', '#3E9BD6', '#1E9E6A', '#F28C28', '#8C3B72', '#191D29', '#F3F4F6'];
+/* Bloc City v7.1: how you look on foot. Body and hair are free to change; clothes are bought with coins
+   in the city's clothing shop. Each item is a kind (drawn in code by src/city/actors/human.js) and a colour. */
+const SKINS = ['#F6D7C3', '#E8B896', '#C98E66', '#9A6440', '#6B4228', '#3F2718'];
+const HAIRS = ['short', 'buzz', 'curly', 'long', 'bun', 'none'];
+const HAIR_COLORS = ['#1B1714', '#3B2A1E', '#6A4A2E', '#A7763F', '#D9B26B', '#B8433A', '#8E8E8E', '#EDEDED'];
+const OUTFITS = [
+  { id: 'tee-white', slot: 'top', kind: 'tee', c: '#F2F2EE', name: 'White tee', price: 0 },
+  { id: 'tee-ink', slot: 'top', kind: 'tee', c: '#22262F', name: 'Ink tee', price: 40 },
+  { id: 'tee-yellow', slot: 'top', kind: 'tee', c: '#FFE14D', name: 'Highlighter tee', price: 60 },
+  { id: 'tee-red', slot: 'top', kind: 'tee', c: '#C8383C', name: 'Red tee', price: 60 },
+  { id: 'shirt-blue', slot: 'top', kind: 'shirt', c: '#8FB3D9', name: 'Oxford shirt', price: 180 },
+  { id: 'shirt-linen', slot: 'top', kind: 'shirt', c: '#E7DCC6', name: 'Linen shirt', price: 240 },
+  { id: 'hoodie-grey', slot: 'top', kind: 'hoodie', c: '#8D9096', name: 'Grey hoodie', price: 220 },
+  { id: 'hoodie-black', slot: 'top', kind: 'hoodie', c: '#1D1F24', name: 'Black hoodie', price: 260 },
+  { id: 'hoodie-green', slot: 'top', kind: 'hoodie', c: '#3F5E45', name: 'Forest hoodie', price: 300 },
+  { id: 'jacket-denim', slot: 'top', kind: 'jacket', c: '#4A6A93', name: 'Denim jacket', price: 450 },
+  { id: 'jacket-bomber', slot: 'top', kind: 'jacket', c: '#4B5135', name: 'Bomber jacket', price: 650 },
+  { id: 'jacket-leather', slot: 'top', kind: 'jacket', c: '#2A201C', name: 'Leather jacket', price: 1200 },
+  { id: 'jacket-varsity', slot: 'top', kind: 'jacket', c: '#7A1F2B', name: 'Varsity jacket', price: 900 },
+  { id: 'jeans-blue', slot: 'bottom', kind: 'jeans', c: '#3B5578', name: 'Blue jeans', price: 0 },
+  { id: 'jeans-black', slot: 'bottom', kind: 'jeans', c: '#1E2026', name: 'Black jeans', price: 120 },
+  { id: 'chinos-sand', slot: 'bottom', kind: 'jeans', c: '#C4B08A', name: 'Sand chinos', price: 160 },
+  { id: 'joggers-grey', slot: 'bottom', kind: 'joggers', c: '#7E8288', name: 'Grey joggers', price: 140 },
+  { id: 'joggers-black', slot: 'bottom', kind: 'joggers', c: '#202227', name: 'Black joggers', price: 160 },
+  { id: 'shorts-navy', slot: 'bottom', kind: 'shorts', c: '#283A5A', name: 'Navy shorts', price: 90 },
+  { id: 'shorts-khaki', slot: 'bottom', kind: 'shorts', c: '#A9976B', name: 'Khaki shorts', price: 90 },
+  { id: 'shoes-white', slot: 'shoes', kind: 'sneaker', c: '#F4F4F2', name: 'White sneakers', price: 0 },
+  { id: 'shoes-black', slot: 'shoes', kind: 'sneaker', c: '#1A1B1F', name: 'Black sneakers', price: 120 },
+  { id: 'shoes-red', slot: 'shoes', kind: 'sneaker', c: '#B8323A', name: 'Red runners', price: 220 },
+  { id: 'boots-brown', slot: 'shoes', kind: 'boot', c: '#5A3A24', name: 'Brown boots', price: 380 },
+  { id: 'shoes-gold', slot: 'shoes', kind: 'sneaker', c: '#D4A93C', name: 'Gold sneakers', price: 1500 },
+  { id: 'hat-none', slot: 'hat', kind: 'none', c: '#000000', name: 'No hat', price: 0 },
+  { id: 'cap-ink', slot: 'hat', kind: 'cap', c: '#22262F', name: 'Ink cap', price: 80 },
+  { id: 'cap-yellow', slot: 'hat', kind: 'cap', c: '#FFE14D', name: 'Bloc cap', price: 150 },
+  { id: 'beanie-grey', slot: 'hat', kind: 'beanie', c: '#77797E', name: 'Grey beanie', price: 100 },
+  { id: 'beanie-orange', slot: 'hat', kind: 'beanie', c: '#D9692B', name: 'Orange beanie', price: 120 }
+];
+const OUTFIT_BY = new Map(OUTFITS.map((x) => [x.id, x]));
+const OUTFIT_SLOTS = ['top', 'bottom', 'shoes', 'hat'];
+const OUTFIT_START = { top: 'tee-white', bottom: 'jeans-blue', shoes: 'shoes-white', hat: 'hat-none' };
+function cleanLook(f) {
+  const a = f.avatar && typeof f.avatar === 'object' ? f.avatar : {};
+  f.avatar = { skin: SKINS.includes(a.skin) ? a.skin : SKINS[1], hair: HAIRS.includes(a.hair) ? a.hair : 'short', hairC: HAIR_COLORS.includes(a.hairC) ? a.hairC : HAIR_COLORS[1] };
+  const own = new Set((Array.isArray(f.wardrobe) ? f.wardrobe : []).filter((id) => OUTFIT_BY.has(id)));
+  for (const x of OUTFITS) if (!x.price) own.add(x.id);
+  f.wardrobe = [...own];
+  const o = f.outfit && typeof f.outfit === 'object' ? f.outfit : {}, wear = {};
+  for (const slot of OUTFIT_SLOTS) { const it = OUTFIT_BY.get(o[slot]); wear[slot] = it && it.slot === slot && own.has(it.id) ? it.id : OUTFIT_START[slot]; }
+  f.outfit = wear;
+}
+/* what the city needs to draw you */
+function lookOf(f) {
+  const out = { skin: f.avatar.skin, hair: f.avatar.hair, hairC: f.avatar.hairC };
+  for (const slot of OUTFIT_SLOTS) { const it = OUTFIT_BY.get(f.outfit[slot]); out[slot] = { kind: it.kind, c: it.c }; }
+  return out;
+}
 /* time trials: checkpoints on Bloc City's road grid (metres). Medals from the route's length. */
 const TRIALS = [
   /* v7: the redesigned city. Same points as placeTrials() in src/city/world/plan.js */
@@ -4387,6 +4443,7 @@ function trialTimes(t) {
 function farmCatalog() {
   return {
     rarity: RARITY, species: SPECIES, houses: HOUSES, locs: LOCS, decos: DECOS, cars: CARS, colors: CAR_COLORS,
+    outfits: OUTFITS, skins: SKINS, hairs: HAIRS, hairColors: HAIR_COLORS,
     trials: TRIALS.map((t) => Object.assign({ id: t.id, name: t.name, pts: t.pts }, trialTimes(t))),
     rules: { fuelPerMin: FARM.FUEL_PER_MIN, fuelMax: FARM.FUEL_MAX, sunMax: FARM.SUN_MAX, dayCap: FARM.DAY_CAP, noteN: FARM.NOTE_N, noteCoins: FARM.NOTE_COINS, crateN: FARM.CRATE_N, jumpN: FARM.JUMP_N, starStep: FARM.STAR_STEP, starBase: FARM.STAR_BASE }
   };
@@ -4508,6 +4565,7 @@ function cleanFarm(f, now) {
   if (!o.best || typeof o.best !== 'object') o.best = {};
   if (!Array.isArray(o.golds)) o.golds = [];
   if (!Array.isArray(o.log)) o.log = [];
+  cleanLook(o);
   return o;
 }
 /* new study since last time becomes sun and fuel; each day counts once, so deleting
@@ -4637,7 +4695,8 @@ function publicFarm(f, extra) {
   return Object.assign({
     coins: f.coins, sun: f.sun, fuel: f.fuel, seeds: f.seeds, basket: f.basket, house: f.house, locs: f.locs, deco: f.deco,
     index: f.index, stars: f.stars, cars: f.cars, car: f.car, color: f.color, best: f.best, golds: f.golds, jumps: f.jumps,
-    drive: f.drive, log: f.log.slice(0, 12), seen: f.seen || 0
+    drive: f.drive, log: f.log.slice(0, 12), seen: f.seen || 0,
+    avatar: f.avatar, wardrobe: f.wardrobe, outfit: f.outfit, look: lookOf(f)
   }, extra || {});
 }
 async function farmPayload(c, s, f, bits, extra) {
@@ -4795,6 +4854,18 @@ async function farmAct(c) {
     } else if (a === 'color') {
       if (!CAR_COLORS.includes(b.c)) throw new HttpError(400, 'color');
       f.color = b.c;
+    } else if (a === 'avatar') {
+      /* body and hair are free */
+      f.avatar = { skin: SKINS.includes(b.skin) ? b.skin : f.avatar.skin, hair: HAIRS.includes(b.hair) ? b.hair : f.avatar.hair, hairC: HAIR_COLORS.includes(b.hairC) ? b.hairC : f.avatar.hairC };
+    } else if (a === 'outfit') {
+      /* buy (if needed) and wear one item */
+      const it = OUTFIT_BY.get(b.id);
+      if (!it) throw new HttpError(400, 'outfit');
+      if (!f.wardrobe.includes(it.id)) {
+        if (f.coins < it.price) throw new HttpError(400, 'coins');
+        f.coins -= it.price; f.wardrobe.push(it.id); msg = it.name;
+      }
+      f.outfit[it.slot] = it.id;
     } else if (a === 'star') {
       if (f.stars >= stars.avail) throw new HttpError(400, 'no_star');
       f.stars += 1;
@@ -4955,7 +5026,7 @@ async function farmDrive(c) {
       loc: locOf.get(id) || 'oldtown', house: (hmap.get(id) || {}).house || 0, visited: f.drive.visits.includes(id) }));
     /* it rains in Bloc City when it rains on your garden */
     const weather = weatherAt(locOf.get(s.user) || 'oldtown', c.now).rain ? 1 : 0;
-    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather });
+    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather, look: lookOf(f), coins: f.coins });
   }
   if (b.a !== 'end') throw new HttpError(400, 'action');
   const friends = await friendsOf(c, s);

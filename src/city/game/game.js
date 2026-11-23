@@ -9,6 +9,9 @@ import { cratePoints, homeLot, MAP, isWater, districtAt, DISTRICTS, sampleHeight
 import { POST } from '../render/pipeline.js';
 import { U } from '../render/materials.js';
 import { T as TEXT } from './i18n.js';
+import { OnFoot, FootCam } from './foot.js';
+import { Interiors } from './interiors.js';
+import { Sheets } from './sheets.js';
 
 function qNow() { let q = null; try { q = localStorage.getItem('bloc:city:q'); } catch (e) { /* ignore */ } return ['low', 'medium', 'high', 'ultra'].indexOf(q) >= 0 ? q : 'auto'; }
 const fmt = (s) => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
@@ -38,9 +41,20 @@ export class Game {
     this.buildHud();
     this.startPos();
     this.safe = { x: this.car.x, z: this.car.z, h: this.car.h };
+    /* on foot, places to go in, and their panels */
+    this.mode = 'car';
+    this.foot = new OnFoot(this.world, d.look);
+    this.foot.group.visible = false; this.scene.add(this.foot.group);
+    this.fcam = new FootCam(this.camera, this.root);
+    this.rooms = new Interiors(this.scene, this.plan, this.homes);
+    this.sheets = new Sheets(this, !!ctx.test);
     this.input.on('KeyM', () => this.toggleMap());
-    this.input.on('KeyV', () => this.say(TEXT('view_' + this.cam.next())));
-    this.input.on('Escape', () => { if (this.mapOpen) this.toggleMap(); else this.finish('exit'); });
+    this.input.on('KeyV', () => this.nextView());
+    this.input.on('KeyF', () => this.toggleCar());
+    this.input.on('KeyE', () => this.interact());
+    this.input.on('KeyJ', () => this.punch());
+    this.input.on('Escape', () => { if (this.sheets.el) this.sheets.close(); else if (this.mapOpen) this.toggleMap(); else this.finish('exit'); });
+    this.root.addEventListener('pointerup', () => setTimeout(() => { if (this.fcam.clicked && this.mode === 'foot') { this.fcam.clicked = false; this.punch(); } }, 0));
     this.input.on('KeyN', () => this.cycleSky());
   }
   startPos() {
@@ -98,18 +112,18 @@ export class Game {
       `<div class="bc-top"><div class="bc-panel bc-fuel"><b class="bc-f">0:00</b><span class="bc-sub">${t('fuel')}</span><div class="bc-bar"><i></i></div></div>` +
       `<div class="bc-btns"><button type="button" class="bc-btn" data-k="view">${t('view')}</button><button type="button" class="bc-btn" data-k="sky">${t('sky_live')}</button><button type="button" class="bc-btn" data-k="q">${t('quality')}: ${t('q_' + qNow())}</button><button type="button" class="bc-btn" data-k="map">${t('map')}</button><button type="button" class="bc-btn x" data-k="exit">${t('done')}</button></div></div>` +
       `<canvas class="bc-mini" width="320" height="320" aria-hidden="true"></canvas><div class="bc-place"></div>` +
-      `<div class="bc-trial" hidden></div><div class="bc-msg"></div>` +
+      `<div class="bc-trial" hidden></div><div class="bc-msg"></div><button type="button" class="bc-act" data-k="act" hidden></button>` +
       `<div class="bc-speed"><b>0</b><span>km/h</span></div>` +
       `<div class="bc-touch${coarse ? ' on' : ''}"><div class="bc-pad"><button type="button" class="bc-key" data-in="left" aria-label="${t('left')}">◀</button><button type="button" class="bc-key" data-in="right" aria-label="${t('right')}">▶</button></div>` +
       `<div class="bc-pad"><button type="button" class="bc-key small" data-in="hand">${t('drift')}</button><button type="button" class="bc-key" data-in="down" aria-label="${t('brake')}">▼</button><button type="button" class="bc-key" data-in="up" aria-label="${t('gas')}">▲</button></div></div>` +
       `<div class="bc-map"><canvas></canvas><p>${t('map_hint')}</p></div><div class="bc-fade"></div>`;
     r.appendChild(el);
     const $ = (s) => el.querySelector(s);
-    this.ui = { el, fuel: $('.bc-f'), sub: $('.bc-sub'), bar: $('.bc-bar i'), speed: $('.bc-speed b'), msg: $('.bc-msg'), trial: $('.bc-trial'), mini: $('.bc-mini'), map: $('.bc-map'), fade: $('.bc-fade'), place: $('.bc-place'), sky: $('[data-k="sky"]') };
+    this.ui = { el, fuel: $('.bc-f'), sub: $('.bc-sub'), bar: $('.bc-bar i'), speed: $('.bc-speed b'), msg: $('.bc-msg'), trial: $('.bc-trial'), mini: $('.bc-mini'), map: $('.bc-map'), fade: $('.bc-fade'), place: $('.bc-place'), sky: $('[data-k="sky"]'), act: $('.bc-act'), speedBox: $('.bc-speed') };
     el.addEventListener('click', (e) => {
       const b = e.target.closest('[data-k]'); if (!b) return;
       const k = b.dataset.k;
-      if (k === 'exit') this.finish('exit'); else if (k === 'map') this.toggleMap(); else if (k === 'view') this.say(t('view_' + this.cam.next())); else if (k === 'sky') this.cycleSky(); else if (k === 'q') this.cycleQuality(b);
+      if (k === 'exit') this.finish('exit'); else if (k === 'map') this.toggleMap(); else if (k === 'view') this.nextView(); else if (k === 'act') this.contextAct(); else if (k === 'sky') this.cycleSky(); else if (k === 'q') this.cycleQuality(b);
     });
     this.ui.map.addEventListener('click', () => this.toggleMap());
     this.labels = this.homes.map((h) => { const d = document.createElement('div'); d.className = 'bc-label' + (h.me ? ' home' : ''); d.textContent = h.me ? t('home') : h.name; el.appendChild(d); return d; });
@@ -139,13 +153,31 @@ export class Game {
   /* ---------- the frame ---------- */
   update(dt) {
     if (this.ended) return;
-    if (this.mapOpen || this.paused) return;
+    if (this.rooms) this.rooms.update(dt);
+    if (this.mapOpen || this.paused) { if (this.mode === 'foot') this.foot.sync(dt); return; }
     this.driven += dt; this.fuel -= dt;
+    this.world.wet = U.wet.value;
+    if (this.mode === 'car') this.updateCar(dt); else this.updateFoot(dt);
+    this.pickups();
+    this.prompt();
+    this.hud(dt);
+    if (this.fuel <= 0) this.finish('fuel');
+  }
+  /* where the world should stream and traffic should gather: you, or the door you went in by */
+  focus() {
+    if (this.rooms.inside) { const d = this.rooms.inside.door; return { x: d.x, y: d.y, z: d.z }; }
+    return this.mode === 'car' ? { x: this.car.x, y: this.car.y, z: this.car.z } : { x: this.foot.x, y: this.foot.y, z: this.foot.z };
+  }
+  stepCar(dt, input) {
     const car = this.car;
-    car.input = this.input.car();
-    this.world.h = car.h; this.world.wet = U.wet.value;
+    car.input = input;
+    this.world.h = car.h;
     const sub = Math.max(1, Math.ceil(dt / (1 / 120)));
     for (let k = 0; k < sub; k++) car.step(dt / sub);
+  }
+  updateCar(dt) {
+    const car = this.car;
+    this.stepCar(dt, this.input.car());
     /* other cars push back */
     if (this.traffic) {
       for (const o of this.traffic.near(car.x, car.z, 6)) {
@@ -164,11 +196,115 @@ export class Game {
       setTimeout(() => this.ui.fade.classList.remove('on'), 380);
     } else if (!car.air && Math.abs(car.vf || 0) > 2 && this.world.surface(car.x, car.z, car.y).road) this.safe = { x: car.x, z: car.z, h: car.h };
     car.sync();
-    this.pickups();
     this.cam.update(dt, car, (x, z) => sampleHeight(this.plan.height, x, z));
     POST.motion.value = Math.max(0, Math.min(1, (car.speed - 22) / 30));
-    this.hud(dt);
-    if (this.fuel <= 0) this.finish('fuel');
+  }
+  updateFoot(dt) {
+    const f = this.foot, car = this.car;
+    /* the parked car settles with the handbrake on */
+    if (!this.rooms.inside) { this.stepCar(dt, { throttle: 0, brake: 1, steer: 0, hand: 1 }); car.sync(); }
+    const obstacles = [];
+    if (!this.rooms.inside) {
+      const fx = Math.sin(car.h), fz = Math.cos(car.h);
+      for (const o of [-1.3, 0, 1.3]) obstacles.push({ x: car.x + fx * o, z: car.z + fz * o, r: 0.95 });
+      if (this.traffic) for (const o of this.traffic.near(f.x, f.z, 5)) obstacles.push({ x: o.x, z: o.z, r: 1.7 });
+      if (this.traffic) this.traffic.update(dt, { x: f.x, z: f.z, forwardSpeed: 0 });
+    }
+    const touch = this.ui.el.querySelector('.bc-touch.on') != null;
+    const res = f.step(dt, this.input.k, this.fcam.yaw, obstacles, touch);
+    if (res === 'water') {
+      this.ui.fade.classList.add('on');
+      const sf = f.safe || { x: car.x + 2, z: car.z, a: car.h };
+      f.place(sf.x, sf.z, sf.a); this.say(TEXT('splash'), TEXT('back_on_land'));
+      setTimeout(() => this.ui.fade.classList.remove('on'), 380);
+    }
+    f.sync(dt);
+    this.fcam.update(dt, f, (x, z, y) => {
+      if (this.rooms.inside) { const r = this.rooms.inside.room; return Math.abs(x - r.o.x) > r.W / 2 - 0.2 || Math.abs(z - r.o.z) > r.D / 2 - 0.2 || y > r.o.y + r.h - 0.2; }
+      const p = { x, z }; return this.world.collide.resolve(p, 0.2, y, { x: 0, z: 0 }) > 0;
+    });
+    POST.motion.value = 0;
+  }
+  nextView() {
+    if (this.mode === 'car') this.say(TEXT('view_' + this.cam.next()));
+    else this.say(TEXT('view_' + this.fcam.next()));
+  }
+  /* F: get out of the car or back in */
+  toggleCar() {
+    if (this.sheets.el || this.rooms.inside) return;
+    const car = this.car, f = this.foot;
+    if (this.mode === 'car') {
+      if (car.speed > 5) { this.say(TEXT('slow_down')); return; }
+      /* step out on the driver's side, or the other side if that's blocked */
+      const lx = Math.cos(car.h), lz = -Math.sin(car.h);
+      let px = car.x + lx * 1.5, pz = car.z + lz * 1.5;
+      const test = { x: px, z: pz };
+      if (this.world.collide.resolve(test, 0.4, car.y + 0.9, { x: 0, z: 0 }) > 0.05) { px = car.x - lx * 1.5; pz = car.z - lz * 1.5; }
+      f.place(px, pz, car.h);
+      this.mode = 'foot'; f.group.visible = true; this.fcam.active = true; this.fcam.init = false; this.fcam.placed = false; this.fcam.yaw = car.h;
+      if (this.audio) this.audio.duck(true);
+    } else {
+      if (Math.hypot(f.x - car.x, f.z - car.z) > 3.6) { this.say(TEXT('too_far'), TEXT('find_car')); return; }
+      this.mode = 'car'; f.group.visible = false; this.fcam.active = false; this.cam.init = false;
+      this.camera.fov = 60; this.camera.updateProjectionMatrix();
+      if (this.audio) this.audio.duck(false);
+    }
+  }
+  /* E: go in, come out, or use what you're standing next to */
+  interact() {
+    if (this.sheets.el) { this.sheets.close(); return; }
+    if (this.mode !== 'foot') return;
+    const f = this.foot;
+    if (this.rooms.inside) {
+      const s = this.rooms.spotAt(f.x, f.z); if (!s) return;
+      if (s.act === 'leave') {
+        const d = this.rooms.leave(); f.indoor = null;
+        f.place(d.x + Math.sin(d.a) * 0.9, d.z + Math.cos(d.a) * 0.9, d.a, d.y);
+        this.fcam.init = false; this.fcam.placed = false; this.fcam.yaw = d.a;
+        this.fade();
+      } else if (s.act === 'shop') this.sheets.shop();
+      else if (s.act === 'garage') this.sheets.garage();
+      else this.say(TEXT('do_' + s.act), TEXT('do_' + s.act + '_sub'));
+      return;
+    }
+    const d = this.rooms.near(f.x, f.z);
+    if (d) {
+      const r = this.rooms.enter(d); f.indoor = r;
+      f.place(r.o.x, r.o.z - r.D / 2 + 1.2, 0, r.o.y);
+      this.fcam.init = false; this.fcam.placed = false; this.fcam.yaw = 0;
+      this.fade(); this.say(TEXT('place_' + d.id));
+    }
+  }
+  contextAct() { const a = this.ui.act.dataset.a; if (a === 'car') this.toggleCar(); else if (a === 'use') this.interact(); }
+  fade() { this.ui.fade.classList.add('on'); setTimeout(() => this.ui.fade.classList.remove('on'), 320); }
+  punch() {
+    if (this.mode !== 'foot' || this.sheets.el) return;
+    if (!this.foot.human.punch()) return;
+    const f = this.foot;
+    setTimeout(() => { if (this.rooms.hitBag(f.x + Math.sin(f.a) * 0.6, f.z + Math.cos(f.a) * 0.6, Math.sin(f.a), Math.cos(f.a)) && this.audio) this.audio.hit(5); }, 140);
+  }
+  /* what E or F would do right now, shown as a button (and a hint on keyboards) */
+  prompt() {
+    let label = null, a = null;
+    const keys = !this.ui.el.querySelector('.bc-touch.on');
+    if (this.mode === 'car') { if (this.car.speed < 5) { label = TEXT('get_out'); a = 'car'; } }
+    else if (this.rooms.inside) { const s = this.rooms.spotAt(this.foot.x, this.foot.z); if (s) { label = TEXT('p_' + s.act); a = 'use'; } }
+    else {
+      const d = this.rooms.near(this.foot.x, this.foot.z);
+      if (d) { label = TEXT('enter') + ': ' + TEXT('place_' + d.id); a = 'use'; }
+      else if (Math.hypot(this.foot.x - this.car.x, this.foot.z - this.car.z) < 3.6) { label = TEXT('get_in'); a = 'car'; }
+    }
+    const b = this.ui.act;
+    if (!label) { if (!b.hidden) b.hidden = true; return; }
+    const text = (keys ? (a === 'car' ? 'F  ' : 'E  ') : '') + label;
+    if (b.textContent !== text) b.textContent = text;
+    b.dataset.a = a; if (b.hidden) b.hidden = false;
+  }
+  setLook(look) { this.foot.human.setLook(look); this.data.look = look; }
+  setCar(id, color) {
+    const old = this.car, type = { hatch: 'hatch', buggy: 'buggy', van: 'van', gt: 'gt' }[id] || 'hatch';
+    const c = new Vehicle(type, color, this.world);
+    c.place(old.x, old.z, old.h, old.y); this.scene.remove(old.group); this.scene.add(c.group); c.sync(); this.car = c;
   }
   jumped(airT) {
     const id = this.car.jumpId;
@@ -178,7 +314,8 @@ export class Game {
     if (this.audio) this.audio.chime(1320);
   }
   pickups() {
-    const car = this.car, A = this.audio;
+    if (this.rooms && this.rooms.inside) return;
+    const car = this.mode === 'car' ? this.car : { x: this.foot.x, z: this.foot.z, air: this.foot.air }, A = this.audio;
     for (let i = 0; i < this.notes.length; i++) {
       if (this.taken.has(i)) continue;
       const p = this.notes[i];
@@ -216,8 +353,16 @@ export class Game {
     this.cp.rotation.set(0, Math.atan2(p[0] - q[0], p[1] - q[1]), 0);
     this.cp.visible = true; this.ui.trial.hidden = false;
   }
+  /* the body you're in right now, for the HUD and maps */
+  me() {
+    if (this.mode === 'car') return this.car;
+    const fo = this.rooms.inside ? this.rooms.inside.door : null;
+    return fo ? { x: fo.x, z: fo.z, h: fo.a, speed: 0 } : { x: this.foot.x, z: this.foot.z, h: this.foot.a, speed: this.foot.speed };
+  }
   hud(dt) {
-    const U2 = this.ui, car = this.car, t = TEXT;
+    const U2 = this.ui, car = this.me(), t = TEXT;
+    U2.speedBox.style.display = this.mode === 'car' ? '' : 'none';
+    U2.mini.style.display = U2.place.style.display = this.rooms.inside ? 'none' : '';
     U2.speed.textContent = Math.round(car.speed * 3.6);
     U2.fuel.textContent = fmt(this.fuel);
     U2.sub.textContent = this.result.notes.length ? t('fuel_notes', { n: this.result.notes.length }) : t('fuel');
@@ -238,14 +383,15 @@ export class Game {
     if (this.miniT <= 0) { this.miniT = 0.06; this.drawMini(); }
   }
   label(el, x, y, z, maxD) {
-    const d = Math.hypot(x - this.car.x, z - this.car.z);
+    const m = this.me(), d = Math.hypot(x - m.x, z - m.z);
+    if (this.rooms.inside) { el.style.display = 'none'; return; }
     if (d > maxD) { el.style.display = 'none'; return; }
     const v = new THREE.Vector3(x, y, z).project(this.camera);
     if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) { el.style.display = 'none'; return; }
     el.style.display = 'block'; el.style.transform = `translate(${((v.x + 1) / 2 * innerWidth).toFixed(0)}px, ${((1 - v.y) / 2 * innerHeight).toFixed(0)}px) translate(-50%, -100%)`;
   }
   drawMini() {
-    const c = this.ui.mini, g = c.getContext('2d'), W = c.width, half = W / 2, img = this.mapImg, car = this.car;
+    const c = this.ui.mini, g = c.getContext('2d'), W = c.width, half = W / 2, img = this.mapImg, car = this.me();
     const zoom = 1.6 + Math.min(1.2, car.speed / 30) * -0.5;
     g.save(); g.fillStyle = '#1f5f86'; g.fillRect(0, 0, W, W);
     g.translate(half, half * 1.25); g.rotate(Math.PI + car.h); g.scale(zoom, zoom);
@@ -255,6 +401,7 @@ export class Game {
     this.crates.forEach((p, i) => { if (!this.crateTaken.has(i)) dot(p.x, p.z, '#C98A50', 6); });
     this.homes.forEach((h) => dot(h.x, h.z, h.me ? '#FFE14D' : '#9ADAFF', 7));
     this.trials.forEach((t) => dot(t.pts[0][0], t.pts[0][1], '#FFE14D', 5));
+    if (this.rooms) this.rooms.doors.forEach((d) => dot(d.x, d.z, '#FFFFFF', 5));
     if (this.trial) { const p = this.trial.t.pts[this.trial.i]; dot(p[0], p[1], '#FF5A5F', 8); }
     g.restore();
     g.fillStyle = '#FFFFFF'; g.strokeStyle = '#191D29'; g.lineWidth = 3;
@@ -273,9 +420,10 @@ export class Game {
     g.font = '700 24px "Schibsted Grotesk", system-ui';
     this.crates.forEach((p, i) => { if (!this.crateTaken.has(i)) pin(p.x, p.z, '#C98A50'); });
     this.trials.forEach((t) => pin(t.pts[0][0], t.pts[0][1], '#FFE14D', t.name));
+    this.rooms.doors.forEach((d) => pin(d.x, d.z, '#FFFFFF', TEXT('place_' + d.id)));
     this.homes.forEach((h) => pin(h.x, h.z, h.me ? '#FFE14D' : '#9ADAFF', h.me ? TEXT('home') : String(h.name).split(' ')[0]));
-    const [a, b] = P(this.car.x, this.car.z);
-    g.save(); g.translate(a, b); g.rotate(Math.PI + this.car.h); g.fillStyle = '#FF5A5F'; g.strokeStyle = '#fff'; g.lineWidth = 3;
+    const me = this.me(), [a, b] = P(me.x, me.z);
+    g.save(); g.translate(a, b); g.rotate(Math.PI + me.h); g.fillStyle = '#FF5A5F'; g.strokeStyle = '#fff'; g.lineWidth = 3;
     g.beginPath(); g.moveTo(0, -18); g.lineTo(13, 13); g.lineTo(0, 6); g.lineTo(-13, 13); g.closePath(); g.fill(); g.stroke(); g.restore();
   }
   finish(reason) {
