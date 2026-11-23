@@ -272,7 +272,9 @@
       rem: cleanRem(st.rem),
       level: LEVEL_IDS.indexOf(st.level) >= 0 ? st.level : '',
       /* calendars linked by address, refreshed every 6 hours */
-      feeds: cleanFeeds(st.feeds)
+      feeds: cleanFeeds(st.feeds),
+      /* friends in your shared gardens see when you're studying (v6.1) */
+      shareFocus: st.shareFocus !== false
     };
     out.subjects = uniq((Array.isArray(pick('subjects')) ? pick('subjects') : []).map(cleanSubject));
     if (fromVersion < 2) out.subjects.forEach(function (x) { if (V1_COLORS[x.color]) x.color = V1_COLORS[x.color]; });
@@ -672,6 +674,7 @@
     UI = blankUI();
     UI.tab = tab;
     var u = sjson('myib:ui:' + id) || {};
+    UI.petPane = sget('myib:petpane:' + id) || 'puppy';
     if (u.calMode === 'agenda') UI.calMode = 'agenda';
     if (Array.isArray(u.hidden)) UI.hidden = u.hidden.filter(function (x) { return typeof x === 'string' && ID.test(x); });
     UI.showPast = !!u.showPast;
@@ -1192,7 +1195,7 @@
     document.body.classList.toggle('chat-conv', UI.tab === 'chat' && !!CHAT.open && chatAgreed());
     if (fk) { var back = $(fk, v); if (back) back.focus({ preventScroll: true }); }
     if (UI.tab === 'chat' && chatAgreed()) chatMounted();
-    if (UI.tab === 'pet') petMounted();
+    if (UI.tab === 'pet') { petMounted(); farmMounted(); } else if (FARM.tickT) { clearInterval(FARM.tickT); FARM.tickT = null; }
     if (UI.tab === 'calendar') { tlMounted(); dragTouchBind(v); }
     var entering = !!UI.enter;
     UI.enter = false;
@@ -1317,14 +1320,14 @@
         '<div>' +
           '<h1 class="display">' + DAYS_LONG[dow(t)] + ' ' + td.getDate() + ' ' + MONTH_LONG[td.getMonth()] + '</h1>' +
           '<p class="sub">' + esc(greet) + (name ? ', ' + esc(name) : '') + '</p>' +
-          winsRow(t) + headsUp(t) + petNudge() +
+          winsRow(t) + headsUp(t) + petNudge() + gardenNudge() +
         '</div>' +
         countdown(t) +
         guideCard() +
       '</section>' +
       '<div class="today-cols">' +
         '<div class="col">' + cardClasses(t) + cardFocus() + '</div>' +
-        '<div class="col">' + cardComing(t) + cardTasksToday(t) + '</div>' +
+        '<div class="col">' + cardNow() + cardComing(t) + cardTasksToday(t) + '</div>' +
       '</div>';
   };
 
@@ -1687,7 +1690,8 @@
     chime();
     try { if (navigator.vibrate) navigator.vibrate([180, 80, 180]); } catch (e) { /* ignore */ }
     render();
-    toast('Session done: ' + dur(st.len) + ' of ' + nameOrGeneral(st.subject) + ' logged' + petNote());
+    toast('Session done: ' + dur(st.len) + ' of ' + nameOrGeneral(st.subject) + ' logged' + petNote() + ', +' + Math.min(480, Math.round(st.len)) + ' sun for your garden');
+    if (typeof FARM !== 'undefined') FARM.pollAt = 0;
     celebrate(null, st.len >= 25);
   }
   var actx = null;
@@ -6869,8 +6873,11 @@
   }
   VIEWS.pet = function () {
     if (!PETE) return '<div class="page-head"><div><h1 class="display">Pet</h1></div></div><section class="card"><p class="empty">Your pet couldn’t load. Reload Bloc to try again.</p></section>';
+    var pane = farmPane();
+    if (pane === 'garden') return gardenPaneHTML();
+    if (pane === 'city') return cityPaneHTML();
     var p = S.pet;
-    if (!p) return petAdoptHTML();
+    if (!p) return petPanes() + petAdoptHTML();
     var s = petState(p), br = petBreed(p.breed) || petBreeds()[0], st = timerState();
     var needs = NEED_INFO.map(function (x) {
       var v = x[0] === 'fun' ? Math.min(100, s.needs.fun + PETUI.pend) : s.needs[x[0]];
@@ -6897,7 +6904,7 @@
         '</div>' +
         '<button type="button" class="btn quiet pet-throw" data-act="pet-throw"' + (PETUI.playing ? '' : ' hidden') + '>Throw the Ball</button>';
     var season = seasonText(p, s);
-    return '<div class="page-head pet-head"><div><h1 class="display">' + esc(p.name) + '</h1><p class="sub">' + esc(br.name) + ', ' + esc(petStageName(s.stage).toLowerCase()) + '</p></div>' +
+    return petPanes() + '<div class="page-head pet-head"><div><h1 class="display">' + esc(p.name) + '</h1><p class="sub">' + esc(br.name) + ', ' + esc(petStageName(s.stage).toLowerCase()) + '</p></div>' +
         '<div class="actions"><button type="button" class="btn" data-act="pet-wardrobe">' + icon('bow') + 'Wardrobe</button>' +
         '<button type="button" class="icon-btn" data-act="pet-more" aria-label="' + esc(p.name) + ' settings" title="Pet settings">' + icon('more') + '</button></div></div>' +
       '<div class="pet-layout"><section class="card pet-card' + (s.dead ? ' ghost' : '') + '" aria-label="' + esc(p.name) + '’s garden">' +
@@ -7912,7 +7919,651 @@
     }
   };
 
+
+  /* =========================================================
+     The garden (v6.1): plots, houses, places, the shop and Bloc City.
+     The server owns coins, sun, fuel and plots (/api/farm); this file draws them.
+     Study minutes are the only income: 1 minute = 1 sun and 12 seconds of fuel.
+     ========================================================= */
+  IC.coin = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7.5v9M9.6 9.6c.4-1 1.4-1.5 2.6-1.5 1.5 0 2.4.8 2.4 1.8 0 2.4-5.2 1.3-5.2 4 0 1 1 1.9 2.6 1.9 1.3 0 2.2-.5 2.6-1.4"/></svg>';
+  IC.seed = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20v-7"/><path d="M12 13c-4.4 0-6.5-3-6.5-6.5 3.8 0 6.5 2.2 6.5 6.5zM12 15.5c3.6 0 5.8-2.4 5.8-5.6-3.4 0-5.8 2-5.8 5.6z"/></svg>';
+  IC.basket = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h16l-1.8 8.2a2 2 0 0 1-2 1.6H7.8a2 2 0 0 1-2-1.6zM8 10l3-5.5M16 10l-3-5.5M9.5 13.5v3M14.5 13.5v3"/></svg>';
+  IC.house = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-6.5 8 6.5M6 9.6V20h12V9.6M10 20v-5.5h4V20"/></svg>';
+  IC.pin = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-6.1-6.5-11a6.5 6.5 0 0 1 13 0c0 4.9-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg>';
+  IC.car = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 16.5V12l1.8-4.6A2 2 0 0 1 8.2 6h7.6a2 2 0 0 1 1.9 1.4l1.8 4.6v4.5M3.5 12h17M6 16.5v2M18 16.5v2M3.5 16.5h17"/><circle cx="7.5" cy="14.2" r=".6"/><circle cx="16.5" cy="14.2" r=".6"/></svg>';
+  IC.drop = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8c3.2 4 5.2 6.9 5.2 9.6a5.2 5.2 0 0 1-10.4 0c0-2.7 2-5.6 5.2-9.6z"/></svg>';
+  IC.trophy = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4.5h8v4.8a4 4 0 0 1-8 0zM8 6.5H5.2c0 2.6 1.3 4 3.1 4.3M16 6.5h2.8c0 2.6-1.3 4-3.1 4.3M12 13.3V17M8.5 20h7M9.5 17h5v3h-5z"/></svg>';
+  IC.lock = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="10.5" width="13" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>';
+  IC.bag = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 8.5h13l-.9 11a1.6 1.6 0 0 1-1.6 1.5H8a1.6 1.6 0 0 1-1.6-1.5zM9 8.5V7a3 3 0 0 1 6 0v1.5"/></svg>';
+  IC.book = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A1.5 1.5 0 0 1 6.5 4H19v14H6.5A1.5 1.5 0 0 0 5 19.5zM5 19.5A1.5 1.5 0 0 0 6.5 21H19M9 8h6"/></svg>';
+
+  var FARM = freshFarm();
+  function freshFarm() { return { cat: null, d: null, plots: {}, loading: null, plotLoading: {}, err: false, skew: 0, tickT: null, pollAt: 0, now: { at: 0, people: [], loading: null }, driving: false, busy: false }; }
+  function farmT() { return Date.now() + FARM.skew; }
+  function farmKey() { var g = GARDEN.view && gardenById(GARDEN.view); return g ? g.id : 'me'; }
+  function farmSp(id) { var l = FARM.cat ? FARM.cat.species : []; for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function farmLoc(id) { var l = FARM.cat ? FARM.cat.locs : []; for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return l[0] || { id: 'oldtown', name: 'Old Town' }; }
+  function farmHouse(n) { var l = FARM.cat ? FARM.cat.houses : []; return l[Math.max(0, Math.min(l.length - 1, n))] || { name: 'Tent', plots: 4 }; }
+  function farmFirst(id) {
+    var nm = NAMES_LOCAL[id] || id;
+    return String(nm).split(' ')[0];
+  }
+  var NAMES_LOCAL = {};
+  function farmLearn(list) { (list || []).forEach(function (h) { if (h && h.id && h.name) NAMES_LOCAL[h.id] = h.name; }); }
+  function farmPane() { return UI.petPane === 'garden' || UI.petPane === 'city' ? UI.petPane : 'puppy'; }
+  function farmSetPane(p) {
+    UI.petPane = p === 'garden' || p === 'city' ? p : 'puppy';
+    if (ME) sset('myib:petpane:' + ME.id, UI.petPane);
+    render();
+  }
+
+  /* ---------- loading ---------- */
+  function farmLoad(force) {
+    if (!ME) return Promise.resolve();
+    if (FARM.loading) return FARM.loading;
+    if (!force && FARM.d && Date.now() - FARM.pollAt < 15000) return Promise.resolve();
+    var me = ME.id;
+    FARM.loading = api('GET', '/api/farm' + (FARM.cat ? '' : '?cat=1'), null, { timeout: 15000 }).then(function (r) {
+      FARM.loading = null;
+      if (!ME || ME.id !== me) return;
+      if (r.status === 401) return sessionLost();
+      if (r.status !== 200 || !r.data || !r.data.farm) { FARM.err = true; if (farmShown()) render(); return; }
+      FARM.err = false; FARM.pollAt = Date.now();
+      if (r.data.cat) FARM.cat = r.data.cat;
+      farmTake(r.data);
+      sset('myib:farm:on:' + me, '1');
+      if (r.data.fresh > 0 && farmShown()) toast(r.data.fresh + ' new study ' + (r.data.fresh === 1 ? 'minute' : 'minutes') + ': +' + r.data.fresh + ' sun, +' + fmtClock(r.data.fresh * 12) + ' fuel');
+      if (farmShown() && idle()) render();
+    }, function () { FARM.loading = null; FARM.err = true; if (farmShown()) render(); });
+    return FARM.loading;
+  }
+  function farmPlotLoad(g, force) {
+    if (!ME || FARM.plotLoading[g]) return;
+    var box = FARM.plots[g];
+    if (!force && box && Date.now() - box._at < 20000) return;
+    FARM.plotLoading[g] = api('GET', '/api/farm/plot?g=' + encodeURIComponent(g), null, { timeout: 15000 }).then(function (r) {
+      FARM.plotLoading[g] = null;
+      if (r.status === 404) { delete FARM.plots[g]; gardenLoad(); return; }
+      if (r.status !== 200 || !r.data || !r.data.plot) return;
+      r.data.plot._at = Date.now();
+      FARM.plots[g] = r.data.plot;
+      farmLearn(r.data.plot.houses);
+      if (farmShown() && idle() && farmKey() === g) render();
+    }, function () { FARM.plotLoading[g] = null; });
+  }
+  function farmNowLoad() {
+    if (!ME || FARM.now.loading || Date.now() - FARM.now.at < 45000) return;
+    FARM.now.loading = api('GET', '/api/farm/now', null, { timeout: 12000 }).then(function (r) {
+      FARM.now.loading = null;
+      FARM.now.at = Date.now();
+      if (r.status !== 200 || !r.data) return;
+      var before = JSON.stringify(FARM.now.people);
+      FARM.now.people = Array.isArray(r.data.people) ? r.data.people : [];
+      farmLearn(FARM.now.people);
+      if (before !== JSON.stringify(FARM.now.people) && (UI.tab === 'today' || farmShown()) && idle()) render();
+    }, function () { FARM.now.loading = null; FARM.now.at = Date.now(); });
+  }
+  function farmTake(d) {
+    if (d.now) FARM.skew = d.now - Date.now();
+    FARM.d = Object.assign({}, FARM.d || {}, d);
+    if (d.plot) { d.plot._at = Date.now(); FARM.plots[d.plot.g] = d.plot; farmLearn(d.plot.houses); }
+  }
+  function farmShown() { return UI.tab === 'pet' && farmPane() !== 'puppy'; }
+  function farmMounted() {
+    clearInterval(FARM.tickT); FARM.tickT = null;
+    if (!farmShown()) return;
+    farmLoad(false);
+    farmNowLoad();
+    if (farmPane() === 'garden') {
+      farmPlotLoad(farmKey(), false);
+      FARM.tickT = setInterval(farmTick, 5000);
+    }
+  }
+  /* progress bars move in place; a plant that ripens redraws the page */
+  function farmTick() {
+    if (!farmShown() || document.hidden) return;
+    var t = farmT(), redraw = false;
+    $$('.plot[data-ready]').forEach(function (b) {
+      var at = Number(b.dataset.at), rd = Number(b.dataset.ready);
+      if (t >= rd) { redraw = true; return; }
+      var bar = $('.plot-bar i', b), tm = $('.plot-time', b);
+      if (bar) bar.style.width = (Math.max(0, Math.min(1, (t - at) / Math.max(1, rd - at))) * 100).toFixed(1) + '%';
+      if (tm) tm.textContent = farmLeft(rd - t);
+    });
+    if (Date.now() - FARM.pollAt > 60000) { farmLoad(true); farmPlotLoad(farmKey(), true); farmNowLoad(); }
+    if (redraw && idle()) render();
+  }
+  function farmLeft(ms) {
+    var m = Math.ceil(ms / 60000);
+    if (m <= 1) return 'under a minute';
+    if (m < 60) return m + ' min';
+    var h = Math.floor(m / 60), r = m % 60;
+    return h + ' h' + (r ? ' ' + r + ' min' : '');
+  }
+  function farmClock(ms) { var d = new Date(ms - FARM.skew); return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+
+  /* ---------- server actions ---------- */
+  var FARM_ERR = {
+    coins: 'Not enough coins yet', no_seed: 'You’re out of those seeds', taken: 'Someone planted there a moment ago', not_ripe: 'Not ready yet',
+    basket: 'Your basket is full. Sell it first.', empty: 'Nothing there', watered: 'You watered this one already', ripe: 'It’s ready to pick, no water needed',
+    not_yours: 'Only the person who planted it can pick it', locked: 'Unlock that place first', same: 'The garden is already there', max: 'That’s the biggest house',
+    have: 'You unlocked it already', sold_out: 'Sold out until the next restock', not_in_stock: 'Not in the shop right now', no_star: 'No Legend star to claim yet',
+    run: 'That drive already ended', busy: 'The garden is busy. Try again.', slow: 'Slow down a little and try again', none_left: 'You placed all of those',
+    plot: 'That plot is locked. Upgrade your house for more.', garden: 'That garden is gone'
+  };
+  function farmErrText(r) {
+    var d = r && r.data || {}, e = d.error;
+    if (e === 'sun') return 'You need ' + d.need + ' sun. Every study minute makes 1.';
+    if (e === 'hours') return 'Study ' + d.need + ' hours in total to build this';
+    if (e === 'stars') return 'You need ' + d.need + ' Legend star' + (d.need === 1 ? '' : 's');
+    if (e === 'house') return 'Build a ' + farmHouse(d.need).name + ' first';
+    if (e === 'wait') return 'The garden moved recently. It can move again at ' + farmClock(d.at);
+    if (e === 'night') return 'Moonflowers open at night. Pick it between 21:00 and 08:00.';
+    if (e === 'fuel') return 'Out of fuel. Study 5 minutes for 1 minute of driving.';
+    if (r && r.status === 0) return 'You’re offline';
+    return FARM_ERR[e] || 'That didn’t work. Try again.';
+  }
+  function farmPost(path, body) {
+    if (FARM.busy) return Promise.resolve(null);
+    FARM.busy = true;
+    return api('POST', path, body, { timeout: 20000 }).then(function (r) {
+      FARM.busy = false;
+      if (r.status === 401) { sessionLost(); return null; }
+      if (r.status !== 200 || !r.data) { toast(farmErrText(r)); return null; }
+      farmTake(r.data);
+      return r.data;
+    }, function () { FARM.busy = false; toast('You’re offline'); return null; });
+  }
+  function farmDo(body) {
+    return farmPost('/api/farm/act', body).then(function (d) {
+      if (d) { render(); if (dlg.open && curSheet) curSheet(); }
+      return d;
+    });
+  }
+
+  /* ---------- drawing: plants ---------- */
+  var STEM = '#3E9F4A', LEAF = '#58B85F', DEEP = '#2E7D3A';
+  function leafP(x, y, len, ang, col) {
+    var r = ang * Math.PI / 180, ex = x + Math.cos(r) * len, ey = y + Math.sin(r) * len;
+    var nx = -Math.sin(r) * len * 0.32, ny = Math.cos(r) * len * 0.32, mx = (x + ex) / 2, my = (y + ey) / 2;
+    return '<path d="M' + x.toFixed(1) + ' ' + y.toFixed(1) + 'Q' + (mx + nx).toFixed(1) + ' ' + (my + ny).toFixed(1) + ' ' + ex.toFixed(1) + ' ' + ey.toFixed(1) + 'Q' + (mx - nx).toFixed(1) + ' ' + (my - ny).toFixed(1) + ' ' + x.toFixed(1) + ' ' + y.toFixed(1) + 'Z" fill="' + (col || LEAF) + '"/>';
+  }
+  function dot(x, y, r, c, o) { return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + c + '"' + (o ? ' ' + o : '') + '/>'; }
+  function petals(x, y, n, r, pr, c, mid) {
+    var out = '';
+    for (var i = 0; i < n; i++) { var a = i * 360 / n * Math.PI / 180; out += '<ellipse cx="' + (x + Math.cos(a) * r).toFixed(1) + '" cy="' + (y + Math.sin(a) * r).toFixed(1) + '" rx="' + pr.toFixed(1) + '" ry="' + (pr * 0.62).toFixed(1) + '" transform="rotate(' + (i * 360 / n).toFixed(0) + ' ' + (x + Math.cos(a) * r).toFixed(1) + ' ' + (y + Math.sin(a) * r).toFixed(1) + ')" fill="' + c + '" stroke="rgba(25,29,41,.18)" stroke-width=".5"/>'; }
+    return out + dot(x, y, r * 0.75, mid || '#F4B400');
+  }
+  var ART = {
+    herb: function (c, t) { var s = 0.6 + 0.4 * t, o = '<path d="M24 42V' + (34 - 6 * s).toFixed(1) + '" stroke="' + STEM + '" stroke-width="1.6"/>'; [-150, -115, -65, -30, -95].forEach(function (a, i) { o += leafP(24, 40 - i * 2 * s, (9 + i) * s, a, i % 2 ? c : LEAF); }); return o; },
+    root: function (c, t, ripe) { var s = 0.6 + 0.4 * t, o = ''; [-125, -90, -55].forEach(function (a) { o += leafP(24, 38, 12 * s, a, LEAF); }); if (ripe || t > 0.6) o += '<path d="M18.5 38.5c0-3.4 2.5-5.4 5.5-5.4s5.5 2 5.5 5.4c0 2.6-2.6 4.8-5.5 6.4-2.9-1.6-5.5-3.8-5.5-6.4z" fill="' + c + '"/>'; return o; },
+    flower: function (c, t, ripe) { var h = 22 + 10 * t, o = '<path d="M24 42V' + (42 - h).toFixed(1) + '" stroke="' + STEM + '" stroke-width="1.8"/>' + leafP(24, 36, 8, -150) + leafP(24, 32, 8, -30); if (ripe || t > 0.55) o += petals(24, 42 - h, 6, 4.2, 3.6, c, '#F4B400'); else o += dot(24, 42 - h, 2.6, DEEP); return o; },
+    berry: function (c, t, ripe) { var s = 0.65 + 0.35 * t, o = '<ellipse cx="24" cy="' + (36 - 2 * s).toFixed(1) + '" rx="' + (12 * s).toFixed(1) + '" ry="' + (8 * s).toFixed(1) + '" fill="' + DEEP + '"/>' + leafP(16, 34, 8 * s, -150) + leafP(32, 34, 8 * s, -30) + leafP(24, 30, 8 * s, -90); if (ripe) [[18, 36], [24, 33], [30, 36], [21, 39], [27, 39]].forEach(function (p) { o += dot(p[0], p[1], 2.2, c, 'stroke="rgba(25,29,41,.25)" stroke-width=".5"'); }); return o; },
+    fruit: function (c, t, ripe) { var s = 0.65 + 0.35 * t, o = '<path d="M24 42V' + (24 - 4 * s).toFixed(1) + '" stroke="' + STEM + '" stroke-width="1.8"/>'; [-150, -30, -140, -40].forEach(function (a, i) { o += leafP(24, 38 - i * 4 * s, 10 * s, a); }); if (ripe) [[19, 34], [29, 31], [23, 26]].forEach(function (p) { o += dot(p[0], p[1], 3.6, c, 'stroke="rgba(25,29,41,.25)" stroke-width=".5"'); }); return o; },
+    tall: function (c, t, ripe) { var h = 24 + 12 * t, o = '<path d="M24 42V' + (42 - h).toFixed(1) + '" stroke="' + STEM + '" stroke-width="2.2"/>' + leafP(24, 34, 10, -155) + leafP(24, 28, 10, -25); if (ripe || t > 0.6) o += petals(24, 42 - h, 12, 5.6, 3.4, c, '#7A4A1E'); else o += dot(24, 42 - h, 3, DEEP); return o; },
+    cactus: function (c, t, ripe) { var h = 16 + 10 * t, o = '<rect x="20.5" y="' + (42 - h).toFixed(1) + '" width="7" height="' + h.toFixed(1) + '" rx="3.5" fill="' + c + '"/>' + '<path d="M20.5 33h-3.5v-5" stroke="' + c + '" stroke-width="3.4" stroke-linecap="round" fill="none"/><path d="M27.5 30h3.5v-4" stroke="' + c + '" stroke-width="3.4" stroke-linecap="round" fill="none"/>'; if (ripe) o += petals(24, 42 - h, 5, 2.2, 2.2, '#FF6FA5', '#FFE14D'); return o; },
+    spike: function (c, t, ripe) { var o = '', h = 18 + 10 * t; [-6, 0, 6].forEach(function (dx, i) { var top = 42 - h + (i === 1 ? -3 : 0); o += '<path d="M' + (24 + dx) + ' 42V' + top + '" stroke="' + STEM + '" stroke-width="1.4"/>'; if (ripe || t > 0.5) for (var k = 0; k < 4; k++) o += '<ellipse cx="' + (24 + dx) + '" cy="' + (top + 2 + k * 3) + '" rx="1.9" ry="1.5" fill="' + c + '"/>'; }); return o; },
+    palm: function (c, t, ripe) { var h = 18 + 10 * t, top = 42 - h, o = '<path d="M24 42c0-6 1.5-' + (h - 6).toFixed(1) + ' 3-' + h.toFixed(1) + '" stroke="' + c + '" stroke-width="3" fill="none"/>'; [-170, -135, -100, -60, -20].forEach(function (a) { o += leafP(27, top, 11, a, LEAF); }); if (ripe) o += dot(25.5, top + 2.5, 2.2, '#6B4A2E') + dot(29, top + 3, 2.2, '#6B4A2E'); return o; },
+    fern: function (c, t) { var s = 0.65 + 0.35 * t, o = ''; [-160, -130, -100, -80, -50, -20].forEach(function (a) { o += leafP(24, 41, 15 * s, a, c); }); return '<g class="glow">' + o + '</g>'; },
+    tree: function (c, t, ripe, id) { var s = 0.6 + 0.4 * t, o = '<rect x="22.4" y="' + (42 - 14 * s).toFixed(1) + '" width="3.2" height="' + (14 * s).toFixed(1) + '" fill="#7A5236"/>' + dot(24, 42 - 20 * s, 10 * s, id === 'tok' ? c : DEEP) + dot(18, 42 - 16 * s, 6 * s, id === 'tok' ? DEEP : LEAF) + dot(30, 42 - 17 * s, 6.5 * s, LEAF); if (ripe) { var fc = id === 'tok' ? '#FFE14D' : c; [[19, 22], [28, 20], [24, 26], [31, 26]].forEach(function (p) { o += dot(p[0], p[1] + (1 - s) * 10, 2.4, fc, 'stroke="rgba(25,29,41,.25)" stroke-width=".5"'); }); } return o; },
+    dragon: function (c, t, ripe) { var h = 14 + 10 * t, o = '<path d="M24 42V' + (42 - h) + 'M24 34l-6-5M24 30l6-5" stroke="#3E9F6B" stroke-width="3.6" stroke-linecap="round" fill="none"/>'; if (ripe) o += '<ellipse cx="24" cy="' + (40 - h) + '" rx="4.6" ry="5.6" fill="' + c + '"/>' + leafP(24, 42 - h - 3, 4, -90, '#9BE15D'); return o; },
+    vine: function (c, t) { var o = '<path d="M14 42V14M34 42V14M14 22h20M14 32h20" stroke="#B08A5A" stroke-width="1.4"/>', n = Math.round(5 + 9 * t); for (var i = 0; i < n; i++) { var y = 40 - i * 2.2, x = 24 + Math.sin(i * 1.3) * 7; o += leafP(x, y, 5, i % 2 ? -40 : -140, i % 3 ? c : LEAF); } return o; },
+    star: function (c, t, ripe) { var o = '<path d="M24 42V24" stroke="#7FA37A" stroke-width="1.6"/>' + leafP(24, 36, 7, -150, '#9DB89A') + leafP(24, 33, 7, -30, '#9DB89A'); if (ripe || t > 0.6) { for (var i = 0; i < 8; i++) o += leafP(24, 22, 7, i * 45, c); o += dot(24, 22, 2.4, '#E9D16B'); } return o; },
+    moon: function (c, t, ripe) { var o = '<path d="M24 42V22" stroke="#6E86C8" stroke-width="1.6"/>' + leafP(24, 34, 8, -150, '#7C9BD6'); if (ripe || t > 0.6) o += '<circle cx="24" cy="20" r="9" fill="' + c + '" opacity=".25"/>' + petals(24, 20, 7, 3.6, 3.4, c, '#F6F2C2'); return '<g class="glow">' + o + '</g>'; },
+    lotus: function (c, t, ripe) { var o = '<ellipse cx="24" cy="40" rx="15" ry="3.6" fill="#57B6C9" opacity=".55"/><ellipse cx="24" cy="39" rx="11" ry="2.6" fill="' + LEAF + '"/>'; if (ripe || t > 0.5) { [-60, -90, -120, -35, -145].forEach(function (a) { o += leafP(24, 37, 11 * (0.6 + 0.4 * t), a, c); }); o += dot(24, 32, 2.4, '#FFE14D'); } return o; }
+  };
+  function plantSVG(s, pct, ripe) {
+    var g = '<ellipse cx="24" cy="42.5" rx="14" ry="3" fill="#7A5236" opacity=".26"/>';
+    if (!s) return '<svg viewBox="0 0 48 48" aria-hidden="true">' + g + '</svg>';
+    if (!ripe && pct < 0.12) g += '<path d="M24 41.5c-2.4-2.2-1.6-5.4 0-6.8 1.6 1.4 2.4 4.6 0 6.8z" fill="' + STEM + '"/>';
+    else if (!ripe && pct < 0.4) g += '<path d="M24 42V31" stroke="' + STEM + '" stroke-width="1.8"/>' + leafP(24, 33, 8, -155) + leafP(24, 31, 7.5, -25);
+    else g += (ART[s.art] || ART.herb)(s.c, ripe ? 1 : (pct - 0.4) / 0.6, ripe, s.id);
+    return '<svg viewBox="0 0 48 48" class="plant-svg" aria-hidden="true">' + g + '</svg>';
+  }
+
+  /* ---------- drawing: houses, places and decorations ---------- */
+  function houseSVG(lv, col) {
+    var ink = '#191D29', wall = '#FFF8EC', roof = col || '#E8B07A', o = '';
+    switch (lv) {
+      case 0: o = '<path d="M14 54L40 14l26 40z" fill="' + roof + '" stroke="' + ink + '" stroke-width="2" stroke-linejoin="round"/><path d="M40 14v40M34 54l6-14 6 14z" fill="' + wall + '" stroke="' + ink + '" stroke-width="2" stroke-linejoin="round"/>'; break;
+      case 1: o = '<rect x="18" y="30" width="44" height="24" fill="#D9A066" stroke="' + ink + '" stroke-width="2"/><path d="M18 36h44M18 42h44M18 48h44" stroke="#A86F3D" stroke-width="1"/><path d="M13 31l27-17 27 17z" fill="' + roof + '" stroke="' + ink + '" stroke-width="2" stroke-linejoin="round"/><rect x="35" y="40" width="10" height="14" fill="' + wall + '" stroke="' + ink + '" stroke-width="2"/>'; break;
+      case 2: o = '<rect x="54" y="12" width="6" height="12" fill="#C76B4A" stroke="' + ink + '" stroke-width="2"/><rect x="16" y="28" width="48" height="26" fill="' + wall + '" stroke="' + ink + '" stroke-width="2"/><path d="M11 30l29-18 29 18z" fill="' + roof + '" stroke="' + ink + '" stroke-width="2" stroke-linejoin="round"/><rect x="36" y="40" width="9" height="14" fill="' + roof + '" stroke="' + ink + '" stroke-width="2"/><rect x="21" y="35" width="9" height="8" fill="#BDE0FE" stroke="' + ink + '" stroke-width="2"/><rect x="50" y="35" width="9" height="8" fill="#BDE0FE" stroke="' + ink + '" stroke-width="2"/>'; break;
+      case 3: o = '<rect x="24" y="12" width="32" height="42" fill="' + wall + '" stroke="' + ink + '" stroke-width="2"/><path d="M20 13h40" stroke="' + ink + '" stroke-width="4"/><rect x="29" y="18" width="8" height="9" fill="#BDE0FE" stroke="' + ink + '" stroke-width="1.6"/><rect x="43" y="18" width="8" height="9" fill="#BDE0FE" stroke="' + ink + '" stroke-width="1.6"/><rect x="29" y="31" width="8" height="9" fill="#BDE0FE" stroke="' + ink + '" stroke-width="1.6"/><rect x="43" y="31" width="8" height="9" fill="#BDE0FE" stroke="' + ink + '" stroke-width="1.6"/><rect x="36" y="44" width="8" height="10" fill="' + roof + '" stroke="' + ink + '" stroke-width="1.8"/>'; break;
+      case 4: o = '<rect x="8" y="24" width="64" height="30" fill="' + wall + '" stroke="' + ink + '" stroke-width="2"/><path d="M4 25l12-12h48l12 12z" fill="' + roof + '" stroke="' + ink + '" stroke-width="2" stroke-linejoin="round"/><path d="M8 38h64" stroke="' + ink + '" stroke-width="1.6"/><path d="M26 38v-4h28v4" fill="none" stroke="' + ink + '" stroke-width="1.6"/>' + [14, 30, 46, 60].map(function (x) { return '<rect x="' + x + '" y="28" width="6" height="7" fill="#BDE0FE" stroke="' + ink + '" stroke-width="1.4"/>'; }).join('') + '<rect x="35" y="42" width="10" height="12" fill="' + roof + '" stroke="' + ink + '" stroke-width="1.8"/>'; break;
+      case 5: o = '<rect x="6" y="22" width="68" height="32" fill="' + wall + '" stroke="' + ink + '" stroke-width="2"/><path d="M2 23L40 6l38 17z" fill="' + roof + '" stroke="' + ink + '" stroke-width="2" stroke-linejoin="round"/>' + [16, 28, 52, 64].map(function (x) { return '<rect x="' + (x - 1.5) + '" y="24" width="3" height="30" fill="#E9EBEF" stroke="' + ink + '" stroke-width="1.2"/>'; }).join('') + '<rect x="34" y="38" width="12" height="16" rx="6" fill="' + roof + '" stroke="' + ink + '" stroke-width="1.8"/>'; break;
+      default: o = '<rect x="10" y="22" width="60" height="32" fill="#E9E2D3" stroke="' + ink + '" stroke-width="2"/>' + [6, 34, 62].map(function (x) { return '<rect x="' + x + '" y="12" width="12" height="42" fill="#DCD3C1" stroke="' + ink + '" stroke-width="2"/><path d="M' + x + ' 12l6-7 6 7z" fill="' + roof + '" stroke="' + ink + '" stroke-width="1.8" stroke-linejoin="round"/>'; }).join('') + '<path d="M40 5v-4l6 2-6 2" fill="#FFE14D" stroke="' + ink + '" stroke-width="1"/><rect x="34" y="38" width="12" height="16" rx="6" fill="#7A5236" stroke="' + ink + '" stroke-width="1.8"/>';
+    }
+    return '<svg viewBox="0 0 80 58" aria-hidden="true">' + o + '</svg>';
+  }
+  function decoSVG(id) {
+    var ink = '#191D29', o = '';
+    switch (id) {
+      case 'bench': o = '<path d="M5 17h22M5 21h22M8 21v6M24 21v6M7 17l1-6h16l1 6" fill="none" stroke="' + ink + '" stroke-width="1.8"/><rect x="5" y="15.5" width="22" height="3" fill="#C98A50"/>'; break;
+      case 'flag': o = '<path d="M9 29V4" stroke="' + ink + '" stroke-width="1.8"/><path d="M9 5h15l-3 4.5 3 4.5H9z" fill="#FFE14D" stroke="' + ink + '" stroke-width="1.6" stroke-linejoin="round"/>'; break;
+      case 'lamp': o = '<path d="M16 29V9M12 29h8" stroke="' + ink + '" stroke-width="1.8"/><path d="M11 9h10l-2-5h-6z" fill="#FFE14D" stroke="' + ink + '" stroke-width="1.6" stroke-linejoin="round"/>'; break;
+      case 'gnome': o = '<path d="M16 3l7 13H9z" fill="#E5383B" stroke="' + ink + '" stroke-width="1.6" stroke-linejoin="round"/><circle cx="16" cy="17.5" r="3" fill="#F6D2B8" stroke="' + ink + '" stroke-width="1.2"/><path d="M11 21c0 3 2.2 5 5 5s5-2 5-5l-5 3z" fill="#FFFFFF" stroke="' + ink + '" stroke-width="1.2"/><rect x="11" y="24" width="10" height="5" rx="1.5" fill="#3E9BD6" stroke="' + ink + '" stroke-width="1.2"/>'; break;
+      case 'fountain': o = '<ellipse cx="16" cy="25" rx="12" ry="4" fill="#9ADAFF" stroke="' + ink + '" stroke-width="1.6"/><path d="M16 23V10M16 10c-3 0-5 3-5 6M16 10c3 0 5 3 5 6" fill="none" stroke="#3E9BD6" stroke-width="1.6"/><rect x="14" y="17" width="4" height="7" fill="#E9EBEF" stroke="' + ink + '" stroke-width="1.2"/>'; break;
+      case 'pond': o = '<ellipse cx="16" cy="22" rx="13" ry="6" fill="#57B6C9" stroke="' + ink + '" stroke-width="1.6"/><ellipse cx="11" cy="21" rx="3" ry="1.4" fill="#58B85F"/><circle cx="20" cy="22" r="1.6" fill="#FF8FB1"/>'; break;
+      case 'statue': o = '<rect x="9" y="25" width="14" height="5" fill="#E9EBEF" stroke="' + ink + '" stroke-width="1.6"/><path d="M12 25l2-18h4l2 18z" fill="#FFE14D" stroke="' + ink + '" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 7l2-4 2 4" fill="#191D29"/>'; break;
+    }
+    return '<svg viewBox="0 0 32 32" aria-hidden="true">' + o + '</svg>';
+  }
+  /* each place's skyline, drawn behind the street */
+  function placeSVG(loc) {
+    var o = '';
+    switch (loc) {
+      case 'beach': o = '<rect y="34" width="400" height="30" fill="#7CC6E8"/><path d="M0 44q25-4 50 0t50 0 50 0 50 0 50 0 50 0 50 0 50 0" stroke="#FFFFFF" stroke-width="2" fill="none" opacity=".7"/><circle cx="330" cy="26" r="13" fill="#FFE14D"/><path d="M0 64V58q100-8 200-4t200-2V64z" fill="#F2D7A6"/><path d="M60 58c2-14 0-22-4-30" stroke="#8D6E4C" stroke-width="3" fill="none"/>' + [-160, -120, -80, -40].map(function (a) { return leafP(56, 28, 14, a, '#3E9F4A'); }).join(''); break;
+      case 'campus': o = '<path d="M0 64V40h70V28h40v12h60v24z" fill="#C76B4A" opacity=".85"/><rect x="230" y="14" width="22" height="50" fill="#B85C3D"/><circle cx="241" cy="24" r="6" fill="#FFF8EC" stroke="#191D29" stroke-width="1.4"/><path d="M226 14l15-10 15 10z" fill="#8C3B2A"/><path d="M270 64V44h130v20z" fill="#C76B4A" opacity=".75"/>' + [130, 190, 300, 360].map(function (x) { return '<circle cx="' + x + '" cy="44" r="12" fill="#3E9F4A" opacity=".85"/>'; }).join(''); break;
+      case 'hills': o = '<path d="M0 64V40q60-26 130-6t130-4 140 2V64z" fill="#7FB77E"/><path d="M0 64V50q80-20 170-2t230-6V64z" fill="#4E9A58"/>' + [40, 70, 250, 290, 330, 365].map(function (x, i) { var h = 18 + (i % 3) * 5; return '<path d="M' + x + ' ' + (52 - h) + 'l9 ' + h + 'h-18z" fill="#2E7D3A"/>'; }).join(''); break;
+      case 'downtown': o = [[0, 22, 30], [34, 8, 26], [64, 28, 30], [98, 2, 22], [124, 18, 34], [162, 30, 24], [190, 10, 30], [224, 24, 26], [254, 0, 24], [282, 16, 34], [320, 26, 26], [350, 6, 30], [384, 20, 16]].map(function (b) { return '<rect x="' + b[0] + '" y="' + b[1] + '" width="' + b[2] + '" height="' + (64 - b[1]) + '" fill="#5D7B9D" opacity="' + (0.55 + (b[0] % 3) * 0.15).toFixed(2) + '"/>'; }).join(''); break;
+      case 'island': o = '<rect y="34" width="400" height="30" fill="#57B6C9"/><path d="M120 64q80-26 160 0z" fill="#F2D7A6"/><path d="M200 46c2-12 0-18-3-24" stroke="#8D6E4C" stroke-width="3" fill="none"/>' + [-160, -120, -80, -40].map(function (a) { return leafP(197, 22, 13, a, '#3E9F4A'); }).join('') + '<circle cx="80" cy="20" r="11" fill="#FFE14D"/>'; break;
+      default: o = [[0, 30, 46, '#E8B07A'], [46, 22, 40, '#D98E5F'], [86, 34, 38, '#F2D7A6'], [124, 12, 22, '#C76B4A'], [146, 28, 50, '#E8B07A'], [196, 36, 36, '#F2D7A6'], [232, 24, 44, '#D98E5F'], [276, 32, 40, '#E8B07A'], [316, 20, 38, '#C76B4A'], [354, 30, 46, '#F2D7A6']].map(function (b) {
+        return '<rect x="' + b[0] + '" y="' + b[1] + '" width="' + b[2] + '" height="' + (64 - b[1]) + '" fill="' + b[3] + '"/><path d="M' + b[0] + ' ' + b[1] + 'h' + b[2] + '" stroke="#A8533A" stroke-width="3"/>';
+      }).join('') + '<path d="M128 12l7-10 7 10" fill="#A8533A"/>';
+    }
+    return '<svg viewBox="0 0 400 64" preserveAspectRatio="xMidYMax slice" aria-hidden="true">' + o + '</svg>';
+  }
+
+  /* ---------- the panes: Puppy, Garden, City ---------- */
+  function petPanes() {
+    var p = farmPane();
+    return '<div class="pet-panes"><div class="seg" role="group" aria-label="Pet section">' +
+      [['puppy', 'Puppy'], ['garden', 'Garden'], ['city', 'City']].map(function (x) {
+        return '<button type="button" data-act="pet-pane" data-id="' + x[0] + '" aria-pressed="' + (p === x[0]) + '">' + x[1] + '</button>';
+      }).join('') + '</div></div>';
+  }
+  function farmWeather(wx, loc) {
+    var L = farmLoc(loc), bits = [L.name];
+    if (!wx) return L.name;
+    if (wx.rain) bits.push('raining until ' + farmClock(wx.until));
+    else if (wx.golden) bits.push('golden hour');
+    else if (wx.night) bits.push('night');
+    else bits.push('clear skies');
+    return bits.join(', ');
+  }
+  function farmStats(f) {
+    var basketV = f.basket.reduce(function (n, it) { return n + it.v; }, 0);
+    return '<div class="farm-stats">' +
+      '<div class="fs"><b>' + f.sun + '</b><span>' + icon('sun') + 'sun</span></div>' +
+      '<div class="fs"><b>' + f.coins + '</b><span>' + icon('coin') + 'coins</span></div>' +
+      '<div class="fs"><b>' + f.basket.length + '</b><span>' + icon('basket') + (f.basket.length ? 'worth ' + basketV : 'in the basket') + '</span></div>' +
+      '<div class="fs"><b>' + fmtClock(f.fuel) + '</b><span>' + icon('car') + 'fuel</span></div>' +
+    '</div>';
+  }
+  function plotHTML(p, i, open, pl) {
+    if (i >= open) return '<button type="button" class="plot locked" data-act="farm-plot" data-i="' + i + '" aria-label="Locked plot">' + icon('lock') + '</button>';
+    if (!p) return '<button type="button" class="plot empty" data-act="farm-plot" data-i="' + i + '" aria-label="Empty plot ' + (i + 1) + '. Plant a seed.">' + '<span class="plot-art">' + plantSVG(null) + '</span><span class="plot-name">Plant</span></button>';
+    var s = farmSp(p.s), t = farmT(), ripe = t >= p.ready, pct = ripe ? 1 : Math.max(0, Math.min(1, (t - p.at) / Math.max(1, p.ready - p.at)));
+    if (!s) return '<button type="button" class="plot empty" data-act="farm-plot" data-i="' + i + '">?</button>';
+    var who = !p.mine && pl && !pl.own ? farmFirst(p.by) : '';
+    var label = s.name + (ripe ? (p.mine ? ', ready to pick' : ', ready for ' + who) : ', ' + farmLeft(p.ready - t) + ' left') + (who ? ', planted by ' + who : '');
+    return '<button type="button" class="plot' + (ripe ? ' ripe' : '') + (p.mine ? ' mine' : '') + (p.wet ? ' wet' : '') + '" data-act="farm-plot" data-i="' + i + '"' +
+      (ripe ? '' : ' data-at="' + p.at + '" data-ready="' + p.ready + '"') + ' style="--c:' + s.c + '" aria-label="' + esc(label) + '">' +
+      '<span class="plot-art">' + plantSVG(s, pct, ripe) + '</span>' +
+      '<span class="plot-name">' + esc(s.name) + '</span>' +
+      (ripe ? '<span class="plot-tag"><span class="hl">' + (p.mine ? 'Pick' : 'Ready') + '</span></span>'
+        : '<span class="plot-bar" aria-hidden="true"><i style="width:' + (pct * 100).toFixed(1) + '%"></i></span><span class="plot-time">' + farmLeft(p.ready - t) + '</span>') +
+      (who ? '<span class="plot-by">' + esc(who) + '</span>' : '') +
+      (p.wet ? '<span class="plot-wet" aria-hidden="true">' + icon('drop') + '</span>' : '') +
+    '</button>';
+  }
+  function farmScene(pl) {
+    var wx = pl.wx || {}, houses = pl.houses || [];
+    var street = houses.map(function (h) {
+      return '<div class="fh' + (h.me ? ' me' : '') + '"><span class="fh-art">' + houseSVG(h.house, h.color) + '</span><span class="fh-name">' + esc(h.me ? 'You' : String(h.name).split(' ')[0]) + '</span></div>';
+    }).join('');
+    var deco = (pl.deco || []).filter(Boolean).map(function (id) { return '<span class="fd">' + decoSVG(id) + '</span>'; }).join('');
+    var plots = '';
+    for (var i = 0; i < pl.plots.length; i++) plots += plotHTML(pl.plots[i], i, pl.open, pl);
+    /* one locked plot shows what an upgrade adds */
+    if (pl.own && pl.plots.length === pl.open && FARM.d && FARM.d.farm.house < (FARM.cat ? FARM.cat.houses.length - 1 : 0)) plots += plotHTML(null, pl.open, pl.open, pl);
+    return '<section class="card farm-scene loc-' + esc(pl.loc) + (wx.rain ? ' rain' : '') + (wx.golden ? ' golden' : '') + (wx.night ? ' night' : '') + '" aria-label="' + esc((pl.own ? 'Your garden' : pl.name) + ' in ' + farmLoc(pl.loc).name) + '">' +
+      '<div class="farm-place" aria-hidden="true">' + placeSVG(pl.loc) + '</div>' +
+      '<div class="farm-street' + (houses.length > 4 ? ' many' : '') + '">' + street + (deco ? '<div class="farm-deco">' + deco + '</div>' : '') + '</div>' +
+      '<div class="farm-plots">' + plots + '</div>' +
+      (wx.rain ? '<div class="farm-rain" aria-hidden="true"></div>' : '') +
+    '</section>';
+  }
+  function gardenPaneHTML() {
+    var d = FARM.d, key = farmKey(), pl = FARM.plots[key], g = key !== 'me' ? gardenById(key) : null;
+    var title = g ? g.name : 'Garden';
+    var sub = pl && FARM.cat ? farmWeather(pl.wx, pl.loc) : 'Plant seeds with the sun you make by studying';
+    var head = '<div class="page-head"><div><h1 class="display">' + esc(title) + '</h1><p class="sub">' + esc(sub) + '</p></div>' +
+      '<div class="actions"><button type="button" class="btn" data-act="farm-shop">' + icon('bag') + 'Shop</button>' +
+      '<button type="button" class="icon-btn" data-act="farm-more" aria-label="How the garden works" title="How the garden works">' + icon('more') + '</button></div></div>';
+    if (!d || !FARM.cat) return petPanes() + head + '<section class="card"><p class="empty">' + (FARM.err ? 'Can’t reach the garden. Check your connection.' : 'Loading your garden…') + '</p></section>';
+    var f = d.farm;
+    var body = pl ? farmScene(pl) : '<section class="card farm-scene"><p class="empty">Loading the plots…</p></section>';
+    return petPanes() + head + gardenSegHTML() + farmStats(f) + body +
+      '<div class="farm-cols">' + farmSeedsCard(f, pl) + farmBasketCard(f) + farmHomeCard(f, pl) + farmPeopleCard(f) + farmLegendCard(f) + farmIndexCard(f) + '</div>';
+  }
+  function farmSeedsCard(f, pl) {
+    var ids = Object.keys(f.seeds).filter(function (k) { return f.seeds[k] > 0 && farmSp(k); }).sort(function (a, b) { return farmSp(a).r - farmSp(b).r || farmSp(a).sun - farmSp(b).sun; });
+    var free = pl ? pl.plots.slice(0, pl.open).filter(function (x) { return !x; }).length : 0;
+    var rows = ids.map(function (k) {
+      var s = farmSp(k), can = f.sun >= s.sun && free > 0;
+      return '<button type="button" class="row row-btn seed-row" data-act="farm-plantfirst" data-s="' + esc(k) + '"' + (can ? '' : ' aria-disabled="true"') + '>' +
+        '<span class="seed-art">' + plantSVG(s, 1, true) + '</span><span class="two-line"><b>' + esc(s.name) + ' <span class="seed-n">×' + f.seeds[k] + '</span></b><span>' + s.sun + ' sun, ' + farmGrow(s, pl ? pl.loc : '') + (s.yields > 1 ? ', picks ' + s.yields + ' times' : '') + '</span></span>' +
+        '<span class="seed-go">' + (can ? 'Plant' : f.sun < s.sun ? 'Need sun' : 'No room') + '</span></button>';
+    }).join('');
+    return '<section class="card farm-card" aria-labelledby="h-seeds"><header class="card-head"><h2 id="h-seeds">Seeds</h2><span class="hint">' + free + ' free ' + (free === 1 ? 'plot' : 'plots') + '</span></header>' +
+      (rows || '<p class="pet-note">No seeds left. The shop has more, and seed crates hide around Bloc City.</p>') +
+      '<p class="pet-note">Planting costs sun. Every minute you study makes 1 sun, up to 8 hours a day.</p></section>';
+  }
+  function farmGrow(s, loc) { var m = Math.round(s.grow * (s.home === loc ? 0.75 : 1)); return (m < 60 ? m + ' min' : (m % 60 ? (m / 60).toFixed(1).replace(/\.0$/, '') : m / 60) + ' h'); }
+  var MUT = { wet: 'Wet', focused: 'Focused', golden: 'Golden', rainbow: 'Rainbow' };
+  function mutText(m) { return (m || []).map(function (x) { return MUT[x] || x; }).join(' '); }
+  function farmBasketCard(f) {
+    var sum = f.basket.reduce(function (n, it) { return n + it.v; }, 0), wx = FARM.d.wx || {};
+    var items = f.basket.slice(-6).reverse().map(function (it) {
+      var s = farmSp(it.s) || { name: it.s };
+      return '<li><span>' + esc((it.m.length ? mutText(it.m) + ' ' : '') + s.name) + '</span><span class="hint">' + it.w + ' kg, ' + it.v + '</span></li>';
+    }).join('');
+    return '<section class="card farm-card" aria-labelledby="h-basket"><header class="card-head"><h2 id="h-basket">Basket</h2><span class="hint">' + f.basket.length + ' picked</span></header>' +
+      (items ? '<ul class="farm-list">' + items + '</ul>' : '<p class="pet-note">Pick ripe plants and they land here. Sell them at the market for coins.</p>') +
+      (f.basket.length ? '<div class="pet-focus"><button type="button" class="btn primary" data-act="farm-sell">' + icon('coin') + 'Sell for ' + (wx.weekend ? Math.round(sum * 1.25) : sum) + '</button></div>' : '') +
+      '<p class="pet-note">' + (wx.weekend ? 'Weekend market: everything sells for 25% more today.' : 'Weekends pay 25% more. Wet, Focused, Golden and Rainbow harvests multiply the price.') + '</p></section>';
+  }
+  function farmHomeCard(f, pl) {
+    var H = farmHouse(f.house), N = FARM.cat.houses[f.house + 1], allH = Math.floor(FARM.d.study.all / 60);
+    var next = N ? '<p class="pet-note">Next: ' + esc(N.name) + ', ' + N.plots + ' plots, ' + N.cost + ' coins' + (N.hours ? ', after ' + N.hours + ' study hours (you have ' + allH + ')' : '') + (N.stars ? ' and ' + N.stars + ' Legend stars' : '') + '.</p>' : '<p class="pet-note">You live in a castle. Nothing bigger exists.</p>';
+    var L = pl ? farmLoc(pl.loc) : farmLoc(FARM.d.loc);
+    return '<section class="card farm-card" aria-labelledby="h-home"><header class="card-head"><h2 id="h-home">Home</h2><span class="hint">' + esc(H.name) + '</span></header>' +
+      '<div class="farm-home"><span class="farm-home-art">' + houseSVG(f.house, f.color) + '</span><span class="two-line"><b>' + esc(H.name) + '</b><span>' + H.plots + ' plots in your garden. Each level also adds a plot to every garden you share.</span></span></div>' +
+      next + (N ? '<div class="pet-focus"><button type="button" class="btn" data-act="farm-house">' + icon('house') + 'Build the ' + esc(N.name) + '</button></div>' : '') +
+      '<div class="row farm-place-row">' + icon('pin') + '<span class="two-line"><b>' + esc(L.name) + '</b><span>' + esc(L.blurb || '') + '</span></span><button type="button" class="btn small" data-act="farm-places">Move</button></div></section>';
+  }
+  function farmPeopleCard(f) {
+    var now = FARM.now.people.map(function (x) {
+      return '<li><span class="hl-dot" style="--c:' + esc(x.color || 'var(--label)') + '"></span><span><b>' + esc(String(x.name).split(' ')[0]) + '</b> ' + (x.subject ? 'is studying ' + esc(x.subject) : 'is studying') + '</span><span class="hint">' + (x.ends ? 'until ' + farmClock(x.ends) : 'stopwatch') + '</span></li>';
+    }).join('');
+    var log = (f.log || []).slice(0, 4).map(function (e) {
+      return '<li><span>' + esc(String(e.name || e.by).split(' ')[0]) + ' drove past your house</span><span class="hint">+' + e.coins + '</span></li>';
+    }).join('');
+    if (!now && !log && !(GARDEN.list || []).length) return '';
+    return '<section class="card farm-card" aria-labelledby="h-people"><header class="card-head"><h2 id="h-people">Friends</h2></header>' +
+      (now ? '<p class="group-head">Studying now</p><ul class="farm-list">' + now + '</ul>' : '<p class="pet-note">Nobody in your gardens is studying right now. Start a session and they’ll see you here.</p>') +
+      (log ? '<p class="group-head">Visits</p><ul class="farm-list">' + log + '</ul>' : '') +
+      '<p class="pet-note">In a shared garden, anyone can plant, and anyone can water a plant once. Only the planter picks it.</p></section>';
+  }
+  function farmLegendCard(f) {
+    var st = FARM.d.stars || {};
+    if (!S.pet) return '<section class="card farm-card" aria-labelledby="h-legend"><header class="card-head"><h2 id="h-legend">Legend stars</h2></header><p class="pet-note">Adopt a puppy. When it grows into a Legend, every 10 more hours of study earns a star: a Legendary seed and 500 coins.</p></section>';
+    var claim = st.avail > f.stars;
+    var txt = st.toLegend ? dur(st.toLegend) + ' of study until ' + esc(S.pet.name) + ' is a Legend. Then every 10 hours of study is a star.' :
+      claim ? (st.avail - f.stars) + ' star' + (st.avail - f.stars === 1 ? '' : 's') + ' ready to claim.' : 'Next star in ' + dur(st.toNext || 600) + ' of study.';
+    return '<section class="card farm-card" aria-labelledby="h-legend"><header class="card-head"><h2 id="h-legend">Legend stars</h2><span class="hint">' + f.stars + ' claimed</span></header>' +
+      '<p class="pet-note">' + txt + ' Stars bring Legendary seeds, Lotus Island and the castle.</p>' +
+      (claim ? '<div class="pet-focus"><button type="button" class="btn primary" data-act="farm-star">' + icon('star') + 'Claim a Star</button></div>' : '') + '</section>';
+  }
+  function farmIndexCard(f) {
+    var n = Object.keys(f.index).length, all = FARM.cat.species.length;
+    return '<section class="card farm-card" aria-labelledby="h-index"><header class="card-head"><h2 id="h-index">Index</h2><span class="hint">' + n + ' of ' + all + '</span></header>' +
+      '<p class="pet-note">Every plant you pick goes in the Index, with your heaviest harvest and the mutations you found.</p>' +
+      '<div class="pet-focus"><button type="button" class="btn" data-act="farm-index">' + icon('book') + 'Open the Index</button></div></section>';
+  }
+
+  /* ---------- sheets ---------- */
+  function farmPlotTap(i) {
+    var key = farmKey(), pl = FARM.plots[key];
+    if (!pl || !FARM.d) return;
+    if (i >= pl.open) {
+      toast(pl.own ? 'Upgrade your house for more plots' : 'Every house level in this garden adds a plot');
+      return;
+    }
+    var p = pl.plots[i];
+    if (!p) return farmPlantSheet(i);
+    var t = farmT();
+    if (t >= p.ready && p.mine) return farmHarvest(i);
+    farmPlotSheet(i);
+  }
+  function farmPlantSheet(i) {
+    var f = FARM.d.farm, key = farmKey(), pl = FARM.plots[key];
+    curSheet = function () { var q = FARM.plots[farmKey()]; if (q && !q.plots[i]) farmPlantSheet(i); else closeDialog(); };
+    var ids = Object.keys(f.seeds).filter(function (k) { return f.seeds[k] > 0 && farmSp(k); }).sort(function (a, b) { return farmSp(a).r - farmSp(b).r; });
+    var rows = ids.map(function (k) {
+      var s = farmSp(k), ok = f.sun >= s.sun;
+      return '<button type="button" class="row row-btn seed-row" data-act="farm-plant" data-i="' + i + '" data-s="' + esc(k) + '"' + (ok ? '' : ' aria-disabled="true"') + '>' +
+        '<span class="seed-art">' + plantSVG(s, 1, true) + '</span><span class="two-line"><b>' + esc(s.name) + ' <span class="seed-n">×' + f.seeds[k] + '</span></b><span>' +
+        esc(FARM.cat.rarity[s.r]) + ', ' + s.sun + ' sun, ' + farmGrow(s, pl.loc) + (s.home === pl.loc ? ' here' : '') + '</span></span><span class="seed-go">' + (ok ? 'Plant' : 'Need ' + s.sun) + '</span></button>';
+    }).join('');
+    openDialog({ title: 'Plot ' + (i + 1), body: grp(rows || '<p class="row info-text">No seeds. Buy some in the shop, or find seed crates in Bloc City.</p>', 'You have ' + f.sun + ' sun', 'Plants from the place they come from grow 25% faster.') +
+      (rows ? '' : grp(rButton(icon('bag') + 'Open the Shop', 'farm-shop', ''))) });
+  }
+  function farmPlotSheet(i) {
+    var key = farmKey(), pl = FARM.plots[key], p = pl && pl.plots[i];
+    if (!p) { closeDialog(); return; }
+    curSheet = function () { farmPlotSheet(i); };
+    var s = farmSp(p.s), t = farmT(), ripe = t >= p.ready;
+    var who = p.mine ? 'You' : farmFirst(p.by);
+    var info = ripe ? (p.mine ? 'Ready to pick.' : 'Ready for ' + who + ' to pick.') : 'Ready at ' + farmClock(p.ready) + ', in ' + farmLeft(p.ready - t) + '.';
+    var rows = '<div class="row"><span class="seed-art big">' + plantSVG(s, ripe ? 1 : Math.max(0, Math.min(1, (t - p.at) / Math.max(1, p.ready - p.at))), ripe) + '</span><span class="two-line"><b>' + esc(s.name) + '</b><span>' + esc(FARM.cat.rarity[s.r]) + ', planted by ' + esc(who) + (p.left > 1 ? ', ' + p.left + ' picks left' : '') + '</span></span></div>' +
+      '<p class="row info-text">' + esc(info + (p.watered ? ' Watered ' + p.watered + ' ' + (p.watered === 1 ? 'time' : 'times') + '.' : '') + (p.wet ? ' It’s Wet: double price.' : '')) + '</p>';
+    var acts = '';
+    if (!ripe && p.canWater) acts += rButton(icon('drop') + 'Water It', 'farm-water', ' data-i="' + i + '"');
+    if (ripe && p.mine) acts += rButton(icon('basket') + 'Pick It', 'farm-harvest', ' data-i="' + i + '"');
+    if (p.mine || (pl && !pl.own && pl.houses.every(function (h) { return h.id !== p.by; }))) acts += rButton(icon('x') + 'Pull It Out', 'farm-clear', ' data-i="' + i + '"', 'danger-text');
+    openDialog({ title: s.name, body: grp(rows) + (acts ? grp(acts, '', 'Watering takes 15% off the time left and might make it Wet. Everyone can water each plant once.') : '') });
+  }
+  function farmHarvest(i) {
+    return farmPost('/api/farm/act', { a: 'harvest', g: farmKey(), i: i }).then(function (d) {
+      if (!d) return;
+      var it = d.got, s = it && farmSp(it.s);
+      closeDialog();
+      render();
+      if (it && s) {
+        toast((it.m.length ? mutText(it.m) + ' ' : '') + s.name + ', ' + it.w + ' kg: worth ' + it.v + (it.first ? '. New in your Index!' : ''));
+        if (it.m.indexOf('golden') >= 0 || it.m.indexOf('rainbow') >= 0 || it.first) celebrate(null, true);
+      }
+    });
+  }
+  function farmShopSheet() {
+    var d = FARM.d, f = d.farm, st = d.shop;
+    curSheet = farmShopSheet;
+    function seedRow(id, feat) {
+      var s = farmSp(id);
+      if (!s) return '';
+      var ok = f.coins >= s.price;
+      return '<div class="row shop-row"><span class="seed-art">' + plantSVG(s, 1, true) + '</span><span class="two-line"><b>' + esc(s.name) + '</b><span>' + esc(FARM.cat.rarity[s.r]) + ', ' + s.sun + ' sun, ' + farmGrow(s, d.loc) + (s.yields > 1 ? ', ' + s.yields + ' picks' : '') + ', sells for ' + s.sell + (feat ? ', ' + st.feat.left + ' left' : '') + '</span></span>' +
+        '<span class="shop-btns"><button type="button" class="btn small" data-act="farm-buy" data-s="' + id + '" data-n="1"' + (ok && (!feat || st.feat.left > 0) ? '' : ' disabled') + '>' + s.price + '</button>' +
+        (feat ? '' : '<button type="button" class="btn small quiet" data-act="farm-buy" data-s="' + id + '" data-n="5"' + (f.coins >= s.price * 5 ? '' : ' disabled') + '>×5</button>') + '</span></div>';
+    }
+    var deco = FARM.cat.decos.map(function (x) {
+      var own = f.deco.own[x.id] || 0;
+      return '<div class="row shop-row"><span class="seed-art">' + decoSVG(x.id) + '</span><span class="two-line"><b>' + esc(x.name) + '</b><span>' + (own ? 'You have ' + own : 'Goes next to your house') + '</span></span><span class="shop-btns"><button type="button" class="btn small" data-act="farm-deco" data-id="' + x.id + '"' + (f.coins >= x.cost ? '' : ' disabled') + '>' + x.cost + '</button></span></div>';
+    }).join('');
+    openDialog({ title: 'Shop', wide: true, body:
+      '<p class="shop-coins">' + icon('coin') + '<b>' + f.coins + '</b> coins, ' + icon('sun') + '<b>' + f.sun + '</b> sun</p>' +
+      grp(st.always.map(function (id) { return seedRow(id, false); }).join(''), 'Seeds', 'Bloc never sells seeds or coins for money. Everything here comes from studying.') +
+      (st.local.length ? grp(st.local.map(function (id) { return seedRow(id, false); }).join(''), 'Only in ' + esc(farmLoc(d.loc).name)) : '') +
+      grp(seedRow(st.feat.s, true), 'Featured until ' + farmClock(st.feat.until), 'One rare or epic seed, 3 each, changes every 6 hours.') +
+      grp(deco, 'Decorations', 'Your house has room for ' + (2 + f.house) + '.') });
+  }
+  function farmPlacesSheet() {
+    var d = FARM.d, f = d.farm, key = farmKey(), pl = FARM.plots[key];
+    curSheet = farmPlacesSheet;
+    var here = pl ? pl.loc : d.loc, wait = pl && pl.moveAt && farmT() < pl.moveAt;
+    var rows = FARM.cat.locs.map(function (L) {
+      var have = f.locs.indexOf(L.id) >= 0, btn;
+      if (L.id === here) btn = '<span class="seed-go"><span class="hl">Here</span></span>';
+      else if (have) btn = '<button type="button" class="btn small" data-act="farm-move" data-to="' + L.id + '"' + (wait ? ' disabled' : '') + '>Move</button>';
+      else btn = '<button type="button" class="btn small" data-act="farm-unlock" data-to="' + L.id + '"' + (f.coins >= L.cost && f.house >= L.house ? '' : ' disabled') + '>' + L.cost + '</button>';
+      var need = have ? '' : (f.house < L.house ? ' Needs a ' + farmHouse(L.house).name + '.' : '') + (L.stars ? ' Needs ' + L.stars + ' Legend star.' : '');
+      return '<div class="row shop-row place-row loc-' + L.id + '"><span class="place-art">' + placeSVG(L.id) + '</span><span class="two-line"><b>' + esc(L.name) + '</b><span>' + esc(L.blurb + need) + '</span></span>' + btn + '</div>';
+    }).join('');
+    openDialog({ title: 'Places', wide: true, body: grp(rows, pl && !pl.own ? 'Where ' + esc(pl.name) + ' grows' : 'Where your garden grows',
+      (wait ? 'This garden moved recently. It can move again at ' + farmClock(pl.moveAt) + '. ' : '') + 'Unlocking costs coins once. Moving is free, once every 12 hours. In a shared garden, anyone who unlocked a place can move it there. Your home moves too: it’s where your house stands in Bloc City.') });
+  }
+  function farmIndexSheet() {
+    var f = FARM.d.farm;
+    curSheet = farmIndexSheet;
+    var tiles = FARM.cat.species.map(function (s) {
+      var e = f.index[s.id];
+      return '<div class="ix' + (e ? '' : ' unknown') + '"><span class="ix-art">' + plantSVG(s, 1, true) + '</span><b>' + esc(e ? s.name : '???') + '</b><span>' + (e ? e.n + ' picked, best ' + e.best + ' kg' : FARM.cat.rarity[s.r]) + '</span>' +
+        (e && e.m.length ? '<span class="ix-m">' + esc(mutText(e.m)) + '</span>' : '') + '</div>';
+    }).join('');
+    openDialog({ title: 'Index', wide: true, body: '<div class="ix-grid">' + tiles + '</div><p class="group-foot">Mutations: Wet ×2 (rain or a friend’s water), Focused ×2 (picked during or within 20 minutes of a study session), Golden ×8 and Rainbow ×20 (rare, likelier at golden hour and with Legend stars).</p>' });
+  }
+  function farmMoreSheet() {
+    curSheet = farmMoreSheet;
+    var share = S.settings.shareFocus !== false;
+    openDialog({ title: 'How the Garden Works', body:
+      grp('<label class="row"><span class="row-label">Show friends when I study</span><input class="ios-switch" type="checkbox" role="switch" data-change="farm-share"' + (share ? ' checked' : '') + '></label>', '', 'People in your shared gardens see your subject and when your session ends.') +
+      grp('<p class="row info-text">Study makes sun and fuel. Each minute: 1 sun to plant with, 12 seconds of driving in Bloc City. Up to 8 hours a day count, like your puppy.</p>' +
+        '<p class="row info-text">Seeds cost coins. Ripe plants go in your basket. Sell the basket for coins, then build a bigger house, unlock new places, buy decorations and cars.</p>' +
+        '<p class="row info-text">Weather is the same for everyone in a place. Rain makes harvests Wet. Golden hour, just before sunset, makes Golden harvests three times likelier.</p>' +
+        '<p class="row info-text">After your puppy turns Legend, every 10 hours of study earns a Legend star. Stars never run out.</p>', 'The rules') });
+  }
+
+  /* ---------- Bloc City ---------- */
+  function citySkyline() {
+    return '<svg viewBox="0 0 640 220" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><linearGradient id="cs-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B2D6E"/><stop offset=".45" stop-color="#E0457B"/><stop offset=".8" stop-color="#FFB25C"/><stop offset="1" stop-color="#FFE14D"/></linearGradient></defs>' +
+      '<rect width="640" height="220" fill="url(#cs-sky)"/><circle cx="470" cy="150" r="46" fill="#FFE98A"/>' +
+      [[20, 90, 40], [64, 60, 34], [100, 110, 50], [154, 40, 30], [190, 80, 46], [240, 120, 30], [276, 70, 36], [318, 100, 44]].map(function (b) { return '<rect x="' + b[0] + '" y="' + b[1] + '" width="' + b[2] + '" height="' + (180 - b[1]) + '" fill="#2A2350" opacity=".9"/>'; }).join('') +
+      '<rect y="172" width="640" height="48" fill="#3A3F6B"/><path d="M0 196h640" stroke="#FFE14D" stroke-width="3" stroke-dasharray="22 18"/>' +
+      [[380, 150], [560, 140], [610, 156]].map(function (p) { return '<path d="M' + p[0] + ' 178c2-16 0-28-4-38" stroke="#1C1838" stroke-width="5" fill="none"/>' + [-170, -130, -90, -50, -10].map(function (a) { return leafP(p[0] - 4, p[1] - 2, 22, a, '#1C1838'); }).join(''); }).join('') +
+      '<g transform="translate(110 168)"><rect x="0" y="0" width="70" height="18" rx="6" fill="#FFE14D" stroke="#191D29" stroke-width="2.5"/><path d="M14 0l8-12h26l10 12z" fill="#FFE14D" stroke="#191D29" stroke-width="2.5" stroke-linejoin="round"/><circle cx="16" cy="19" r="7" fill="#191D29"/><circle cx="54" cy="19" r="7" fill="#191D29"/></g></svg>';
+  }
+  function cityPaneHTML() {
+    var d = FARM.d;
+    var head = '<div class="page-head"><div><h1 class="display">Bloc City</h1><p class="sub">Drive the city between study sessions</p></div></div>';
+    if (!d || !FARM.cat) return petPanes() + head + '<section class="card"><p class="empty">' + (FARM.err ? 'Can’t reach Bloc City. Check your connection.' : 'Loading Bloc City…') + '</p></section>';
+    var f = d.farm, dv = f.drive || {}, today = dv.day === (d.wx && d.wx.date);
+    var notes = today ? (dv.notes || []).length : 0, crates = today ? (dv.crates || []).length : 0, R = FARM.cat.rules;
+    var canGo = f.fuel >= 20;
+    var trials = FARM.cat.trials.map(function (t) {
+      var b = f.best[t.id], medal = b ? (b <= t.gold ? 'Gold' : b <= t.silver ? 'Silver' : b <= t.bronze ? 'Bronze' : '') : '';
+      return '<li><span><b>' + esc(t.name) + '</b> ' + (b ? (medal ? '<span class="hl">' + medal + '</span> ' : '') + fmtWatch(b / 1000) : 'not driven yet') + '</span><span class="hint">gold ' + fmtWatch(t.gold / 1000) + '</span></li>';
+    }).join('');
+    var cars = FARM.cat.cars.map(function (c) {
+      var own = f.cars.indexOf(c.id) >= 0, on = f.car === c.id;
+      return '<div class="row shop-row"><span class="two-line"><b>' + esc(c.name) + '</b><span>' + Math.round(c.top * 3.6) + ' km/h' + (own ? '' : ', needs a ' + farmHouse(c.house).name) + '</span></span>' +
+        (on ? '<span class="seed-go"><span class="hl">Driving</span></span>' : '<button type="button" class="btn small" data-act="farm-car" data-id="' + c.id + '"' + (own || (f.coins >= c.cost && f.house >= c.house) ? '' : ' disabled') + '>' + (own ? 'Drive' : c.cost) + '</button>') + '</div>';
+    }).join('');
+    var swatches = FARM.cat.colors.map(function (c) { return '<button type="button" class="car-sw" data-act="farm-color" data-c="' + c + '" style="--c:' + c + '" aria-label="Car colour ' + c + '" aria-pressed="' + (f.color === c) + '"></button>'; }).join('');
+    return petPanes() + head +
+      '<section class="card city-hero"><div class="city-art">' + citySkyline() + '</div>' +
+        '<div class="city-go"><div class="two-line"><b>' + fmtClock(f.fuel) + ' of fuel</b><span>Every 5 minutes of study fills 1 minute, up to ' + Math.round(R.fuelMax / 60) + '.</span></div>' +
+        '<button type="button" class="btn primary" data-act="city-go"' + (canGo ? '' : ' disabled') + '>' + icon('car') + (canGo ? 'Drive' : 'Study to Drive') + '</button></div></section>' +
+      '<div class="farm-cols">' +
+        '<section class="card farm-card" aria-labelledby="h-cityday"><header class="card-head"><h2 id="h-cityday">Today in the city</h2></header><ul class="farm-list">' +
+          '<li><span>Sticky notes</span><span class="hint">' + notes + ' of ' + R.noteN + ', ' + R.noteCoins + ' coins each</span></li>' +
+          '<li><span>Seed crates</span><span class="hint">' + crates + ' of ' + R.crateN + '</span></li>' +
+          '<li><span>Stunt jumps found</span><span class="hint">' + (f.jumps || []).length + ' of ' + R.jumpN + '</span></li>' +
+          '<li><span>Friends’ houses visited</span><span class="hint">' + (today ? (dv.visits || []).length : 0) + '</span></li></ul>' +
+          '<p class="pet-note">Notes and crates come back every morning. Drive past a friend’s house and you both get 10 coins.</p></section>' +
+        '<section class="card farm-card" aria-labelledby="h-trials"><header class="card-head"><h2 id="h-trials">Time trials</h2></header><ul class="farm-list">' + trials + '</ul>' +
+          '<p class="pet-note">Drive into a yellow ring to start. A medal pays coins once a day; your first gold on each route gives a rare seed.</p></section>' +
+        '<section class="card farm-card" aria-labelledby="h-garage"><header class="card-head"><h2 id="h-garage">Garage</h2></header>' + grp(cars) + '<div class="car-sws" role="group" aria-label="Car colour">' + swatches + '</div></section>' +
+        '<section class="card farm-card" aria-labelledby="h-keys"><header class="card-head"><h2 id="h-keys">Controls</h2></header><ul class="farm-list">' +
+          '<li><span>Drive</span><span class="hint">W A S D or the arrows</span></li><li><span>Handbrake and drift</span><span class="hint">Space</span></li><li><span>Map</span><span class="hint">M</span></li><li><span>Leave</span><span class="hint">Esc</span></li></ul>' +
+          '<p class="pet-note">On a phone: steer with the left buttons, gas and brake on the right.</p></section>' +
+      '</div>';
+  }
+  function cityGo() {
+    if (FARM.driving || !FARM.d) return;
+    FARM.driving = true;
+    unlockAudio();
+    api('POST', '/api/farm/drive', { a: 'start' }, { timeout: 20000 }).then(function (r) {
+      if (r.status !== 200 || !r.data || !r.data.run) { FARM.driving = false; toast(farmErrText(r)); return; }
+      var data = r.data;
+      farmLearn(data.homes);
+      return import('./drive.js?v=6.1').then(function (mod) {
+        mod.start({ data: data, me: ME.id, onEnd: function (res) { cityEnd(data.run.id, res); } });
+      });
+    }).catch(function () { FARM.driving = false; toast('Bloc City couldn’t load. Check your connection.'); });
+  }
+  function cityEnd(run, res) {
+    res = res || {};
+    api('POST', '/api/farm/drive', { a: 'end', run: run, secs: res.secs || 0, notes: res.notes || [], crates: res.crates || [], jumps: res.jumps || [], visits: res.visits || [], trial: res.trial || null }, { timeout: 20000, keepalive: false }).then(function (r) {
+      FARM.driving = false;
+      if (r.status !== 200 || !r.data) { toast(farmErrText(r)); return; }
+      farmTake(r.data);
+      render();
+      var x = r.data.result || {}, lines = [];
+      if (x.notes) lines.push(x.notes + ' sticky ' + (x.notes === 1 ? 'note' : 'notes'));
+      (x.crates || []).forEach(function (id) { var s = farmSp(id); if (s) lines.push('a ' + s.name + ' seed'); });
+      (x.jumps || []).forEach(function (j) { lines.push(j.first ? 'a new stunt jump' : 'a stunt jump'); });
+      if (x.trial) lines.push(FARM.cat.trials.filter(function (t) { return t.id === x.trial.id; })[0].name + ' in ' + fmtWatch(x.trial.ms / 1000) + (x.trial.medal ? ' (' + x.trial.medal + ')' : ''));
+      (x.visits || []).forEach(function (id) { lines.push('a visit to ' + farmFirst(id)); });
+      toast(lines.length ? 'Drive over: ' + lines.join(', ') + '. +' + x.coins + ' coins' : 'Drive over. ' + fmtClock(r.data.farm.fuel) + ' of fuel left');
+    }, function () { FARM.driving = false; toast('You’re offline. This drive’s rewards didn’t save.'); });
+  }
+
+  /* ---------- Today: ripe plants waiting in your garden ---------- */
+  var nudgeAt = 0;
+  function gardenNudge() {
+    if (!ME) return '';
+    if (Date.now() - nudgeAt > 120000 && sget('myib:farm:on:' + ME.id) === '1') { nudgeAt = Date.now(); farmLoad(false); farmPlotLoad('me', false); }
+    var pl = FARM.plots.me;
+    if (!pl || !FARM.cat) return '';
+    var t = farmT(), ripe = pl.plots.filter(function (p) { return p && p.mine && t >= p.ready; });
+    if (!ripe.length) return '';
+    var s = farmSp(ripe[0].s);
+    return '<button type="button" class="pet-nudge garden-nudge" data-act="farm-open">' +
+      '<span class="pet-nudge-art" aria-hidden="true">' + plantSVG(s, 1, true) + '</span>' +
+      '<span class="two-line"><b>' + (ripe.length === 1 ? esc(s ? s.name : 'A plant') + ' is ready to pick' : ripe.length + ' plants are ready to pick') + '</b><span>Open your garden</span></span>' + icon('chev') + '</button>';
+  }
+
+  /* ---------- Today: friends studying right now ---------- */
+  function cardNow() {
+    if (ME && (GARDEN.list || []).length) farmNowLoad();
+    var ppl = FARM.now.people;
+    if (!ppl.length) return '';
+    return '<section class="card now-card" aria-labelledby="h-now"><header class="card-head"><h2 id="h-now">Studying now</h2><span class="hint">' + ppl.length + '</span></header><ul class="farm-list">' +
+      ppl.slice(0, 5).map(function (x) {
+        return '<li><span class="hl-dot" style="--c:' + esc(x.color || 'var(--label)') + '"></span><span><b>' + esc(String(x.name).split(' ')[0]) + '</b> ' + (x.subject ? esc(x.subject) : 'studying') + '</span><span class="hint">' + (x.ends ? 'until ' + farmClock(x.ends) : 'stopwatch') + '</span></li>';
+      }).join('') + '</ul><p class="pet-note">Friends from your shared gardens. Start a session and they’ll see you too.</p></section>';
+  }
+
+  var FARM_ACT = {
+    'pet-pane': function (el) { farmSetPane(el.dataset.id); },
+    'farm-plot': function (el) { farmPlotTap(Number(el.dataset.i)); },
+    'farm-plant': function (el) {
+      if (el.getAttribute('aria-disabled') === 'true') { var s = farmSp(el.dataset.s); toast(s ? 'You need ' + s.sun + ' sun. Every study minute makes 1.' : 'Not enough sun'); return; }
+      var s2 = farmSp(el.dataset.s);
+      farmDo({ a: 'plant', g: farmKey(), i: Number(el.dataset.i), s: el.dataset.s }).then(function (d) { if (d) { closeDialog(); toast(s2 ? s2.name + ' planted' : 'Planted'); } });
+    },
+    'farm-plantfirst': function (el) {
+      var pl = FARM.plots[farmKey()], s = farmSp(el.dataset.s);
+      if (!pl || !s) return;
+      var i = -1;
+      for (var k = 0; k < pl.open; k++) if (!pl.plots[k]) { i = k; break; }
+      if (i < 0) { toast('No free plot. Pick or pull something first.'); return; }
+      if (FARM.d.farm.sun < s.sun) { toast('You need ' + s.sun + ' sun. Every study minute makes 1.'); return; }
+      farmDo({ a: 'plant', g: farmKey(), i: i, s: s.id }).then(function (d) { if (d) toast(s.name + ' planted in plot ' + (i + 1)); });
+    },
+    'farm-water': function (el) { farmDo({ a: 'water', g: farmKey(), i: Number(el.dataset.i) }).then(function (d) { if (d) toast('Watered' + (d.got && d.got.wet ? ': it turned Wet!' : '') + (d.got && d.got.coins ? ' +' + d.got.coins + ' coins for helping' : '')); }); },
+    'farm-harvest': function (el) { farmHarvest(Number(el.dataset.i)); },
+    'farm-clear': function (el) {
+      if (!arm(el, 'Press again to pull it out')) return;
+      farmDo({ a: 'clear', g: farmKey(), i: Number(el.dataset.i) }).then(function (d) { if (d) { closeDialog(); toast('Pulled out'); } });
+    },
+    'farm-sell': function () { farmDo({ a: 'sell' }).then(function (d) { if (d && d.got) { toast('Sold ' + d.got.n + ' for ' + d.got.coins + ' coins' + (d.got.weekend ? ' (weekend market)' : '')); celebrate(null, false); } }); },
+    'farm-buy': function (el) { farmDo({ a: 'buy', s: el.dataset.s, n: Number(el.dataset.n) || 1 }).then(function (d) { if (d && d.msg) toast('Bought ' + d.msg); }); },
+    'farm-house': function () { farmDo({ a: 'house' }).then(function (d) { if (d && d.msg) { toast('You built a ' + d.msg + '!'); celebrate(null, true); } }); },
+    'farm-unlock': function (el) { farmDo({ a: 'unlock', to: el.dataset.to }).then(function (d) { if (d && d.msg) toast(d.msg + ' unlocked. Move your garden there any time.'); }); },
+    'farm-move': function (el) {
+      farmPost('/api/farm/act', { a: 'move', g: farmKey(), to: el.dataset.to }).then(function (d) { if (d) { render(); closeDialog(); toast('The garden moved to ' + d.msg); } });
+    },
+    'farm-deco': function (el) { farmDo({ a: 'deco', item: el.dataset.id }).then(function (d) { if (d && d.msg) toast(d.msg + ' placed by your house'); }); },
+    'farm-car': function (el) { farmDo({ a: 'car', id: el.dataset.id }).then(function (d) { if (d) toast(d.msg ? 'New car: ' + d.msg : 'Car swapped'); }); },
+    'farm-color': function (el) { farmDo({ a: 'color', c: el.dataset.c }); },
+    'farm-star': function () {
+      farmDo({ a: 'star' }).then(function (d) {
+        if (d && d.got) { var s = farmSp(d.got.seed); toast('Legend star ' + d.got.star + ': a ' + (s ? s.name : 'Legendary') + ' seed and 500 coins'); celebrate(null, true); }
+      });
+    },
+    'farm-shop': function () { if (FARM.d && FARM.cat) farmShopSheet(); },
+    'farm-places': function () { if (FARM.d && FARM.cat) farmPlacesSheet(); },
+    'farm-index': function () { if (FARM.d && FARM.cat) farmIndexSheet(); },
+    'farm-more': function () { farmMoreSheet(); },
+    'city-go': function () { cityGo(); },
+    'farm-open': function () { GARDEN.view = ''; UI.petPane = 'garden'; if (ME) sset('myib:petpane:' + ME.id, 'garden'); go('pet'); }
+  };
+
   Object.keys(PET_ACT).forEach(function (k) { ACT[k] = PET_ACT[k]; });
+  Object.keys(FARM_ACT).forEach(function (k) { ACT[k] = FARM_ACT[k]; });
 
   document.addEventListener('click', function (e) {
     var el = e.target.closest ? e.target.closest('[data-act]') : null;
@@ -7941,6 +8592,7 @@
     else if (k === 'rep-day') repLabel();
     else if (k === 'cal-past') { UI.showPast = el.checked; saveUI(); render(); }
     else if (k === 'tasks-done') { UI.showDone = el.checked; saveUI(); render(); }
+    else if (k === 'farm-share') { S.settings.shareFocus = !!el.checked; save(); toast(el.checked ? 'Friends can see when you study' : 'Your sessions stay private'); }
     else if (k === 'assist-file') { var pf = el.files && el.files[0]; el.value = ''; assistPickPhoto(pf); }
     else if (el.id === 'import-file') importFile(el);
     else if (el.id === 'ics-file') importPicked(el);

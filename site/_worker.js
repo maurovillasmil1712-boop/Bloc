@@ -160,6 +160,11 @@ const ROUTES = {
   'POST /api/garden/report': gardenReport,
   'PUT /api/pet/card': putPetCard,
   'DELETE /api/pet/card': deletePetCard,
+  'GET /api/farm': farmGet,
+  'GET /api/farm/plot': farmPlot,
+  'POST /api/farm/act': farmAct,
+  'POST /api/farm/drive': farmDrive,
+  'GET /api/farm/now': farmNow,
   'GET /api/push/key': pushKey,
   'POST /api/push/sub': pushSub,
   'POST /api/push/unsub': pushUnsub,
@@ -235,6 +240,9 @@ async function makeSchema(db) {
       db.prepare('CREATE TABLE IF NOT EXISTS gardens (id TEXT PRIMARY KEY, name TEXT NOT NULL, owner TEXT NOT NULL, created_at INTEGER NOT NULL, bad_name TEXT)'),
       db.prepare('CREATE TABLE IF NOT EXISTS garden_members (garden TEXT NOT NULL, user TEXT NOT NULL, status TEXT NOT NULL, invited_by TEXT, at INTEGER NOT NULL, PRIMARY KEY (garden, user)) WITHOUT ROWID'),
       db.prepare('CREATE INDEX IF NOT EXISTS garden_members_user ON garden_members (user, status)'),
+      /* the garden (v6.1): each person's coins, seeds and house, and each garden's plots ('u:<user>' or 'g:<garden>') */
+      db.prepare('CREATE TABLE IF NOT EXISTS farms (user TEXT PRIMARY KEY, data TEXT NOT NULL, rev INTEGER NOT NULL, updated_at INTEGER NOT NULL)'),
+      db.prepare('CREATE TABLE IF NOT EXISTS plotdocs (garden TEXT PRIMARY KEY, data TEXT NOT NULL, rev INTEGER NOT NULL, updated_at INTEGER NOT NULL)'),
       /* reminders: the browsers that get notifications, and each person's next reminders */
       db.prepare('CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, user TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at INTEGER NOT NULL, fails INTEGER NOT NULL DEFAULT 0)'),
       db.prepare('CREATE INDEX IF NOT EXISTS push_subs_user ON push_subs (user)'),
@@ -2896,6 +2904,8 @@ function accountWipe(c, id) {
     c.db.prepare('DELETE FROM reports WHERE reporter = ?1').bind(id),
     /* their puppy leaves every garden; a garden with nobody left goes */
     c.db.prepare('DELETE FROM pet_cards WHERE user = ?1').bind(id),
+    c.db.prepare('DELETE FROM farms WHERE user = ?1').bind(id),
+    c.db.prepare("DELETE FROM plotdocs WHERE garden = 'u:' || ?1").bind(id),
     c.db.prepare('DELETE FROM garden_members WHERE user = ?1').bind(id),
     ...gardenCleanup(c),
     /* reminders */
@@ -4050,7 +4060,8 @@ function cleanCard(v, bad) {
 function gardenCleanup(c) {
   return [
     c.db.prepare("DELETE FROM gardens WHERE NOT EXISTS (SELECT 1 FROM garden_members m WHERE m.garden = gardens.id AND m.status = 'member')"),
-    c.db.prepare('DELETE FROM garden_members WHERE NOT EXISTS (SELECT 1 FROM gardens g WHERE g.id = garden_members.garden)')
+    c.db.prepare('DELETE FROM garden_members WHERE NOT EXISTS (SELECT 1 FROM gardens g WHERE g.id = garden_members.garden)'),
+    c.db.prepare("DELETE FROM plotdocs WHERE substr(garden, 1, 2) = 'g:' AND NOT EXISTS (SELECT 1 FROM gardens g WHERE 'g:' || g.id = plotdocs.garden)")
   ];
 }
 /* you in a garden: 'member', 'invited', or a 404 */
@@ -4263,4 +4274,760 @@ async function adminPetReport(c, b) {
   stmts.push(c.db.prepare('DELETE FROM reports WHERE conv = ?1').bind(conv));
   await c.db.batch(stmts);
   return json({ ok: true });
+}
+
+/* =========================================================
+   The garden (v6.1): plants, houses, places and Bloc City.
+   Study is the only way in: every study minute gives 1 sun (you spend sun to plant)
+   and 12 seconds of fuel (you spend fuel to drive). Coins come from harvests and the city.
+   One row per person (farms) and one per garden (plotdocs): 'u:<user>' is your own garden,
+   'g:<garden id>' a garden you share with friends (the puppy gardens).
+   Nothing here is for sale: Bloc never sells seeds, crates or coins.
+   ========================================================= */
+const RARITY = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
+/* r: rarity, art: how the app draws it, price: coins (null: never sold), sun: to plant,
+   grow: minutes, yields: harvests per planting, sell: base coins, w: weight range in kg,
+   home: grows 25% faster there, only: the shop sells it only there, night: harvest 21:00 to 08:00 */
+const SPECIES = [
+  { id: 'basil', name: 'Basil', r: 0, art: 'herb', c: '#3E9F4A', price: 10, sun: 10, grow: 20, yields: 1, sell: 22, w: [0.05, 0.2], home: 'oldtown' },
+  { id: 'radish', name: 'Radish', r: 0, art: 'root', c: '#E0457B', price: 15, sun: 15, grow: 40, yields: 1, sell: 34, w: [0.1, 0.4], home: 'hills' },
+  { id: 'daisy', name: 'Daisy', r: 0, art: 'flower', c: '#FFFFFF', price: 20, sun: 20, grow: 60, yields: 1, sell: 48, w: [0.02, 0.06], home: 'campus' },
+  { id: 'geranium', name: 'Geranium', r: 1, art: 'flower', c: '#E8384F', price: 30, sun: 20, grow: 75, yields: 1, sell: 70, w: [0.03, 0.09], home: 'oldtown', only: 'oldtown' },
+  { id: 'strawberry', name: 'Strawberry', r: 1, art: 'berry', c: '#E5383B', price: 40, sun: 30, grow: 120, yields: 3, sell: 30, w: [0.01, 0.04], home: 'beach' },
+  { id: 'tomato', name: 'Tomato', r: 1, art: 'fruit', c: '#F25C2A', price: 50, sun: 35, grow: 120, yields: 3, sell: 36, w: [0.1, 0.35], home: 'oldtown' },
+  { id: 'sunflower', name: 'Sunflower', r: 1, art: 'tall', c: '#FFC300', price: 60, sun: 45, grow: 180, yields: 1, sell: 150, w: [0.3, 1.2], home: 'beach' },
+  { id: 'blueberry', name: 'Blueberry', r: 2, art: 'berry', c: '#4361EE', price: 140, sun: 60, grow: 240, yields: 4, sell: 70, w: [0.005, 0.02], home: 'hills' },
+  { id: 'cactus', name: 'CAS Cactus', r: 2, art: 'cactus', c: '#2E9E6B', price: 150, sun: 60, grow: 240, yields: 1, sell: 340, w: [0.5, 2.5], home: 'campus' },
+  { id: 'lavender', name: 'Lavender', r: 2, art: 'spike', c: '#9D7BD8', price: 160, sun: 70, grow: 300, yields: 1, sell: 380, w: [0.05, 0.2], home: 'hills' },
+  { id: 'coconut', name: 'Coconut Palm', r: 2, art: 'palm', c: '#8D6E4C', price: 200, sun: 80, grow: 360, yields: 3, sell: 160, w: [0.8, 2], home: 'beach', only: 'beach' },
+  { id: 'neonfern', name: 'Neon Fern', r: 2, art: 'fern', c: '#2BD97C', price: 220, sun: 80, grow: 360, yields: 1, sell: 520, w: [0.2, 0.8], home: 'downtown', only: 'downtown' },
+  { id: 'tok', name: 'TOK Tree', r: 3, art: 'tree', c: '#5B8C3A', price: 420, sun: 150, grow: 720, yields: 5, sell: 220, w: [0.3, 1], home: 'campus' },
+  { id: 'dragonfruit', name: 'Dragon Fruit', r: 3, art: 'dragon', c: '#FF3D8B', price: 480, sun: 160, grow: 720, yields: 1, sell: 1150, w: [0.3, 0.9], home: 'downtown' },
+  { id: 'ee', name: 'EE Ivy', r: 3, art: 'vine', c: '#2D6A4F', price: 520, sun: 200, grow: 960, yields: 1, sell: 1400, w: [1, 4], home: 'campus' },
+  { id: 'edelweiss', name: 'Edelweiss', r: 3, art: 'star', c: '#EEF2F7', price: 600, sun: 200, grow: 900, yields: 1, sell: 1600, w: [0.01, 0.05], home: 'hills', only: 'hills' },
+  { id: 'moonflower', name: 'Moonflower', r: 4, art: 'moon', c: '#B9C8FF', price: null, sun: 300, grow: 1440, yields: 1, sell: 4200, w: [0.1, 0.4], home: 'island', night: true },
+  { id: 'goldenapple', name: 'Golden Apple', r: 4, art: 'tree', c: '#FFD23F', price: null, sun: 350, grow: 1440, yields: 3, sell: 2600, w: [0.2, 0.6], home: 'island' },
+  { id: 'lotus45', name: 'Lotus 45', r: 4, art: 'lotus', c: '#FF8FB1', price: null, sun: 450, grow: 2880, yields: 1, sell: 12000, w: [0.5, 1.5], home: 'island' }
+];
+const SPECIES_BY = new Map(SPECIES.map((s) => [s.id, s]));
+/* hours: study hours you need (all time, at most 8 a day, like the puppy); stars: Legend stars */
+const HOUSES = [
+  { id: 'tent', name: 'Tent', plots: 4, cost: 0, hours: 0 },
+  { id: 'cabin', name: 'Cabin', plots: 6, cost: 250, hours: 2 },
+  { id: 'cottage', name: 'Cottage', plots: 9, cost: 900, hours: 6 },
+  { id: 'townhouse', name: 'Townhouse', plots: 12, cost: 2500, hours: 15 },
+  { id: 'villa', name: 'Villa', plots: 16, cost: 6500, hours: 30 },
+  { id: 'mansion', name: 'Mansion', plots: 20, cost: 15000, hours: 80 },
+  { id: 'castle', name: 'Castle', plots: 25, cost: 40000, hours: 80, stars: 2 }
+];
+const LOCS = [
+  { id: 'oldtown', name: 'Old Town', cost: 0, house: 0, rain: 0.15, blurb: 'Balconies, plazas and the only geraniums in town.' },
+  { id: 'beach', name: 'The Beach', cost: 400, house: 1, rain: 0, blurb: 'It never rains here. Coconut palms grow by the sea.' },
+  { id: 'campus', name: 'Campus', cost: 800, house: 2, rain: 0.15, blurb: 'Home of the CAS Cactus, the TOK Tree and EE Ivy.' },
+  { id: 'hills', name: 'Pine Hills', cost: 1500, house: 2, rain: 0.35, blurb: 'Rain most afternoons, so more Wet harvests. Edelweiss grows up here.' },
+  { id: 'downtown', name: 'Downtown', cost: 3000, house: 3, rain: 0.15, blurb: 'Rooftop beds between towers. Neon Ferns glow at night.' },
+  { id: 'island', name: 'Lotus Island', cost: 10000, house: 5, stars: 1, rain: 0.1, blurb: 'Golden hour lasts twice as long. Legendary plants grow 25% faster.' }
+];
+const LOC_BY = new Map(LOCS.map((l) => [l.id, l]));
+const DECOS = [
+  { id: 'bench', name: 'Bench', cost: 120 }, { id: 'flag', name: 'Bloc Flag', cost: 150 },
+  { id: 'lamp', name: 'Street Lamp', cost: 200 }, { id: 'gnome', name: 'Gnome', cost: 300 },
+  { id: 'fountain', name: 'Fountain', cost: 900 }, { id: 'pond', name: 'Pond', cost: 1500 },
+  { id: 'statue', name: 'Highlighter Statue', cost: 5000 }
+];
+const DECO_BY = new Map(DECOS.map((d) => [d.id, d]));
+/* top: m/s, acc: m/s², turn: steering */
+const CARS = [
+  { id: 'hatch', name: 'Hatchback', cost: 0, house: 0, top: 33, acc: 13, turn: 1 },
+  { id: 'buggy', name: 'Beach Buggy', cost: 1500, house: 1, top: 35, acc: 16, turn: 1.15 },
+  { id: 'van', name: 'Garden Van', cost: 2500, house: 2, top: 31, acc: 12, turn: 0.95 },
+  { id: 'gt', name: 'Sunset GT', cost: 6000, house: 3, top: 45, acc: 19, turn: 1.05 }
+];
+const CAR_BY = new Map(CARS.map((x) => [x.id, x]));
+const CAR_COLORS = ['#FFE14D', '#FF5A5F', '#3E9BD6', '#1E9E6A', '#F28C28', '#8C3B72', '#191D29', '#F3F4F6'];
+/* time trials: checkpoints on Bloc City's road grid (metres). Medals from the route's length. */
+const TRIALS = [
+  { id: 'beach', name: 'Beach Run', pts: [[1200, 720], [1200, 240], [1200, -240], [1200, -720], [880, -1040], [400, -1040]] },
+  { id: 'downtown', name: 'Downtown Dash', pts: [[0, -160], [0, -560], [320, -560], [320, -880], [-320, -880], [-320, -160], [0, -160]] },
+  { id: 'island', name: 'Bridge Sprint', pts: [[1040, -320], [1200, -320], [1440, -320], [1680, -320], [1900, -100], [2120, -320], [1900, -540], [1680, -320]] }
+];
+const FARM = {
+  SUN_MAX: 3000, FUEL_MAX: 1200, FUEL_PER_MIN: 12, FUEL_START: 180, DAY_CAP: 480,
+  BASKET_MAX: 200, NOTE_N: 160, NOTE_COINS: 3, CRATE_N: 10, JUMP_N: 6,
+  WATER_SKIP: 0.15, SKIP_MAX: 0.6, WET_CHANCE: 0.25, NATIVE: 0.75, REGROW: 0.5,
+  SHARED_BASE: 6, SHARED_MAX: 30, MOVE_WAIT: 12 * 60 * MIN, STAR_BASE: 80 * 60, STAR_STEP: 600,
+  FEATURED: 3, DECO_BASE: 2, LOG_MAX: 24, VISIT_COINS: 10
+};
+const PLOT_KEY = /^(u:[a-z0-9_.]{2,20}|g:[A-Za-z0-9_-]{12})$/;
+const FARM_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function trialLen(t) {
+  let d = 0;
+  for (let i = 1; i < t.pts.length; i++) d += Math.hypot(t.pts[i][0] - t.pts[i - 1][0], t.pts[i][1] - t.pts[i - 1][1]);
+  return d;
+}
+/* medal times in ms: bronze, silver, gold; and the fastest a car could possibly do it */
+function trialTimes(t) {
+  const L = trialLen(t);
+  return { bronze: Math.round(L / 15 * 1000), silver: Math.round(L / 20 * 1000), gold: Math.round(L / 25 * 1000), floor: Math.round(L / 48 * 1000), len: Math.round(L) };
+}
+function farmCatalog() {
+  return {
+    rarity: RARITY, species: SPECIES, houses: HOUSES, locs: LOCS, decos: DECOS, cars: CARS, colors: CAR_COLORS,
+    trials: TRIALS.map((t) => Object.assign({ id: t.id, name: t.name, pts: t.pts }, trialTimes(t))),
+    rules: { fuelPerMin: FARM.FUEL_PER_MIN, fuelMax: FARM.FUEL_MAX, sunMax: FARM.SUN_MAX, dayCap: FARM.DAY_CAP, noteN: FARM.NOTE_N, noteCoins: FARM.NOTE_COINS, crateN: FARM.CRATE_N, jumpN: FARM.JUMP_N, starStep: FARM.STAR_STEP, starBase: FARM.STAR_BASE }
+  };
+}
+
+/* ---------- time in Madrid: dates, golden hour, night, weekends ---------- */
+let farmClock = null;
+function madridParts(now) {
+  try {
+    if (!farmClock) farmClock = new Intl.DateTimeFormat('en-CA', { timeZone: SIRI_TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hourCycle: 'h23' });
+    const p = farmClock.formatToParts(new Date(now)), get = (k) => (p.find((x) => x.type === k) || {}).value;
+    const date = get('year') + '-' + get('month') + '-' + get('day');
+    const min = (+get('hour')) * 60 + (+get('minute'));
+    const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday'));
+    if (FARM_DATE.test(date) && min >= 0 && min < 1440 && dow >= 0) return { date, min, dow };
+  } catch (e) { /* below */ }
+  const d = new Date(now + 3600000);
+  return { date: d.toISOString().slice(0, 10), min: d.getUTCHours() * 60 + d.getUTCMinutes(), dow: d.getUTCDay() };
+}
+function dateAdd(date, days) {
+  const d = new Date(date + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+/* Madrid's sunset, near enough: 17:45 in late December, 21:55 in late June */
+function sunsetMin(now) {
+  const d = new Date(now), start = Date.UTC(d.getUTCFullYear(), 0, 0), doy = Math.floor((now - start) / DAY);
+  return Math.round(19 * 60 + 50 + 125 * Math.sin(2 * Math.PI * (doy - 80) / 365));
+}
+function hash32(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+/* the weather in one place right now: everybody there sees the same sky */
+function weatherAt(loc, now) {
+  const L = LOC_BY.get(loc) || LOCS[0], hour = Math.floor(now / 3600000), mp = madridParts(now), ss = sunsetMin(now);
+  const rain = (hash32('rain:' + L.id + ':' + hour) % 1000) < L.rain * 1000;
+  const gLen = L.id === 'island' ? 90 : 45;
+  const golden = mp.min >= ss - gLen && mp.min < ss;
+  const night = mp.min >= 21 * 60 || mp.min < 8 * 60;
+  return { loc: L.id, rain, golden, night, weekend: mp.dow === 0 || mp.dow === 6, until: (hour + 1) * 3600000, sunset: ss, min: mp.min, date: mp.date };
+}
+
+/* ---------- study: the planner's logged sessions, at most 8 hours a day ---------- */
+async function plannerBits(c, user) {
+  const r = await c.db.prepare(
+    "SELECT json_extract(data, '$.sessions') AS ses, json_extract(data, '$.pet.bornDate') AS born, json_extract(data, '$.pet.id') AS pet, json_extract(data, '$.timer') AS timer FROM planners WHERE user = ?1"
+  ).bind(user).first();
+  let ses = [], timer = null;
+  try { ses = r && r.ses ? JSON.parse(r.ses) : []; } catch (e) { ses = []; }
+  try { timer = r && r.timer ? JSON.parse(r.timer) : null; } catch (e) { timer = null; }
+  if (!Array.isArray(ses)) ses = [];
+  return { ses, born: r && FARM_DATE.test(r.born || '') ? r.born : null, pet: !!(r && r.pet), timer };
+}
+function studyDays(ses, from) {
+  const day = new Map();
+  for (const x of ses) {
+    if (!x || !FARM_DATE.test(x.date) || (from && x.date < from)) continue;
+    const m = Math.max(0, Math.min(720, Math.round(Number(x.minutes) || 0)));
+    day.set(x.date, (day.get(x.date) || 0) + m);
+  }
+  for (const [k, v] of day) day.set(k, Math.min(FARM.DAY_CAP, v));
+  return day;
+}
+function sumDays(day) { let n = 0; for (const v of day.values()) n += v; return n; }
+function timerRunning(t, now) {
+  if (!t || typeof t !== 'object') return false;
+  const at = Number(t.startedAt);
+  if (!(at > 1.5e12) || t.pausedAt) return false;
+  const el = now - at - (Number(t.pausedTotal) || 0);
+  return el >= 0 && el < (Number(t.len) || 25) * 60000 + 60000;
+}
+/* the end of the latest timed session (ids 'ss-t' + start time in base 36) */
+function lastStudyEnd(ses) {
+  let best = 0;
+  for (const x of ses) {
+    const m = x && typeof x.id === 'string' ? /^ss-t([0-9a-z]+)$/.exec(x.id) : null;
+    if (!m) continue;
+    const end = parseInt(m[1], 36) + (Number(x.minutes) || 0) * 60000;
+    if (end > best && end < 4e12) best = end;
+  }
+  return best;
+}
+/* Legend stars: after the puppy turns Legend (80 hours), every 10 more hours of study is a star */
+function starsFor(bits) {
+  if (!bits.pet || !bits.born) return { avail: 0, toNext: null, petMin: 0 };
+  const petMin = sumDays(studyDays(bits.ses, bits.born));
+  const over = petMin - FARM.STAR_BASE;
+  if (over < 0) return { avail: 0, toNext: null, petMin, toLegend: -over };
+  return { avail: Math.floor(over / FARM.STAR_STEP), toNext: FARM.STAR_STEP - over % FARM.STAR_STEP, petMin };
+}
+
+/* ---------- a person's farm ---------- */
+function newFarm(now) {
+  const today = madridParts(now).date;
+  return {
+    v: 1, start: dateAdd(today, -7), created: now, coins: 50, sun: 0, fuel: FARM.FUEL_START, day: {},
+    seeds: { basil: 3, radish: 2 }, basket: [], house: 0, locs: ['oldtown'],
+    deco: { own: {}, placed: [] }, index: {}, stars: 0, cars: ['hatch'], car: 'hatch', color: CAR_COLORS[0],
+    feat: { w: -1, n: 0 }, drive: { day: today, notes: [], crates: [], visits: [], trials: {}, jumpsDay: [] }, jumps: [], best: {}, golds: [],
+    run: null, log: [], seen: 0
+  };
+}
+function cleanFarm(f, now) {
+  const d = newFarm(now);
+  if (!f || typeof f !== 'object') return d;
+  const o = Object.assign(d, f);
+  const int = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v) || 0)));
+  o.coins = int(o.coins, 0, 1e9); o.sun = int(o.sun, 0, FARM.SUN_MAX); o.fuel = int(o.fuel, 0, FARM.FUEL_MAX);
+  o.house = int(o.house, 0, HOUSES.length - 1); o.stars = int(o.stars, 0, 1e6);
+  if (!o.day || typeof o.day !== 'object') o.day = {};
+  if (!o.seeds || typeof o.seeds !== 'object') o.seeds = {};
+  if (!Array.isArray(o.basket)) o.basket = [];
+  if (!Array.isArray(o.locs) || !o.locs.includes('oldtown')) o.locs = ['oldtown'].concat(Array.isArray(o.locs) ? o.locs.filter((x) => LOC_BY.has(x) && x !== 'oldtown') : []);
+  if (!o.deco || typeof o.deco !== 'object') o.deco = { own: {}, placed: [] };
+  if (!o.index || typeof o.index !== 'object') o.index = {};
+  if (!Array.isArray(o.cars) || !o.cars.includes('hatch')) o.cars = ['hatch'];
+  if (!CAR_BY.has(o.car) || !o.cars.includes(o.car)) o.car = 'hatch';
+  if (!CAR_COLORS.includes(o.color)) o.color = CAR_COLORS[0];
+  if (!o.drive || typeof o.drive !== 'object') o.drive = d.drive;
+  if (!Array.isArray(o.jumps)) o.jumps = [];
+  if (!o.best || typeof o.best !== 'object') o.best = {};
+  if (!Array.isArray(o.golds)) o.golds = [];
+  if (!Array.isArray(o.log)) o.log = [];
+  return o;
+}
+/* new study since last time becomes sun and fuel; each day counts once, so deleting
+   and logging a session again earns nothing new */
+function claimStudy(f, bits, now) {
+  const days = studyDays(bits.ses, f.start);
+  let fresh = 0;
+  for (const [date, m] of days) {
+    const had = Number(f.day[date]) || 0;
+    if (m > had) { fresh += m - had; f.day[date] = m; }
+  }
+  /* keep 120 days; anything older can't earn again (start moves forward) */
+  const today = madridParts(now).date, floor = dateAdd(today, -120);
+  for (const k of Object.keys(f.day)) if (k < floor) delete f.day[k];
+  if (f.start < floor) f.start = floor;
+  if (fresh > 0) {
+    f.sun = Math.min(FARM.SUN_MAX, f.sun + fresh);
+    f.fuel = Math.min(FARM.FUEL_MAX, f.fuel + fresh * FARM.FUEL_PER_MIN);
+  }
+  return fresh;
+}
+function farmLog(f, entry) {
+  f.log.unshift(entry);
+  if (f.log.length > FARM.LOG_MAX) f.log.length = FARM.LOG_MAX;
+}
+async function loadFarm(c, user) {
+  const r = await c.db.prepare('SELECT data, rev FROM farms WHERE user = ?1').bind(user).first();
+  if (!r) return { farm: newFarm(c.now), rev: null };
+  let f = null;
+  try { f = JSON.parse(r.data); } catch (e) { f = null; }
+  return { farm: cleanFarm(f, c.now), rev: r.rev };
+}
+async function saveFarm(c, user, farm, rev) {
+  const data = JSON.stringify(farm);
+  if (rev === null) {
+    const r = await c.db.prepare('INSERT OR IGNORE INTO farms (user, data, rev, updated_at) VALUES (?1, ?2, 1, ?3)').bind(user, data, c.now).run();
+    return !!(r && r.meta && r.meta.changes);
+  }
+  const r = await c.db.prepare('UPDATE farms SET data = ?2, rev = rev + 1, updated_at = ?4 WHERE user = ?1 AND rev = ?3').bind(user, data, rev, c.now).run();
+  return !!(r && r.meta && r.meta.changes);
+}
+/* read, change and write a farm; tries again when another request changed it meanwhile */
+async function farmTx(c, user, fn) {
+  for (let i = 0; i < 4; i++) {
+    const { farm, rev } = await loadFarm(c, user);
+    const out = await fn(farm, rev);
+    if (out && out.noWrite) return Object.assign({ farm }, out);
+    if (await saveFarm(c, user, farm, rev)) return Object.assign({ farm }, out || {});
+  }
+  throw new HttpError(409, 'busy');
+}
+
+/* ---------- gardens: your own ('u:you') and the ones you share ('g:id') ---------- */
+async function plotKeyFor(c, s, g) {
+  if (g == null || g === '' || g === 'me') return { key: 'u:' + s.user, own: true, members: [s.user], garden: null };
+  if (typeof g !== 'string' || !GARDEN_ID.test(g)) throw new HttpError(400, 'garden');
+  const row = await gardenRow(c, s, g, 'member');
+  const { results } = await c.db.prepare("SELECT user FROM garden_members WHERE garden = ?1 AND status = 'member'").bind(g).all();
+  return { key: 'g:' + g, own: false, members: (results || []).map((r) => r.user), garden: { id: row.id, name: row.name, owner: row.owner } };
+}
+async function loadPlots(c, key) {
+  const r = await c.db.prepare('SELECT data, rev FROM plotdocs WHERE garden = ?1').bind(key).first();
+  let d = null;
+  try { d = r ? JSON.parse(r.data) : null; } catch (e) { d = null; }
+  if (!d || typeof d !== 'object') d = {};
+  if (!LOC_BY.has(d.loc)) d.loc = 'oldtown';
+  if (!Array.isArray(d.plots)) d.plots = [];
+  d.locAt = Number(d.locAt) || 0;
+  return { doc: d, rev: r ? r.rev : null };
+}
+async function savePlots(c, key, doc, rev) {
+  const data = JSON.stringify(doc);
+  if (rev === null) {
+    const r = await c.db.prepare('INSERT OR IGNORE INTO plotdocs (garden, data, rev, updated_at) VALUES (?1, ?2, 1, ?3)').bind(key, data, c.now).run();
+    return !!(r && r.meta && r.meta.changes);
+  }
+  const r = await c.db.prepare('UPDATE plotdocs SET data = ?2, rev = rev + 1, updated_at = ?4 WHERE garden = ?1 AND rev = ?3').bind(key, data, rev, c.now).run();
+  return !!(r && r.meta && r.meta.changes);
+}
+/* the houses on the street: everyone in the garden, with their house level */
+async function gardenHouses(c, members) {
+  const { results } = await c.db.prepare(
+    "SELECT u.id, u.name, json_extract(f.data, '$.house') AS house, json_extract(f.data, '$.color') AS color FROM users u LEFT JOIN farms f ON f.user = u.id WHERE u.id IN (SELECT value FROM json_each(?1))"
+  ).bind(JSON.stringify(members)).all();
+  return (results || []).map((r) => ({ id: r.id, name: nameOf(r.id, r.name) || r.id, house: Math.max(0, Math.min(HOUSES.length - 1, Number(r.house) || 0)), color: CAR_COLORS.includes(r.color) ? r.color : null }));
+}
+function plotCount(own, farm, houses) {
+  if (own) return HOUSES[farm.house].plots;
+  return Math.min(FARM.SHARED_MAX, FARM.SHARED_BASE + houses.reduce((n, h) => n + h.house, 0));
+}
+function growMs(sp, loc) { return Math.round(sp.grow * 60000 * (sp.home === loc ? FARM.NATIVE : 1)); }
+function ripeAt(p) { return p.at + p.dur - (p.skip || 0); }
+function viewPlot(p, now, me) {
+  if (!p) return null;
+  const sp = SPECIES_BY.get(p.s);
+  if (!sp) return null;
+  const ready = ripeAt(p), pct = Math.max(0, Math.min(1, (now - p.at) / Math.max(1, ready - p.at)));
+  return { s: p.s, by: p.by, at: p.at, ready, pct: Math.round(pct * 1000) / 1000, ripe: now >= ready, left: p.left, wet: !!p.wet,
+    watered: Array.isArray(p.wat) ? p.wat.length : 0, mine: p.by === me, canWater: !(Array.isArray(p.wat) && p.wat.includes(me)) && now < ready, n: p.n || 0 };
+}
+async function plotView(c, s, info, farm) {
+  const { doc } = await loadPlots(c, info.key);
+  const houses = info.own ? [{ id: s.user, name: nameOf(s.user, null) || s.user, house: farm.house, color: farm.color, me: true }] : (await gardenHouses(c, info.members)).map((h) => Object.assign(h, { me: h.id === s.user }));
+  const n = plotCount(info.own, farm, houses);
+  let last = -1;
+  doc.plots.forEach((p, i) => { if (p) last = i; });
+  const count = Math.max(n, last + 1);
+  const plots = [];
+  for (let i = 0; i < count; i++) plots.push(viewPlot(doc.plots[i] || null, c.now, s.user));
+  const deco = info.own ? (farm.deco.placed || []).slice(0, FARM.DECO_BASE + farm.house) : [];
+  return { g: info.own ? 'me' : info.garden.id, name: info.own ? null : info.garden.name, own: info.own, loc: doc.loc, locAt: doc.locAt, locBy: doc.locBy || null,
+    moveAt: doc.locAt ? doc.locAt + FARM.MOVE_WAIT : 0, plots, open: n, houses, deco, wx: weatherAt(doc.loc, c.now) };
+}
+
+/* ---------- what you see: your farm with today's study counted ---------- */
+function farmStock(f, loc, now) {
+  /* the featured rare or epic seed changes every 6 hours, 3 per person per window */
+  const w = Math.floor(now / (6 * 3600000));
+  const pool = SPECIES.filter((x) => x.price != null && (x.r === 2 || x.r === 3) && !x.only);
+  const feat = pool[hash32('feat:' + w) % pool.length];
+  const left = f.feat && f.feat.w === w ? Math.max(0, FARM.FEATURED - f.feat.n) : FARM.FEATURED;
+  const always = SPECIES.filter((x) => x.price != null && x.r <= 1 && (!x.only || x.only === loc)).map((x) => x.id);
+  const local = SPECIES.filter((x) => x.price != null && x.r >= 2 && x.only === loc).map((x) => x.id);
+  return { always, local, feat: { s: feat.id, left, until: (w + 1) * 6 * 3600000 } };
+}
+function publicFarm(f, extra) {
+  return Object.assign({
+    coins: f.coins, sun: f.sun, fuel: f.fuel, seeds: f.seeds, basket: f.basket, house: f.house, locs: f.locs, deco: f.deco,
+    index: f.index, stars: f.stars, cars: f.cars, car: f.car, color: f.color, best: f.best, golds: f.golds, jumps: f.jumps,
+    drive: f.drive, log: f.log.slice(0, 12), seen: f.seen || 0
+  }, extra || {});
+}
+async function farmPayload(c, s, f, bits, extra) {
+  const all = sumDays(studyDays(bits.ses, null));
+  const { doc } = await loadPlots(c, 'u:' + s.user);
+  return Object.assign({
+    now: c.now, farm: publicFarm(f), study: { all, today: Number(f.day[madridParts(c.now).date]) || 0 }, stars: starsFor(bits),
+    shop: farmStock(f, doc.loc, c.now), loc: doc.loc, wx: weatherAt(doc.loc, c.now)
+  }, extra || {});
+}
+
+async function farmGet(c) {
+  const s = await needUser(c);
+  const bits = await plannerBits(c, s.user);
+  const res = await farmTx(c, s.user, (f, rev) => { const fresh = claimStudy(f, bits, c.now); return fresh || rev === null ? { fresh } : { fresh, noWrite: true }; });
+  const out = await farmPayload(c, s, res.farm, bits, { fresh: res.fresh });
+  if (c.url.searchParams.get('cat') === '1') out.cat = farmCatalog();
+  return json(out);
+}
+async function farmPlot(c) {
+  const s = await needUser(c);
+  const info = await plotKeyFor(c, s, c.url.searchParams.get('g'));
+  const { farm } = await loadFarm(c, s.user);
+  return json({ now: c.now, plot: await plotView(c, s, info, farm) });
+}
+
+/* ---------- harvests ---------- */
+function rollHarvest(sp, p, ctx, rnd) {
+  const muts = [];
+  if (p.wet || (ctx.wx.rain && rnd() < 0.5)) muts.push('wet');
+  if (ctx.focused) muts.push('focused');
+  const star = Math.min(0.04, ctx.stars * 0.005);
+  const goldP = (0.01 + star) * (ctx.wx.golden ? 3 : 1), rainbowP = 0.002 + star / 5;
+  const r = rnd();
+  if (r < rainbowP) muts.push('rainbow');
+  else if (r < rainbowP + goldP) muts.push('golden');
+  const MUL = { wet: 2, focused: 2, golden: 8, rainbow: 20 };
+  const w = sp.w[0] + (sp.w[1] - sp.w[0]) * Math.pow(rnd(), 1.6);
+  const mid = (sp.w[0] + sp.w[1]) / 2;
+  let v = sp.sell * Math.max(0.7, Math.min(1.6, w / mid));
+  for (const m of muts) v *= MUL[m];
+  return { s: sp.id, w: Math.round(w * 1000) / 1000, m: muts, v: Math.max(1, Math.round(v)), at: ctx.now };
+}
+function noteIndex(f, item) {
+  const e = f.index[item.s] || { n: 0, best: 0, m: [] };
+  e.n += 1;
+  if (item.w > e.best) e.best = item.w;
+  for (const m of item.m) if (!e.m.includes(m)) e.m.push(m);
+  const first = !f.index[item.s];
+  f.index[item.s] = e;
+  return first;
+}
+function seedRoll(rnd) {
+  const r = rnd();
+  const tier = r < 0.005 ? 4 : r < 0.05 ? 3 : r < 0.2 ? 2 : r < 0.5 ? 1 : 0;
+  const pool = SPECIES.filter((x) => x.r === tier && !x.only);
+  return pool[Math.floor(rnd() * pool.length)].id;
+}
+function addSeed(f, id, n) { f.seeds[id] = Math.min(999, (f.seeds[id] || 0) + (n || 1)); }
+function useSeed(f, id) {
+  if (!(f.seeds[id] > 0)) throw new HttpError(400, 'no_seed');
+  f.seeds[id] -= 1;
+  if (!f.seeds[id]) delete f.seeds[id];
+}
+function rng() { const a = new Uint32Array(1); return () => { crypto.getRandomValues(a); return a[0] / 4294967296; }; }
+
+/* ---------- actions ---------- */
+async function farmAct(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  await hit(c, 'farm:' + s.user, 600, 60 * MIN, 'slow');
+  const a = typeof b.a === 'string' ? b.a : '';
+  const PLOT_ACTS = new Set(['plant', 'water', 'harvest', 'move', 'clear']);
+  if (PLOT_ACTS.has(a)) return farmPlotAct(c, s, a, b);
+  const bits = await plannerBits(c, s.user);
+  const stars = starsFor(bits);
+  const allMin = sumDays(studyDays(bits.ses, null));
+  const rnd = rng();
+  const res = await farmTx(c, s.user, async (f) => {
+    claimStudy(f, bits, c.now);
+    let msg = null, got = null;
+    if (a === 'buy') {
+      const sp = SPECIES_BY.get(b.s), n = Math.max(1, Math.min(20, Math.round(Number(b.n) || 1)));
+      if (!sp || sp.price == null) throw new HttpError(400, 'seed');
+      const { doc } = await loadPlots(c, 'u:' + s.user);
+      const st = farmStock(f, doc.loc, c.now);
+      const isFeat = st.feat.s === sp.id;
+      if (!st.always.includes(sp.id) && !st.local.includes(sp.id) && !isFeat) throw new HttpError(400, 'not_in_stock');
+      if (isFeat && !st.always.includes(sp.id) && !st.local.includes(sp.id)) {
+        if (n > st.feat.left) throw new HttpError(400, 'sold_out');
+        const w = Math.floor(c.now / (6 * 3600000));
+        f.feat = { w, n: (f.feat && f.feat.w === w ? f.feat.n : 0) + n };
+      }
+      if (f.coins < sp.price * n) throw new HttpError(400, 'coins');
+      f.coins -= sp.price * n; addSeed(f, sp.id, n);
+      msg = n + ' ' + sp.name + (n === 1 ? ' seed' : ' seeds');
+    } else if (a === 'sell') {
+      if (!f.basket.length) throw new HttpError(400, 'empty');
+      const wx = weatherAt('oldtown', c.now);
+      let sum = 0;
+      for (const it of f.basket) sum += it.v;
+      if (wx.weekend) sum = Math.round(sum * 1.25);
+      got = { coins: sum, n: f.basket.length, weekend: wx.weekend };
+      f.coins += sum; f.basket = [];
+    } else if (a === 'house') {
+      const next = HOUSES[f.house + 1];
+      if (!next) throw new HttpError(400, 'max');
+      if (allMin < next.hours * 60) throw new HttpError(400, 'hours', { need: next.hours });
+      if (next.stars && stars.avail < next.stars) throw new HttpError(400, 'stars', { need: next.stars });
+      if (f.coins < next.cost) throw new HttpError(400, 'coins');
+      f.coins -= next.cost; f.house += 1;
+      msg = next.name;
+    } else if (a === 'unlock') {
+      const L = LOC_BY.get(b.to);
+      if (!L) throw new HttpError(400, 'loc');
+      if (f.locs.includes(L.id)) throw new HttpError(400, 'have');
+      if (f.house < L.house) throw new HttpError(400, 'house', { need: L.house });
+      if (L.stars && stars.avail < L.stars) throw new HttpError(400, 'stars', { need: L.stars });
+      if (f.coins < L.cost) throw new HttpError(400, 'coins');
+      f.coins -= L.cost; f.locs.push(L.id);
+      msg = L.name;
+    } else if (a === 'deco') {
+      const d = DECO_BY.get(b.item);
+      if (!d) throw new HttpError(400, 'item');
+      if (f.coins < d.cost) throw new HttpError(400, 'coins');
+      f.coins -= d.cost; f.deco.own[d.id] = (f.deco.own[d.id] || 0) + 1;
+      const slots = FARM.DECO_BASE + f.house, placed = (f.deco.placed || []).slice(0, slots);
+      const free = placed.findIndex((x) => !x);
+      if (free >= 0) placed[free] = d.id; else if (placed.length < slots) placed.push(d.id);
+      f.deco.placed = placed;
+      msg = d.name;
+    } else if (a === 'place') {
+      const slots = FARM.DECO_BASE + f.house, i = Math.round(Number(b.i));
+      if (!(i >= 0 && i < slots)) throw new HttpError(400, 'slot');
+      const placed = (f.deco.placed || []).slice(0, slots);
+      while (placed.length < slots) placed.push(null);
+      if (b.item == null) placed[i] = null;
+      else {
+        if (!DECO_BY.has(b.item)) throw new HttpError(400, 'item');
+        const used = placed.filter((x, k) => x === b.item && k !== i).length;
+        if (used >= (f.deco.own[b.item] || 0)) throw new HttpError(400, 'none_left');
+        placed[i] = b.item;
+      }
+      f.deco.placed = placed;
+    } else if (a === 'car') {
+      const car = CAR_BY.get(b.id);
+      if (!car) throw new HttpError(400, 'car');
+      if (!f.cars.includes(car.id)) {
+        if (f.house < car.house) throw new HttpError(400, 'house', { need: car.house });
+        if (f.coins < car.cost) throw new HttpError(400, 'coins');
+        f.coins -= car.cost; f.cars.push(car.id);
+        msg = car.name;
+      }
+      f.car = car.id;
+    } else if (a === 'color') {
+      if (!CAR_COLORS.includes(b.c)) throw new HttpError(400, 'color');
+      f.color = b.c;
+    } else if (a === 'star') {
+      if (f.stars >= stars.avail) throw new HttpError(400, 'no_star');
+      f.stars += 1;
+      const legend = SPECIES.filter((x) => x.r === 4);
+      const sp = legend[Math.floor(rnd() * legend.length)];
+      addSeed(f, sp.id, 1); f.coins += 500;
+      got = { seed: sp.id, coins: 500, star: f.stars };
+    } else if (a === 'seen') {
+      f.seen = c.now;
+    } else throw new HttpError(400, 'action');
+    return { msg, got };
+  });
+  return json(await farmPayload(c, s, res.farm, bits, { msg: res.msg, got: res.got }));
+}
+
+/* plant, water, harvest, clear, move: these change a garden (and maybe your farm) */
+async function farmPlotAct(c, s, a, b) {
+  const info = await plotKeyFor(c, s, b.g);
+  const bits = await plannerBits(c, s.user);
+  const stars = starsFor(bits);
+  const rnd = rng();
+  let result = null;
+  for (let tries = 0; tries < 4 && !result; tries++) {
+    const F = await loadFarm(c, s.user), P = await loadPlots(c, info.key);
+    const f = F.farm, doc = P.doc;
+    claimStudy(f, bits, c.now);
+    const before = JSON.parse(JSON.stringify(f));
+    const houses = info.own ? [{ id: s.user, house: f.house }] : await gardenHouses(c, info.members);
+    const n = plotCount(info.own, f, houses);
+    let got = null, msg = null, farmChanged = true;
+    if (a === 'move') {
+      const L = LOC_BY.get(b.to);
+      if (!L) throw new HttpError(400, 'loc');
+      if (!f.locs.includes(L.id)) throw new HttpError(400, 'locked');
+      if (doc.loc === L.id) throw new HttpError(400, 'same');
+      if (doc.locAt && c.now < doc.locAt + FARM.MOVE_WAIT) throw new HttpError(400, 'wait', { at: doc.locAt + FARM.MOVE_WAIT });
+      doc.loc = L.id; doc.locAt = c.now; doc.locBy = s.user;
+      msg = L.name; farmChanged = false;
+    } else {
+      const i = Math.round(Number(b.i));
+      if (!(i >= 0 && i < Math.max(n, doc.plots.length))) throw new HttpError(400, 'plot');
+      const p = doc.plots[i] || null;
+      if (a === 'plant') {
+        if (i >= n) throw new HttpError(400, 'plot');
+        if (p) throw new HttpError(400, 'taken');
+        const sp = SPECIES_BY.get(b.s);
+        if (!sp) throw new HttpError(400, 'seed');
+        if (f.sun < sp.sun) throw new HttpError(400, 'sun', { need: sp.sun });
+        useSeed(f, sp.id);
+        f.sun -= sp.sun;
+        while (doc.plots.length <= i) doc.plots.push(null);
+        doc.plots[i] = { s: sp.id, by: s.user, at: c.now, dur: growMs(sp, doc.loc), left: sp.yields, wat: [], wet: false, skip: 0, n: 0 };
+        msg = sp.name;
+      } else if (a === 'water') {
+        if (!p) throw new HttpError(400, 'empty');
+        if (c.now >= ripeAt(p)) throw new HttpError(400, 'ripe');
+        if (!Array.isArray(p.wat)) p.wat = [];
+        if (p.wat.includes(s.user)) throw new HttpError(400, 'watered');
+        p.wat.push(s.user);
+        p.skip = Math.min(p.dur * FARM.SKIP_MAX, (p.skip || 0) + p.dur * FARM.WATER_SKIP);
+        if (!p.wet && rnd() < FARM.WET_CHANCE) p.wet = true;
+        farmChanged = false;
+        got = { wet: p.wet };
+        if (p.by !== s.user) {
+          /* a thank-you for helping: 5 coins, and a note on the planter's farm */
+          f.coins += 5; farmChanged = true;
+          got.coins = 5;
+        }
+      } else if (a === 'harvest' || a === 'clear') {
+        if (!p) throw new HttpError(400, 'empty');
+        /* only the planter harvests; anyone may clear a plant whose planter left the garden */
+        if (p.by !== s.user && (a === 'harvest' || info.members.includes(p.by))) throw new HttpError(403, 'not_yours');
+        const sp = SPECIES_BY.get(p.s);
+        if (a === 'clear' || !sp) { doc.plots[i] = null; msg = 'cleared'; }
+        else {
+          if (c.now < ripeAt(p)) throw new HttpError(400, 'not_ripe', { at: ripeAt(p) });
+          const wx = weatherAt(doc.loc, c.now);
+          if (sp.night && !wx.night) throw new HttpError(400, 'night');
+          if (f.basket.length >= FARM.BASKET_MAX) throw new HttpError(400, 'basket');
+          const focused = timerRunning(bits.timer, c.now) || c.now - lastStudyEnd(bits.ses) < 20 * MIN;
+          const item = rollHarvest(sp, p, { wx, focused, stars: stars.avail, now: c.now }, rnd);
+          f.basket.push(item);
+          const first = noteIndex(f, item);
+          got = Object.assign({ first }, item);
+          if (p.left > 1) {
+            p.left -= 1; p.n = (p.n || 0) + 1; p.at = c.now; p.dur = Math.round(growMs(sp, doc.loc) * FARM.REGROW); p.skip = 0; p.wat = []; p.wet = false;
+          } else doc.plots[i] = null;
+        }
+      } else throw new HttpError(400, 'action');
+    }
+    /* trim trailing empty plots */
+    while (doc.plots.length && !doc.plots[doc.plots.length - 1]) doc.plots.pop();
+    const okPlots = await savePlots(c, info.key, doc, P.rev);
+    if (!okPlots) continue;
+    if (farmChanged && !(await saveFarm(c, s.user, f, F.rev))) {
+      /* the garden saved but the farm changed meanwhile: put the farm change on the fresh copy */
+      const again = await farmTx(c, s.user, (ff) => { applyFarmDelta(ff, before, f); return {}; });
+      result = { farm: again.farm, got, msg };
+    } else result = { farm: f, got, msg };
+  }
+  if (!result) throw new HttpError(409, 'busy');
+  return json(await farmPayload(c, s, result.farm, bits, { got: result.got, msg: result.msg, plot: await plotView(c, s, info, result.farm) }));
+}
+/* what one request did to a farm (coins, sun, seeds, basket, index), applied again on a newer copy */
+function applyFarmDelta(target, before, after) {
+  target.coins = Math.max(0, target.coins + (after.coins - before.coins));
+  target.sun = Math.max(0, Math.min(FARM.SUN_MAX, target.sun + (after.sun - before.sun)));
+  const ids = new Set(Object.keys(before.seeds).concat(Object.keys(after.seeds)));
+  for (const id of ids) {
+    const d = (after.seeds[id] || 0) - (before.seeds[id] || 0);
+    if (d) { target.seeds[id] = Math.max(0, (target.seeds[id] || 0) + d); if (!target.seeds[id]) delete target.seeds[id]; }
+  }
+  if (after.basket.length > before.basket.length) {
+    const add = after.basket.slice(before.basket.length);
+    target.basket = target.basket.concat(add).slice(-FARM.BASKET_MAX);
+    for (const it of add) noteIndex(target, it);
+  }
+}
+
+/* ---------- Bloc City ---------- */
+async function friendsOf(c, s) {
+  const res = await c.db.batch([
+    c.db.prepare(
+      "SELECT DISTINCT o.user AS id, u.name FROM garden_members m JOIN garden_members o ON o.garden = m.garden AND o.status = 'member' " +
+      "LEFT JOIN users u ON u.id = o.user WHERE m.user = ?1 AND m.status = 'member' AND o.user <> ?1"
+    ).bind(s.user),
+    c.db.prepare('SELECT user, blocked FROM blocks WHERE user = ?1 OR blocked = ?1').bind(s.user)
+  ]);
+  const off = new Set((res[1].results || []).map((r) => (r.user === s.user ? r.blocked : r.user)));
+  return (res[0].results || []).filter((r) => !off.has(r.id)).map((r) => ({ id: r.id, name: nameOf(r.id, r.name) || r.id }));
+}
+async function farmDrive(c) {
+  const s = await needUser(c);
+  const b = await readBody(c);
+  const bits = await plannerBits(c, s.user);
+  const today = madridParts(c.now).date;
+  const freshDay = (f) => { if (!f.drive || f.drive.day !== today) f.drive = { day: today, notes: [], crates: [], visits: [], trials: {}, jumpsDay: [] }; };
+  if (b.a === 'start') {
+    await hit(c, 'drive:' + s.user, 60, 60 * MIN, 'slow');
+    const res = await farmTx(c, s.user, (f) => {
+      claimStudy(f, bits, c.now); freshDay(f);
+      /* a drive that never reported back still used its fuel */
+      if (f.run) f.fuel = Math.max(0, Math.round(f.fuel - Math.min(f.run.max, Math.max(0, (c.now - f.run.at) / 1000))));
+      if (f.fuel < 20) throw new HttpError(400, 'fuel', { fuel: f.fuel });
+      f.run = { id: randomToken(9), at: c.now, max: f.fuel };
+      return {};
+    });
+    const f = res.farm;
+    const friends = await friendsOf(c, s);
+    const ids = [s.user].concat(friends.map((x) => x.id));
+    const { results } = await c.db.prepare(
+      "SELECT garden, json_extract(data, '$.loc') AS loc FROM plotdocs WHERE garden IN (SELECT 'u:' || value FROM json_each(?1))"
+    ).bind(JSON.stringify(ids)).all();
+    const locOf = new Map((results || []).map((r) => [r.garden.slice(2), LOC_BY.has(r.loc) ? r.loc : 'oldtown']));
+    const houses = await gardenHouses(c, ids);
+    const hmap = new Map(houses.map((h) => [h.id, h]));
+    const homes = ids.map((id) => ({ id, name: id === s.user ? 'Home' : (friends.find((x) => x.id === id) || {}).name || id, me: id === s.user,
+      loc: locOf.get(id) || 'oldtown', house: (hmap.get(id) || {}).house || 0, visited: f.drive.visits.includes(id) }));
+    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today });
+  }
+  if (b.a !== 'end') throw new HttpError(400, 'action');
+  const friends = await friendsOf(c, s);
+  const friendIds = new Set(friends.map((x) => x.id));
+  const rnd = rng();
+  let visitsDone = [];
+  const res = await farmTx(c, s.user, (f) => {
+    claimStudy(f, bits, c.now); freshDay(f);
+    const run = f.run;
+    if (!run || run.id !== b.run) throw new HttpError(400, 'run');
+    f.run = null;
+    const real = (c.now - run.at) / 1000 + 3;
+    const used = Math.max(0, Math.min(Number(b.secs) || 0, run.max, real, f.fuel));
+    f.fuel = Math.max(0, Math.round(f.fuel - used));
+    const out = { used: Math.round(used), coins: 0, notes: 0, crates: [], jumps: [], trial: null, visits: [] };
+    /* sticky notes: 3 coins each, at most one per 1.5 seconds of driving, each once a day */
+    const notes = [...new Set((Array.isArray(b.notes) ? b.notes : []).map((x) => Math.round(Number(x))).filter((x) => x >= 0 && x < FARM.NOTE_N && !f.drive.notes.includes(x)))].slice(0, Math.floor(used / 1.5));
+    f.drive.notes = f.drive.notes.concat(notes);
+    out.notes = notes.length; out.coins += notes.length * FARM.NOTE_COINS;
+    /* seed crates: 10 a day */
+    const crates = [...new Set((Array.isArray(b.crates) ? b.crates : []).map((x) => Math.round(Number(x))).filter((x) => x >= 0 && x < FARM.CRATE_N && !f.drive.crates.includes(x)))];
+    for (const id of crates) { const sid = seedRoll(rnd); addSeed(f, sid, 1); f.drive.crates.push(id); out.crates.push(sid); }
+    /* stunt jumps: 100 coins the first time, then 10 once a day */
+    const jumps = [...new Set((Array.isArray(b.jumps) ? b.jumps : []).map((x) => Math.round(Number(x))).filter((x) => x >= 0 && x < FARM.JUMP_N))];
+    for (const id of jumps) {
+      if (!f.jumps.includes(id)) { f.jumps.push(id); out.coins += 100; out.jumps.push({ id, coins: 100, first: true }); }
+      else if (!f.drive.jumpsDay.includes(id)) { f.drive.jumpsDay.push(id); out.coins += 10; out.jumps.push({ id, coins: 10 }); }
+    }
+    /* time trial: the best of this drive */
+    const tr = b.trial && typeof b.trial === 'object' ? TRIALS.find((t) => t.id === b.trial.id) : null;
+    if (tr) {
+      const ms = Math.round(Number(b.trial.ms)), T = trialTimes(tr);
+      if (ms >= T.floor && ms <= used * 1000 + 1000) {
+        const medal = ms <= T.gold ? 'gold' : ms <= T.silver ? 'silver' : ms <= T.bronze ? 'bronze' : null;
+        const pb = !f.best[tr.id] || ms < f.best[tr.id];
+        if (pb) f.best[tr.id] = ms;
+        let coins = 0, seed = null;
+        if (medal && !f.drive.trials[tr.id]) { coins = medal === 'gold' ? 80 : medal === 'silver' ? 40 : 20; f.drive.trials[tr.id] = medal; }
+        if (medal === 'gold' && !f.golds.includes(tr.id)) {
+          f.golds.push(tr.id);
+          const rare = SPECIES.filter((x) => x.r === 2 && !x.only);
+          seed = rare[Math.floor(rnd() * rare.length)].id; addSeed(f, seed, 1);
+        }
+        out.coins += coins;
+        out.trial = { id: tr.id, ms, medal, pb, coins, seed };
+      }
+    }
+    /* driving past a friend's house: 10 coins for both of you, once a day */
+    const visits = [...new Set((Array.isArray(b.visits) ? b.visits : []).filter((id) => typeof id === 'string' && friendIds.has(id) && !f.drive.visits.includes(id)))].slice(0, 20);
+    for (const id of visits) { f.drive.visits.push(id); out.coins += FARM.VISIT_COINS; out.visits.push(id); }
+    visitsDone = visits;
+    f.coins += out.coins;
+    return { out };
+  });
+  for (const id of visitsDone) {
+    try {
+      await farmTx(c, id, (ff) => {
+        ff.coins += FARM.VISIT_COINS;
+        farmLog(ff, { t: c.now, k: 'visit', by: s.user, name: nameOf(s.user, null) || s.user, coins: FARM.VISIT_COINS });
+        return {};
+      });
+    } catch (e) { /* their farm was busy: they miss this thank-you, nothing else breaks */ }
+  }
+  return json(await farmPayload(c, s, res.farm, bits, { result: res.out }));
+}
+
+/* ---------- studying now: friends with a focus timer running ---------- */
+async function farmNow(c) {
+  const s = await needUser(c);
+  const friends = await friendsOf(c, s);
+  if (!friends.length) return json({ now: c.now, people: [] });
+  const { results } = await c.db.prepare(
+    "SELECT user, json_extract(data, '$.timer') AS timer, json_extract(data, '$.subjects') AS subjects, json_extract(data, '$.settings.shareFocus') AS share FROM planners WHERE user IN (SELECT value FROM json_each(?1))"
+  ).bind(JSON.stringify(friends.map((x) => x.id))).all();
+  const name = new Map(friends.map((x) => [x.id, x.name]));
+  const people = [];
+  for (const r of results || []) {
+    if (r.share === 0 || r.share === false) continue;
+    let t = null, subs = [];
+    try { t = r.timer ? JSON.parse(r.timer) : null; } catch (e) { t = null; }
+    if (!timerRunning(t, c.now)) continue;
+    try { subs = r.subjects ? JSON.parse(r.subjects) : []; } catch (e) { subs = []; }
+    const sub = Array.isArray(subs) ? subs.find((x) => x && x.id === t.subject) : null;
+    const len = (Number(t.len) || 25) * 60000, at = Number(t.startedAt), el = c.now - at - (Number(t.pausedTotal) || 0);
+    people.push({ id: r.user, name: name.get(r.user) || r.user, subject: sub ? String(sub.short || sub.name || '').slice(0, 24) : null, color: sub && /^#[0-9a-f]{6}$/i.test(sub.color || '') ? sub.color : null,
+      since: at, ends: t.up ? null : c.now + Math.max(0, len - el), up: !!t.up });
+  }
+  people.sort((x, y) => x.since - y.since);
+  return json({ now: c.now, people });
 }

@@ -1,0 +1,12 @@
+{
+  "name": "bloc-city",
+  "private": true,
+  "description": "Bloc City, the open-world drive in Bloc's Pet tab. Bundles three.js into site/drive.js.",
+  "scripts": {
+    "build": "esbuild drive.src.js --bundle --format=esm --minify --target=es2019 --legal-comments=eof --outfile=../../site/drive.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "three": "0.187.0"
+  }
+}

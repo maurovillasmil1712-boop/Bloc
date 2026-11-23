@@ -1,0 +1,8 @@
+{
+  "name": "bloc-tests",
+  "private": true,
+  "description": "Local server for Bloc's browser and API tests.",
+  "devDependencies": {
+    "wrangler": "^4.166.0"
+  }
+}

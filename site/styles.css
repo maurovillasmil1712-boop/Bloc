@@ -1953,3 +1953,122 @@ button.win { cursor: pointer; text-decoration: underline; text-decoration-color:
 .as-note-btn { align-self: center; margin: 2px 0 6px; }
 .as-note-btn svg { width: 16px; height: 16px; }
 
+
+/* =========================================================
+   Garden and Bloc City (v6.1)
+   The scene is the one place with a sky; the rest stays paper and ink.
+   ========================================================= */
+.pet-panes { margin: 0 0 18px; }
+.pet-panes .seg { width: 100%; max-width: 420px; }
+.farm-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 2px solid var(--label); border-bottom: 1px solid var(--separator); margin: 4px 0 16px; }
+.farm-stats .fs { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px 11px 0; min-width: 0; }
+.farm-stats .fs + .fs { padding-left: 14px; border-left: 1px solid var(--separator); }
+.farm-stats b { font-size: 26px; line-height: 1.1; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.farm-stats span { display: flex; align-items: center; gap: 5px; color: var(--label-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.farm-stats svg, .shop-coins svg, .farm-place-row > svg { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 560px) {
+  .farm-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .farm-stats .fs:nth-child(3) { border-left: 0; padding-left: 0; }
+  .farm-stats .fs:nth-child(n+3) { border-top: 1px solid var(--separator); }
+}
+
+.farm-scene { --sky1: #CFEAFF; --sky2: #F3FAFF; --grass: #E3F2D9; position: relative; overflow: hidden; padding: 0; border: 0; background: linear-gradient(var(--sky1), var(--sky2) 120px, var(--grass) 120px); }
+.farm-scene.loc-beach { --sky1: #BFE6FF; --sky2: #FFF6DA; --grass: #F5E6C8; }
+.farm-scene.loc-hills { --sky1: #D7ECF5; --sky2: #F2F8F3; --grass: #DCEFD2; }
+.farm-scene.loc-downtown { --sky1: #C9D6E8; --sky2: #EEF2F8; --grass: #E1E6EA; }
+.farm-scene.loc-campus { --sky1: #D3EBFF; --sky2: #F7FBFF; --grass: #DFF0D6; }
+.farm-scene.loc-island { --sky1: #B5E5F5; --sky2: #FFF4E0; --grass: #EAF3D6; }
+.farm-scene.golden { --sky1: #FFC48A; --sky2: #FFE7C2; }
+.farm-scene.rain { --sky1: #B9C3CF; --sky2: #DCE2E8; }
+.farm-scene.night { --sky1: #1E2448; --sky2: #39406B; --grass: #C9D4C3; }
+.farm-scene.night .farm-place { filter: brightness(.55) saturate(.8); }
+.farm-scene.night .fh-name { color: #FFFFFF; }
+.farm-place { height: 74px; padding-top: 10px; }
+.farm-place svg { display: block; width: 100%; height: 100%; }
+.farm-street { position: relative; display: flex; align-items: flex-end; gap: 6px; padding: 0 14px; margin-top: -30px; min-height: 76px; overflow-x: auto; scrollbar-width: none; }
+.farm-street::-webkit-scrollbar { display: none; }
+.fh { display: flex; flex: none; flex-direction: column; align-items: center; gap: 1px; }
+.fh-art svg { display: block; width: 78px; height: 57px; }
+.farm-street.many .fh-art svg { width: 62px; height: 45px; }
+.fh-name { font-size: 12px; font-weight: 700; padding: 0 3px; }
+.fh.me .fh-name { background-image: linear-gradient(100deg, transparent .16em, var(--hl) .2em, var(--hl) calc(100% - .2em), transparent calc(100% - .16em)); background-size: 100% 74%; background-position: 0 62%; background-repeat: no-repeat; color: var(--hl-ink); }
+.farm-deco { display: flex; gap: 2px; margin-left: auto; align-self: flex-end; padding-bottom: 14px; }
+.fd svg { display: block; width: 34px; height: 34px; }
+.farm-plots { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; padding: 10px 14px 16px; border-top: 2px solid rgba(25, 29, 41, .12); }
+.plot { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; height: 124px; padding: 4px 6px 8px; border: 0; border-radius: var(--r-s); color: #191D29; font: inherit; text-align: center; cursor: pointer;
+  background: #E7CDAA repeating-linear-gradient(0deg, transparent 0 11px, rgba(122, 82, 54, .13) 11px 12px); transition: transform var(--t-fast) var(--ease); }
+.plot:active { transform: scale(.97); }
+.plot:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+.plot-art { display: block; width: 70px; height: 70px; margin-bottom: auto; padding-top: 4px; }
+.plot-art svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.plot-name { max-width: 100%; overflow: hidden; font-size: 12.5px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
+.plot-bar { display: block; width: 76%; height: 3px; background: rgba(25, 29, 41, .16); }
+.plot-bar i { display: block; height: 100%; background: #191D29; transition: width .6s var(--ease); }
+.plot-time { font-size: 11px; color: #535A69; font-variant-numeric: tabular-nums; }
+.plot-tag { font-size: 12px; font-weight: 800; }
+.plot-tag .hl { padding: 0 3px; }
+.plot.empty { background-color: #EFDDC4; box-shadow: inset 0 0 0 1.5px rgba(122, 82, 54, .28); }
+.plot.empty .plot-name { color: #8A6A4E; font-weight: 650; }
+.plot.locked { justify-content: center; background: rgba(25, 29, 41, .05); box-shadow: inset 0 0 0 1.5px rgba(25, 29, 41, .12); color: #8A909D; }
+.plot.locked svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.plot.ripe { box-shadow: inset 0 0 0 2px #191D29; }
+.plot.ripe .plot-art svg { animation: plant-bob 2.6s ease-in-out infinite; transform-origin: 50% 90%; }
+.plot.wet { background-color: #D9BE9A; }
+.plot-by { position: absolute; top: 5px; left: 5px; padding: 1px 5px; border-radius: 4px; background: rgba(255, 255, 255, .86); font-size: 10.5px; font-weight: 700; }
+.plot-wet { position: absolute; top: 5px; right: 5px; color: #2F86C6; }
+.plot-wet svg { width: 15px; height: 15px; fill: currentColor; stroke: none; }
+.plant-svg .glow { filter: drop-shadow(0 0 3px rgba(80, 255, 170, .55)); }
+.farm-scene.night .plant-svg .glow { filter: drop-shadow(0 0 6px rgba(140, 255, 200, .9)); }
+@keyframes plant-bob { 50% { transform: rotate(-2.5deg) scale(1.03); } }
+.farm-rain { position: absolute; inset: 0; pointer-events: none; opacity: .32;
+  background: repeating-linear-gradient(105deg, transparent 0 14px, rgba(70, 110, 160, .35) 14px 15px); background-size: 40px 40px; animation: farm-rain .5s linear infinite; }
+@keyframes farm-rain { to { background-position: -12px 40px; } }
+@media (prefers-reduced-motion: reduce) { .farm-rain, .plot.ripe .plot-art svg { animation: none; } }
+
+.farm-cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-top: 14px; align-items: start; }
+.farm-card .card-head { margin-bottom: 6px; }
+.farm-list { list-style: none; margin: 0 0 6px; padding: 0; }
+.farm-list li { display: flex; align-items: baseline; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--separator); font-size: 14.5px; }
+.farm-list li > span:first-of-type:not(.hl-dot) { flex: 1; min-width: 0; }
+.farm-list li .hint { flex: none; color: var(--label-3); font-size: 13px; font-variant-numeric: tabular-nums; }
+.farm-list li > .hl-dot + span { flex: 1; }
+.hl-dot { flex: none; width: 13px; height: 9px; transform: skewX(-12deg) translateY(1px); background: color-mix(in srgb, var(--c) 55%, var(--bg)); }
+.seed-row { gap: 10px; }
+.seed-row[aria-disabled="true"] { color: var(--label-2); }
+.seed-art { flex: none; width: 40px; height: 40px; }
+.seed-art.big { width: 64px; height: 64px; }
+.seed-art svg, .place-art svg, .ix-art svg { display: block; width: 100%; height: 100%; }
+.seed-n { color: var(--label-3); font-weight: 600; }
+.seed-go { flex: none; margin-left: auto; font-size: 13.5px; font-weight: 700; }
+.seed-row[aria-disabled="true"] .seed-go { color: var(--label-3); font-weight: 600; }
+.farm-home { display: flex; align-items: center; gap: 12px; padding: 4px 0 6px; }
+.farm-home-art svg { display: block; width: 88px; height: 64px; }
+.farm-place-row { gap: 10px; margin-top: 10px; padding: 10px 0 0; border-top: 1px solid var(--separator); }
+.farm-place-row .two-line { flex: 1; min-width: 0; }
+.shop-coins { display: flex; align-items: center; gap: 6px; margin: 0 0 12px; color: var(--label-2); }
+.shop-coins b { color: var(--label); margin-right: 8px; }
+.shop-row { gap: 10px; }
+.shop-row .two-line { flex: 1; min-width: 0; }
+.shop-btns { display: flex; flex: none; gap: 6px; }
+.place-art { flex: none; width: 92px; height: 40px; border-radius: var(--r-s); overflow: hidden; background: linear-gradient(#CFEAFF, #F3FAFF); }
+.ix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; }
+.ix { display: flex; flex-direction: column; gap: 2px; padding: 10px; border-radius: var(--r); background: var(--paper-2); font-size: 13px; }
+.ix b { font-size: 14px; }
+.ix span { color: var(--label-2); }
+.ix-art { width: 56px; height: 56px; }
+.ix.unknown .ix-art { filter: grayscale(1) brightness(0) opacity(.18); }
+.ix-m { font-weight: 700; color: var(--label) !important; }
+.now-card .farm-list li { font-size: 14px; }
+
+.city-hero { padding: 0; overflow: hidden; border: 0; }
+.city-art { aspect-ratio: 16 / 5.5; min-height: 150px; background: #2B2D6E; }
+.city-art svg { display: block; width: 100%; height: 100%; }
+.city-go { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px 16px; background: var(--paper-2); }
+.city-go .btn { min-width: 150px; }
+.car-sws { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.car-sw { width: 30px; height: 30px; border: 0; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 1.5px rgba(25, 29, 41, .25); }
+.car-sw[aria-pressed="true"] { box-shadow: inset 0 0 0 1.5px rgba(25, 29, 41, .25), 0 0 0 2px var(--bg), 0 0 0 4px var(--label); }
+.city-art { aspect-ratio: auto; height: clamp(150px, 24vw, 250px); }
+.city-art svg { height: 100%; }
+.garden-nudge .pet-nudge-art { background: #E7CDAA; border-radius: var(--r-s); }
+.garden-nudge .pet-nudge-art svg { width: 100%; height: 100%; }
