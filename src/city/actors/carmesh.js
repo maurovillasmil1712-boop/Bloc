@@ -15,6 +15,7 @@ export const TYPES = {
   super: { L: 4.5, W: 1.98, H: 1.14, wb: 2.66, r: 0.35, cl: 0.1, hood: 0.66, tail: 0.92, ws: 0.3, rs: 0.43, re: 0.62, rw: 0.92, rwW: 0.64, top: 54, acc: 24, grip: 1.3, mass: 1350 },
   buggy: { L: 3.7, W: 1.9, H: 1.35, wb: 2.3, r: 0.38, cl: 0.25, hood: 0.92, tail: 0.95, ws: 0.32, rs: 0.36, re: 0.62, rw: 0.66, rwW: 0.6, top: 35, acc: 16, grip: 1.1, mass: 900, open: true },
   taxi: { L: 4.65, W: 1.82, H: 1.44, wb: 2.78, r: 0.32, cl: 0.15, hood: 0.84, tail: 0.92, ws: 0.33, rs: 0.46, re: 0.7, rw: 0.84, rwW: 0.76, top: 36, acc: 13, grip: 1.0, mass: 1450, taxi: true },
+  bus: { L: 11.4, W: 2.5, H: 3.05, wb: 6.1, r: 0.5, cl: 0.32, hood: 1.0, tail: 2.95, ws: 0.015, rs: 0.035, re: 0.985, rw: 0.99, rwW: 0.95, top: 22, acc: 7, grip: 0.8, mass: 11000, bus: true },
   police: { L: 4.7, W: 1.86, H: 1.48, wb: 2.8, r: 0.33, cl: 0.16, hood: 0.86, tail: 0.94, ws: 0.33, rs: 0.46, re: 0.72, rw: 0.85, rwW: 0.77, top: 46, acc: 18, grip: 1.15, mass: 1600, police: true }
 };
 const ST = 30, RING = 11;
@@ -113,6 +114,7 @@ export function buildCar(type) {
   }
   boxes.plate.push([0, T.cl + 0.36, fz + 0.03, 0.52, 0.11, 0.02], [0, rP.belt * 0.7, rz - 0.03, 0.52, 0.11, 0.02]);
   if (T.taxi) boxes.light.push([0, T.H + 0.08, -0.15, 0.5, 0.14, 0.2]);
+  if (T.bus) { boxes.light.push([0, T.H - 0.28, fz + 0.01, T.W * 0.7, 0.26, 0.04]); boxes.trim.push([hw + 0.01, T.cl + 1.25, T.L * 0.36, 0.03, 2.2, 1.1], [hw + 0.01, T.cl + 1.25, -T.L * 0.05, 0.03, 2.2, 1.1]); }
   if (T.police) { boxes.tail.push([-0.35, T.H + 0.06, -0.1, 0.6, 0.1, 0.24]); boxes.plate.push([0.35, T.H + 0.06, -0.1, 0.6, 0.1, 0.24]); }
   if (T.open) boxes.chrome.push([0, T.H, -0.25, T.W * 0.8, 0.06, 0.06], [-hw * 0.78, T.H * 0.82, -0.25, 0.06, T.H * 0.4, 0.06], [hw * 0.78, T.H * 0.82, -0.25, 0.06, T.H * 0.4, 0.06]);
   for (const [k, list] of Object.entries(boxes)) parts[k] = mergeBoxes(list);

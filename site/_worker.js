@@ -4367,7 +4367,8 @@ const CARS = [
   { id: 'hatch', name: 'Hatchback', cost: 0, house: 0, top: 33, acc: 13, turn: 1 },
   { id: 'buggy', name: 'Beach Buggy', cost: 1500, house: 1, top: 35, acc: 16, turn: 1.15 },
   { id: 'van', name: 'Garden Van', cost: 2500, house: 2, top: 31, acc: 12, turn: 0.95 },
-  { id: 'gt', name: 'Sunset GT', cost: 6000, house: 3, top: 45, acc: 19, turn: 1.05 }
+  { id: 'gt', name: 'Sunset GT', cost: 6000, house: 3, top: 45, acc: 19, turn: 1.05 },
+  { id: 'moto', name: 'Street Bike', cost: 2200, house: 1, top: 48, acc: 17, turn: 1.2 }
 ];
 const CAR_BY = new Map(CARS.map((x) => [x.id, x]));
 const CAR_COLORS = ['#FFE14D', '#FF5A5F', '#3E9BD6', '#1E9E6A', '#F28C28', '#8C3B72', '#191D29', '#F3F4F6'];
@@ -4439,12 +4440,24 @@ const ARMS = [
 ];
 const ARM_BY = new Map(ARMS.map((x) => [x.id, x]));
 const ARMOUR_PRICE = 1200;
+/* your own plane (v7.4): parked at the airport in your colour, faster than the flight-school one */
+const PLANE_PRICE = 30000;
+/* furniture for your flat in Bloc City (v7.4), ordered from the desk; same ids as FURN_IDS in src/city/game/interiors.js */
+const FURN = [
+  { id: 'rug', name: 'Rug', price: 220 }, { id: 'plants', name: 'Three plants', price: 150 }, { id: 'beanbags', name: 'Bean bags', price: 200 },
+  { id: 'shelf', name: 'Bookshelf', price: 350 }, { id: 'art', name: 'Wall art', price: 280 }, { id: 'chair', name: 'Gaming chair', price: 300 },
+  { id: 'neon', name: 'Neon sign', price: 450 }, { id: 'speakers', name: 'Speakers', price: 800 }, { id: 'console', name: 'Games console and big TV', price: 650 },
+  { id: 'telescope', name: 'Telescope', price: 700 }, { id: 'aquarium', name: 'Aquarium', price: 900 }, { id: 'arcade', name: 'Arcade cabinet', price: 2000 }
+];
+const FURN_BY = new Map(FURN.map((x) => [x.id, x]));
+function furnOf(f) { return (Array.isArray(f.furn) ? f.furn : []).filter((id, i, a) => FURN_BY.has(id) && a.indexOf(id) === i); }
 function cleanArms(f) {
   f.arms = (Array.isArray(f.arms) ? f.arms : []).filter((id, i, a) => ARM_BY.has(id) && a.indexOf(id) === i);
   f.armour = f.armour === true;
   const g = f.gore && typeof f.gore === 'object' ? f.gore : {};
   f.gore = { asked: Number(g.asked) > 0 ? Number(g.asked) : 0, ok: g.ok === true };
 }
+function planeOf(f) { return f.plane && typeof f.plane === 'object' && CAR_COLORS.includes(f.plane.c) ? { own: true, c: f.plane.c } : { own: false, c: null }; }
 function armsOf(f) { cleanArms(f); return { own: f.arms.slice(), armour: f.armour, blood: !!(f.gore.asked && f.gore.ok), asked: !!f.gore.asked }; }
 /* side jobs (v7.2): same routes as placeJobs() in src/city/world/plan.js. Six are offered each day. */
 const JOBS = [
@@ -4509,7 +4522,7 @@ function trialTimes(t) {
 function farmCatalog() {
   return {
     rarity: RARITY, species: SPECIES, houses: HOUSES, locs: LOCS, decos: DECOS, cars: CARS, colors: CAR_COLORS,
-    outfits: OUTFITS, arms: ARMS, armour: ARMOUR_PRICE, skins: SKINS, hairs: HAIRS, hairColors: HAIR_COLORS, jobs: JOBS,
+    outfits: OUTFITS, arms: ARMS, armour: ARMOUR_PRICE, plane: PLANE_PRICE, furn: FURN, skins: SKINS, hairs: HAIRS, hairColors: HAIR_COLORS, jobs: JOBS,
     trials: TRIALS.map((t) => Object.assign({ id: t.id, name: t.name, pts: t.pts }, trialTimes(t))),
     rules: { fuelPerMin: FARM.FUEL_PER_MIN, fuelMax: FARM.FUEL_MAX, sunMax: FARM.SUN_MAX, dayCap: FARM.DAY_CAP, noteN: FARM.NOTE_N, noteCoins: FARM.NOTE_COINS, crateN: FARM.CRATE_N, jumpN: FARM.JUMP_N, starStep: FARM.STAR_STEP, starBase: FARM.STAR_BASE }
   };
@@ -4761,7 +4774,7 @@ function publicFarm(f, extra) {
   return Object.assign({
     coins: f.coins, sun: f.sun, fuel: f.fuel, seeds: f.seeds, basket: f.basket, house: f.house, locs: f.locs, deco: f.deco,
     index: f.index, stars: f.stars, cars: f.cars, car: f.car, color: f.color, best: f.best, golds: f.golds, jumps: f.jumps,
-    drive: f.drive, log: f.log.slice(0, 12), seen: f.seen || 0, look: lookOf(f), arms: armsOf(f),
+    drive: f.drive, log: f.log.slice(0, 12), seen: f.seen || 0, look: lookOf(f), arms: armsOf(f), plane: planeOf(f), furn: furnOf(f),
     avatar: f.avatar, wardrobe: f.wardrobe, outfit: f.outfit
   }, extra || {});
 }
@@ -4940,6 +4953,20 @@ async function farmAct(c) {
       if (!f.arms.includes(it.id)) {
         if (f.coins < it.price) throw new HttpError(400, 'coins');
         f.coins -= it.price; f.arms.push(it.id); msg = it.name;
+      }
+    } else if (a === 'plane') {
+      /* buy your plane once, then repaint it for free */
+      if (!f.plane) {
+        if (f.coins < PLANE_PRICE) throw new HttpError(400, 'coins');
+        f.coins -= PLANE_PRICE; f.plane = { c: CAR_COLORS.includes(b.c) ? b.c : CAR_COLORS[0] }; msg = 'Plane';
+      } else if (CAR_COLORS.includes(b.c)) f.plane.c = b.c;
+    } else if (a === 'furn') {
+      const it = FURN_BY.get(b.id);
+      if (!it) throw new HttpError(400, 'furn');
+      f.furn = furnOf(f);
+      if (!f.furn.includes(it.id)) {
+        if (f.coins < it.price) throw new HttpError(400, 'coins');
+        f.coins -= it.price; f.furn.push(it.id); msg = it.name;
       }
     } else if (a === 'armour') {
       cleanArms(f);
@@ -5137,7 +5164,7 @@ async function farmDrive(c) {
       loc: locOf.get(id) || 'oldtown', house: (hmap.get(id) || {}).house || 0, visited: f.drive.visits.includes(id) }));
     /* it rains in Bloc City when it rains on your garden */
     const weather = weatherAt(locOf.get(s.user) || 'oldtown', c.now).rain ? 1 : 0;
-    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather, look: lookOf(f), arms: armsOf(f), coins: f.coins, jobs: jobsToday(today).filter((id) => !(f.drive.jobs || []).includes(id)) });
+    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather, look: lookOf(f), arms: armsOf(f), plane: planeOf(f), furn: furnOf(f), coins: f.coins, jobs: jobsToday(today).filter((id) => !(f.drive.jobs || []).includes(id)) });
   }
   if (b.a !== 'end') throw new HttpError(400, 'action');
   const friends = await friendsOf(c, s);

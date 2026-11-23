@@ -7,11 +7,12 @@ import { gunMesh } from '../actors/guns.js';
 import { homeLot, sampleHeight } from '../world/plan.js';
 
 export const PLACES = [
-  { id: 'cafe', w: 14, d: 11, near: [-330, -95] },
-  { id: 'shop', w: 15, d: 12, near: [-455, -40] },
-  { id: 'garage', w: 16, d: 14, near: [-610, 330] },
-  { id: 'gym', w: 18, d: 14, near: [-210, 240] },
-  { id: 'arms', w: 14, d: 22, near: [-60, -260], web: true },
+  /* v7.4: the shops sit together on the busiest shopping streets (the most shop fronts on real roads), where you start */
+  { id: 'cafe', w: 14, d: 11, near: [-750, -900] },
+  { id: 'shop', w: 15, d: 12, near: [-700, -870] },
+  { id: 'garage', w: 16, d: 14, near: [-640, -840] },
+  { id: 'gym', w: 18, d: 14, near: [-780, -980] },
+  { id: 'arms', w: 14, d: 22, near: [-660, -960], web: true },
   { id: 'flat', w: 13, d: 10, near: null }
 ];
 const M = new Map();
@@ -184,6 +185,49 @@ function buildFlat(r) {
   r.light(-3, 2.6, 1.5, '#FFD9A8', 12, 9); r.light(3.6, 1.6, 4.0, '#FFF1D6', 6, 5); r.light(4.5, 2.6, -2, '#FFD9A8', 8, 7);
   r.spots.push({ x: 3.6, z: 3.4, r: 1.2, act: 'desk' });
   r.spots.push({ x: 4.9, z: -1.2, r: 1.2, act: 'bed' });
+  buildFurniture(r);
+}
+/* furniture you can order from the desk (v7.4): every piece is built up front and hidden until it's yours */
+export const FURN_IDS = ['rug', 'plants', 'beanbags', 'shelf', 'art', 'chair', 'neon', 'speakers', 'console', 'telescope', 'aquarium', 'arcade'];
+function buildFurniture(r) {
+  r.furn = {};
+  const grp = (id) => { const g = new THREE.Group(); g.visible = false; r.group.add(g); r.furn[id] = { g, boxes: [] }; return g; };
+  const put = (id, w, h, d, m, x, y, z, solid = false, ry = 0) => {
+    const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y + h / 2, z); o.rotation.y = ry; o.castShadow = true; o.receiveShadow = true; r.furn[id].g.add(o);
+    if (solid) r.furn[id].boxes.push({ x, z, hw: w / 2, hd: d / 2 });
+    return o;
+  };
+  const glow = (c, k = 2) => mat(c, 0.4, 0, { emissive: c, emissiveIntensity: k });
+  grp('rug'); put('rug', 3.4, 0.015, 2.4, mat('#7A4B3A', 0.95), -3.2, 0.002, 1.7); put('rug', 3.0, 0.017, 2.0, mat('#C9A46B', 0.95), -3.2, 0.002, 1.7);
+  grp('plants'); for (const [x, z, k] of [[-0.9, 4.6, 1], [6.0, 4.5, 1.3], [-6.0, -4.5, 0.9]]) { put('plants', 0.4, 0.4, 0.4, mat('#B07A52', 0.8), x, 0, z, true); const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.42 * k, 10, 8), mat('#3F6E46', 0.9)); leaf.position.set(x, 0.4 + 0.45 * k, z); leaf.scale.y = 1.4; r.furn.plants.g.add(leaf); }
+  grp('beanbags'); for (const [x, c] of [[0.2, '#C8383C'], [1.3, '#1F4E8C']]) { const b = new THREE.Mesh(new THREE.SphereGeometry(0.45, 14, 10), mat(c, 0.95)); b.scale.set(1, 0.6, 1); b.position.set(x, 0.27, 0.6); b.castShadow = true; r.furn.beanbags.g.add(b); r.furn.beanbags.boxes.push({ x, z: 0.6, hw: 0.4, hd: 0.4 }); }
+  grp('shelf'); put('shelf', 0.4, 2.1, 2.6, mat('#6B4A30', 0.6), -6.25, 0, -1.2, true);
+  { const cols = ['#A3262E', '#1F4E8C', '#E8DCC8', '#3F5E45', '#D9692B', '#191D29']; for (let row = 0; row < 4; row++) for (let i = 0; i < 9; i++) put('shelf', 0.3, 0.28 + ((i * 7 + row) % 3) * 0.04, 0.12 + (i % 2) * 0.03, mat(cols[(i + row * 2) % cols.length], 0.9), -6.18, 0.12 + row * 0.5, -2.3 + i * 0.25); }
+  grp('art'); for (const [z, c] of [[1.2, '#FFE14D'], [2.6, '#3E9BD6'], [3.8, '#C8383C']]) { put('art', 0.04, 0.9, 0.7, mat('#191D29', 0.5), 6.46, 1.2, z); put('art', 0.05, 0.75, 0.55, mat(c, 0.8), 6.45, 1.275, z); }
+  grp('chair'); put('chair', 0.6, 0.12, 0.6, mat('#16171A', 0.5), 3.6, 0.45, 3.65); put('chair', 0.6, 0.9, 0.12, mat('#16171A', 0.5), 3.6, 0.57, 3.3); put('chair', 0.62, 0.92, 0.04, mat('#FFE14D', 0.6), 3.6, 0.56, 3.24); put('chair', 0.08, 0.45, 0.08, mat('#3A3F45', 0.3, 0.8), 3.6, 0, 3.65);
+  grp('neon'); {
+    /* BLOC in neon tube on the wall behind the sofa (you face +z, so +u on the wall runs toward -x) */
+    const y0 = 1.72, z = 4.92, H = 0.42, Wd = 0.26, cx = -2.62, segs = {
+      B: [[0, 0, 0, 1], [0, 1, 0.8, 1], [0, 0.5, 0.8, 0.5], [0, 0, 0.8, 0], [1, 0.55, 1, 0.95], [1, 0.05, 1, 0.45]],
+      L: [[0, 0, 0, 1], [0, 0, 1, 0]], O: [[0, 0, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1], [0, 0, 1, 0]], C: [[0, 0, 0, 1], [0, 1, 1, 1], [0, 0, 1, 0]]
+    };
+    const tube = glow('#FFE14D', 3);
+    [...'BLOC'].forEach((ch, i) => {
+      for (const [u0, v0, u1, v1] of segs[ch]) {
+        const ux = cx - (i * 0.4 + u0 * Wd), ux1 = cx - (i * 0.4 + u1 * Wd), vy = y0 + v0 * H, vy1 = y0 + v1 * H;
+        const len = Math.hypot(ux1 - ux, vy1 - vy) + 0.035, o = new THREE.Mesh(new THREE.BoxGeometry(len, 0.035, 0.03), tube);
+        o.position.set((ux + ux1) / 2, (vy + vy1) / 2, z); o.rotation.z = Math.atan2(vy1 - vy, ux1 - ux); r.furn.neon.g.add(o);
+      }
+    });
+    put('neon', 1.8, 0.7, 0.02, mat('#101216', 0.6), -3.2, y0 - 0.14, 4.96);
+    const l = new THREE.PointLight('#FFE14D', 6, 5, 2); l.position.set(-3.2, y0 + 0.2, 4.6); r.furn.neon.g.add(l);
+  }
+  grp('speakers'); for (const x of [-4.5, -1.9]) { put('speakers', 0.35, 1.05, 0.35, mat('#1A1B1F', 0.5), x, 0, -1.3, true); put('speakers', 0.22, 0.22, 0.02, mat('#3A3F45', 0.3, 0.6), x, 0.65, -1.11); put('speakers', 0.14, 0.14, 0.02, mat('#3A3F45', 0.3, 0.6), x, 0.3, -1.11); }
+  grp('console'); put('console', 0.4, 0.08, 0.3, mat('#F2F2EE', 0.35), -3.6, 0.5, -1.2); put('console', 1.7, 0.95, 0.03, glow('#5A8FD8', 0.9), -3.2, 0.88, -1.27); put('console', 0.14, 0.04, 0.09, mat('#191D29', 0.4), -3.1, 0.42, 1.1);
+  grp('telescope'); put('telescope', 0.05, 1.0, 0.05, mat('#3A3F45', 0.3, 0.8), 0.9, 0, 4.0); { const t = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.9, 12), mat('#F2F3F5', 0.3, 0.3)); t.rotation.x = 1.1; t.position.set(0.9, 1.15, 4.2); r.furn.telescope.g.add(t); }
+  grp('aquarium'); put('aquarium', 1.4, 0.75, 0.5, mat('#2B2D31', 0.6), -5.6, 0, -3.9, true); put('aquarium', 1.3, 0.6, 0.45, mat('#7CC4FF', 0.05, 0, { emissive: '#2E6E9E', emissiveIntensity: 0.8, transparent: true, opacity: 0.55 }), -5.6, 0.75, -3.9);
+  for (let i = 0; i < 5; i++) put('aquarium', 0.08, 0.04, 0.02, glow(['#F28C28', '#FFE14D', '#FF5A5F'][i % 3], 1), -6.0 + i * 0.2, 0.9 + (i % 3) * 0.12, -3.75);
+  grp('arcade'); put('arcade', 0.75, 1.75, 0.7, mat('#1F1A3A', 0.5), 6.05, 0, 1.2, true, -Math.PI / 2); put('arcade', 0.05, 0.5, 0.55, glow('#7CE3FF', 1.4), 5.68, 1.15, 1.2); put('arcade', 0.05, 0.18, 0.6, glow('#FF5A5F', 1.6), 5.68, 1.6, 1.2); put('arcade', 0.3, 0.06, 0.6, mat('#191D29', 0.4), 5.6, 0.95, 1.2);
 }
 /* Bullseye Range: a counter with the weapons on the wall, and three lanes with paper targets at the back */
 function buildArms(r) {
@@ -255,8 +299,17 @@ export class Interiors {
     }
   }
   room(door) {
-    if (!this.rooms.has(door.id)) { const r = new Room(door.place, door.origin); BUILD[door.id](r); r.group.visible = false; this.scene.add(r.group); this.rooms.set(door.id, r); }
+    if (!this.rooms.has(door.id)) { const r = new Room(door.place, door.origin); BUILD[door.id](r); r.group.visible = false; this.scene.add(r.group); this.rooms.set(door.id, r); if (r.furn) this.applyFurn(r); }
     return this.rooms.get(door.id);
+  }
+  /* show the furniture you own in your flat (and make it solid) */
+  setFurn(list) { this.furn = new Set(list || []); const r = this.rooms.get('flat'); if (r) this.applyFurn(r); }
+  applyFurn(r) {
+    for (const [id, it] of Object.entries(r.furn)) {
+      const on = !!(this.furn && this.furn.has(id));
+      if (on && !it.g.visible) for (const b of it.boxes) r.boxes.push(b);
+      it.g.visible = on;
+    }
   }
   near(x, z, r = 1.9) { return this.doors.find((d) => Math.hypot(d.x - x, d.z - z) < r) || null; }
   enter(door) { const r = this.room(door); r.group.visible = true; this.inside = { door, room: r }; return r; }

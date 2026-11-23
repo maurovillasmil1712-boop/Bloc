@@ -3,10 +3,10 @@
 import * as THREE from 'three/webgpu';
 import { limb } from './human.js';
 
-function buildPlane() {
+function buildPlane(color) {
   const g = new THREE.Group();
   const white = new THREE.MeshPhysicalNodeMaterial({ color: '#F2F3F5', roughness: 0.35, metalness: 0.1, clearcoat: 0.8, clearcoatRoughness: 0.1 });
-  const hl = new THREE.MeshStandardNodeMaterial({ color: '#FFE14D', roughness: 0.5 }), ink = new THREE.MeshStandardNodeMaterial({ color: '#191D29', roughness: 0.5 });
+  const hl = new THREE.MeshStandardNodeMaterial({ color: color || '#FFE14D', roughness: 0.5 }), ink = new THREE.MeshStandardNodeMaterial({ color: '#191D29', roughness: 0.5 });
   const glass = new THREE.MeshPhysicalNodeMaterial({ color: '#203040', roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.75 });
   const add = (geo, m, x = 0, y = 0, z = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; o.receiveShadow = true; g.add(o); return o; };
   /* fuselage along +z (nose forward) */
@@ -29,8 +29,9 @@ function buildPlane() {
 }
 
 export class Plane {
-  constructor(world) {
-    this.world = world; const p = buildPlane(); this.group = p.group; this.prop = p.prop;
+  /* own: a player's own plane (bought for 30,000 coins): their colour, more power and a higher top speed */
+  constructor(world, own) {
+    this.own = own || null; this.world = world; const p = buildPlane(own && own.c); this.group = p.group; this.prop = p.prop;
     this.pos = new THREE.Vector3(); this.q = new THREE.Quaternion(); this.v = 0; this.vy = 0; this.power = 0; this.bank = 0; this.pitch = 0; this.yaw = 0;
     this.ground = true; this.crashed = false;
   }
@@ -43,8 +44,8 @@ export class Plane {
     if (touch) this.power += ((k.hand ? 1 : 0.7) - this.power) * Math.min(1, dt * 0.8);
     else this.power = Math.max(0, Math.min(1, this.power + ((k.up ? 1 : 0) - (k.down ? 1 : 0)) * dt * 0.6));
     const turn = (k.right ? 1 : 0) - (k.left ? 1 : 0);
-    const stall = 26, top = 64;
-    const thrust = this.power * 6.2 - this.v * this.v * (6.2 / (top * top)) - (this.ground ? 0.5 : 0);
+    const stall = 26, top = this.own ? 84 : 64, pw = this.own ? 7.6 : 6.2;
+    const thrust = this.power * pw - this.v * this.v * (pw / (top * top)) - (this.ground ? 0.5 : 0);
     this.v = Math.max(0, this.v + thrust * dt);
     if (this.ground) {
       this.bank += (0 - this.bank) * Math.min(1, dt * 5);

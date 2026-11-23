@@ -18,7 +18,7 @@ export class Police {
   /* a crime at (x, z): only counts if a patrol is close enough to see it */
   crime(kind, x, z) {
     /* gunfire is heard much further away than a fight is seen; shooting someone down is worth two stars */
-    const reach = kind === 'shoot' || kind === 'kill' ? 220 : 95;
+    const reach = kind === 'shoot' || kind === 'kill' ? 220 : kind === 'steal' ? 70 : 95;
     const seen = kind === 'ram' || this.cops.some((c) => Math.hypot(c.x - x, c.z - z) < reach);
     if (!seen) return;
     const before = this.stars;

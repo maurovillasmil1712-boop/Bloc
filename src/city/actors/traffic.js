@@ -2,10 +2,11 @@
    Model (smooth gaps, no snapping), stop at red lights, pick a new road at each junction, and slow for you. */
 import * as THREE from 'three/webgpu';
 import { buildCar, carMaterials } from './carmesh.js';
+import { buildMoto } from './moto.js';
 import { along } from '../core/geom.js';
 import { rng } from '../core/rng.js';
 
-const TYPES = ['hatch', 'sedan', 'suv', 'hatch', 'sedan', 'van', 'taxi', 'police'];
+const TYPES = ['hatch', 'sedan', 'suv', 'moto', 'hatch', 'police', 'sedan', 'van', 'taxi', 'moto', 'suv', 'hatch', 'police', 'bus'];
 const COLORS = ['#F3F4F6', '#1B1E24', '#8A9099', '#B8BCC2', '#7C1E22', '#1F3B66', '#2E4A3A', '#C9C2B0', '#E9E6DF', '#5B616B', '#A34A28', '#14161A'];
 const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S1 = new THREE.Vector3(1, 1, 1), UP = new THREE.Vector3(0, 1, 0), C = new THREE.Color();
 
@@ -16,20 +17,22 @@ function frame(e, s) {
 }
 export function laneOffset(e, lane) { const lw = Math.min(3.5, e.w / Math.max(1, e.lanes)); return e.lanes <= 1 ? 1.4 : (e.median ? e.median / 2 : 0) + (lane + 0.5) * lw; }
 
+const RIDER = new THREE.MeshStandardNodeMaterial({ color: '#23262C', roughness: 0.85 });
+
 export class Traffic {
   constructor(scene, plan, count) {
     this.plan = plan; this.count = count; this.cars = []; this.R = rng('traffic');
     this.edges = plan.edges.filter((e) => !e.bridge && e.kind !== 'lane' && e.len > 30);
     this.meshes = {}; const M = carMaterials();
     for (const t of new Set(TYPES)) {
-      const p = buildCar(t), parts = [[p.paint, M.paint], [p.glass, M.glass], [p.trim, M.trim], [p.light, M.light], [p.tail, M.tail], [p.plate, M.plate], [wheelsGeo(p), M.tyre]].filter(([g]) => g);
+      const p = t === 'moto' ? buildMoto(true) : buildCar(t), parts = [[p.paint, M.paint], [p.glass, M.glass], [p.trim, M.trim], [p.light, M.light], [p.tail, M.tail], [p.plate, M.plate], [p.chrome, M.chrome], [p.rider, RIDER], [wheelsGeo(p), M.tyre]].filter(([g]) => g);
       this.meshes[t] = parts.map(([g, m], i) => { const im = new THREE.InstancedMesh(g, m, count); im.count = 0; im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false; if (i === 0) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3); scene.add(im); return im; });
       this.meshes[t].T = p.T;
     }
     this.signalT = 0;
   }
   spawn(c, px, pz, near) {
-    c.mode = 'lane'; c.kerb = 0; c.siren = false; c.target = null; c.chaser = null;
+    c.mode = 'lane'; c.kerb = 0; c.siren = false; c.target = null; c.chaser = null; c.busStop = false; c.stopAt = undefined;
     for (let tries = 0; tries < 60; tries++) {
       const e = this.edges[Math.floor(this.R() * this.edges.length)];
       const s = 10 + this.R() * Math.max(1, e.len - 20), f = frame(e, s), d = Math.hypot(f.x - px, f.z - pz);
@@ -42,7 +45,8 @@ export class Traffic {
   init(px, pz) {
     for (let i = 0; i < this.count; i++) {
       const t = TYPES[i % TYPES.length];
-      const c = { type: t, color: t === 'taxi' ? '#F6F5F0' : t === 'police' ? '#F3F4F6' : COLORS[Math.floor(this.R() * COLORS.length)], x: 0, z: 0, y: 0, h: 0, mode: 'lane', kerb: 0 };
+      const c = { type: t, color: t === 'taxi' ? '#F6F5F0' : t === 'police' ? '#F3F4F6' : t === 'bus' ? '#C8383C' : COLORS[Math.floor(this.R() * COLORS.length)], x: 0, z: 0, y: 0, h: 0, mode: 'lane', kerb: 0 };
+      c.T = this.meshes[t].T; c.len = c.T.L; c.nextStop = 120 + this.R() * 200;
       this.spawn(c, px, pz, false); this.cars.push(c);
     }
   }
@@ -116,11 +120,17 @@ export class Traffic {
     for (const c of this.cars) {
       if (c.mode === 'free') continue;
       if (!c.alive || (Math.hypot(c.x - px, c.z - pz) > 430 && c.mode === 'lane')) { this.spawn(c, px, pz, true); if (c.alive) this.pose(c); continue; }
-      if (c.mode === 'stop') { c.v = 0; this.pose(c); continue; }
+      if (c.mode === 'stop') {
+        c.v = 0;
+        /* a bus at its stop waits a few seconds, then pulls out */
+        if (c.busStop) { c.wait -= dt; if (c.wait <= 0) { c.mode = 'lane'; c.busStop = false; c.stopAt = undefined; c.nextStop = 260 + this.R() * 220; } }
+        this.pose(c); continue;
+      }
+      if (c.type === 'bus' && c.mode === 'lane') { c.nextStop -= c.v * dt; if (c.nextStop <= 0 && e0ok(c.e)) { c.mode = 'pull'; c.busStop = true; c.wait = 7 + this.R() * 5; c.stopAt = undefined; } }
       const e = c.e, end = e.len - (c.dir > 0 ? e.tb || 0 : e.ta || 0);
       /* the car ahead: same edge, direction and lane */
       let gap = 1e9, vLead = c.v;
-      for (const o of this.cars) { if (o === c || !o.alive || o.e !== e || o.dir !== c.dir || o.lane !== c.lane) continue; const g = o.s - c.s - 5; if (g > -2 && g < gap) { gap = Math.max(0.1, g); vLead = o.v; } }
+      for (const o of this.cars) { if (o === c || !o.alive || o.e !== e || o.dir !== c.dir || o.lane !== c.lane) continue; const g = o.s - c.s - ((o.len || 4.5) + (c.len || 4.5)) / 2 - 0.6; if (g > -2 && g < gap) { gap = Math.max(0.1, g); vLead = o.v; } }
       /* the player in our lane ahead */
       const fx = Math.sin(c.h), fz = Math.cos(c.h), dxp = px - c.x, dzp = pz - c.z, aheadP = dxp * fx + dzp * fz, sideP = Math.abs(dxp * Math.cos(c.h) - dzp * Math.sin(c.h));
       if (aheadP > 0 && aheadP < 30 && sideP < 2.2) { const g = aheadP - 5; if (g < gap) { gap = Math.max(0.1, g); vLead = Math.max(0, player.forwardSpeed || 0); } }
@@ -128,7 +138,7 @@ export class Traffic {
       const node = this.plan.nodes[c.dir > 0 ? e.b : e.a];
       if (this.signalRed(node, e) && c.mode !== 'flee' && c.mode !== 'chase') { const g = end - c.s - 3; if (g > -1 && g < gap) { gap = Math.max(0.1, g); vLead = 0; } }
       /* pulling over: ease to the kerb and stop (the police car stops behind its target) */
-      if (c.mode === 'pull') { c.kerb = Math.min(1, c.kerb + dt * 0.6); const stopAt = c.target ? c.target.s - (c.target.e === c.e && c.target.dir === c.dir ? 9 : -1e9) : c.s + Math.max(4, c.v * 1.5); const g = stopAt - c.s; if (g < gap) { gap = Math.max(0.1, g); vLead = 0; } if (c.v < 0.3 && c.kerb >= 1 && (!c.target || g < 2 || g > 40)) { c.mode = 'stop'; c.v = 0; } }
+      if (c.mode === 'pull') { c.kerb = Math.min(1, c.kerb + dt * 0.6); if (!c.target && c.stopAt == null) c.stopAt = Math.min(c.e.len - 6, c.s + Math.max(10, c.v * 2.4)); const stopAt = c.target ? c.target.s - (c.target.e === c.e && c.target.dir === c.dir ? 9 : -1e9) : c.stopAt; const g = stopAt - c.s; if (g < gap) { gap = Math.max(0.1, g); vLead = 0; } if (c.v < 0.3 && c.kerb >= 1 && (!c.target || g < 2 || g > 40)) { c.mode = 'stop'; c.v = 0; } }
       else if (c.kerb > 0) c.kerb = Math.max(0, c.kerb - dt * 0.4);
       /* IDM */
       const a = 2.2, b = 3.4, s0 = 2.5, T = 1.3, dv = c.v - vLead;
@@ -144,6 +154,7 @@ export class Traffic {
         let ne = opts[Math.floor(this.R() * opts.length)];
         if (c.mode === 'chase' && c.route.length) { const want = c.route.shift(); if (opts.includes(want)) ne = want; }
         if (c.mode === 'flee' && c.chaser) c.chaser.route.push(ne);
+        c.stopAt = undefined;
         c.e = ne; c.dir = ne.a === n.id ? 1 : -1; c.s = c.dir > 0 ? ne.ta || 0 : ne.tb || 0; c.v0 = ne.speed * (0.85 + this.R() * 0.3);
         c.lane = Math.min(c.lane, Math.max(0, Math.floor(ne.lanes / 2) - 1));
       }
@@ -167,6 +178,11 @@ export class Traffic {
     }
     for (const t in this.meshes) for (const im of this.meshes[t]) { im.count = counts[t]; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
   }
+  /* circles that cover a car for collisions: one for most, three along a bus, a small one for a bike */
+  circles(c) {
+    if (c.type === 'bus') { const fx = Math.sin(c.h), fz = Math.cos(c.h); return [-3.9, 0, 3.9].map((o) => [c.x + fx * o, c.z + fz * o, 1.9]); }
+    return [[c.x, c.z, c.type === 'moto' ? 0.9 : 1.75]];
+  }
   /* circles for collisions with the player */
   near(x, z, r) { return this.cars.filter((c) => c.alive && Math.abs(c.x - x) < r && Math.abs(c.z - z) < r); }
 }
@@ -179,3 +195,5 @@ export function wheelsGeo(p) {
   }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setIndex(idx); return g;
 }
+/* a bus only stops on ordinary streets with room at the kerb */
+function e0ok(e) { return e && e.kind !== 'ronda' && e.w >= 7; }

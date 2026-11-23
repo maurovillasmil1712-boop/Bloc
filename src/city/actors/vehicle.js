@@ -2,13 +2,15 @@
    suspension that rolls, dips and squats, ramps and air time, and collisions that bounce and spin. */
 import * as THREE from 'three/webgpu';
 import { buildCar, carMaterials, makePaint, TYPES } from './carmesh.js';
+import { buildMoto } from './moto.js';
 
 const G = 9.81;
 export class Vehicle {
   constructor(type, color, world) {
-    this.type = TYPES[type] ? type : 'hatch';
+    this.type = TYPES[type] || type === 'moto' ? type : 'hatch';
     this.world = world;
-    const parts = buildCar(this.type), M = carMaterials();
+    const parts = this.type === 'moto' ? buildMoto(false) : buildCar(this.type), M = carMaterials();
+    this.moto = this.type === 'moto';
     this.T = parts.T;
     this.group = new THREE.Group(); this.body = new THREE.Group(); this.group.add(this.body);
     this.paint = makePaint(color || '#FFE14D');
@@ -16,7 +18,7 @@ export class Vehicle {
     this.paintMesh = add(parts.paint, this.paint); this.glassMesh = add(parts.glass, M.glass);
     /* the inside: the body seen from within, dashboard, gauges, wheel, seats */
     const T0 = parts.T;
-    {
+    if (!this.moto) {
       /* door panels from the inside: the body below the window line, seen from within */
       const src = parts.paint.index ? parts.paint.toNonIndexed() : parts.paint, P = src.attributes.position.array, belt = T0.H * 0.62, keep = [];
       for (let i = 0; i < P.length; i += 9) if (P[i + 1] < belt && P[i + 4] < belt && P[i + 7] < belt) for (let k = 0; k < 9; k++) keep.push(P[i + k]);
@@ -25,7 +27,7 @@ export class Vehicle {
     }
     const trimM = new THREE.MeshStandardNodeMaterial({ color: '#1C1D20', roughness: 0.7 }), seatM = new THREE.MeshStandardNodeMaterial({ color: '#3A3530', roughness: 0.95 });
     const box = (w, h, d, m, x, y, z, rx = 0) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.rotation.x = rx; this.body.add(o); return o; };
-    if (T0.top !== false) {
+    if (!this.moto) {
       box(T0.W * 0.84, 0.16, 0.42, trimM, 0, T0.H * 0.6, T0.L * 0.13, -0.15);
       for (const sx of [0.36, -0.36]) { box(0.46, 0.12, 0.48, seatM, sx, T0.H * 0.36, -0.18); box(0.46, 0.62, 0.1, seatM, sx, T0.H * 0.58, -0.44, -0.18); box(0.26, 0.16, 0.08, seatM, sx, T0.H * 0.95, -0.5, -0.1); }
       box(0.18, 0.2, 0.7, trimM, 0, T0.H * 0.42, 0.0);
@@ -183,11 +185,20 @@ export class Vehicle {
   sync() {
     this.group.position.set(this.x, this.y, this.z);
     this.group.rotation.set(0, this.h, 0);
-    this.body.rotation.set(this.air ? -this.vy * 0.012 + this.pitch : this.pitch, 0, this.roll);
-    this.body.position.y = -Math.abs(this.roll) * 0.4;
+    if (this.moto) {
+      /* a bike leans into the turn instead of rolling out of it */
+      const v = Math.hypot(this.vx, this.vz), want = this.air ? 0 : Math.max(-0.75, Math.min(0.75, -this.r * v / 9.81));
+      this.lean = (this.lean || 0) + (want - (this.lean || 0)) * 0.18;
+      this.body.rotation.set(this.air ? -this.vy * 0.012 + this.pitch * 0.5 : this.pitch * 0.5, 0, this.lean);
+      this.body.position.y = 0;
+    } else {
+      this.body.rotation.set(this.air ? -this.vy * 0.012 + this.pitch : this.pitch, 0, this.roll);
+      this.body.position.y = -Math.abs(this.roll) * 0.4;
+    }
     if (this.wheelSpin) this.wheelSpin.rotation.z = -this.steer * 2.4;
     this.wheels.forEach((w, i) => {
-      w.rotation.set(this.spin, i < 2 ? -this.steer * 0.85 : 0, 0, 'YXZ');
+      w.rotation.set(this.spin, (this.moto ? i < 1 : i < 2) ? -this.steer * (this.moto ? 0.5 : 0.85) : 0, this.moto ? this.lean || 0 : 0, 'YXZ');
+      if (this.moto) { const b = w.userData.base; w.position.x = b.x - Math.sin(this.lean || 0) * b.y; w.position.y = b.y * Math.cos(this.lean || 0); }
       w.position.y = w.userData.base.y + (i % 2 ? 1 : -1) * this.roll * 0.15 * 0;
     });
   }

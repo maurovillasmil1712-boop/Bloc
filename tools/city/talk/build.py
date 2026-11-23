@@ -8,11 +8,21 @@ try:
     for k, v in SINGLE2.items(): k = k[:-1] if k.endswith('2') else k; SINGLE[k] = SINGLE.get(k, []) + v
     PAIRS = PAIRS + PAIRS2; CONVOS = CONVOS + CONVOS2
 except ImportError: pass
+# later batches (lines_d.py, lines_e.py, ...): SINGLE adds to categories, PAIRS and CONVOS append
+import glob, importlib
+for path in sorted(glob.glob(os.path.join(here, 'lines_[d-z].py'))):
+    m = importlib.import_module(os.path.basename(path)[:-3])
+    for k, v in getattr(m, 'SINGLE', {}).items(): SINGLE[k] = SINGLE.get(k, []) + v
+    PAIRS = PAIRS + getattr(m, 'PAIRS', []); CONVOS = CONVOS + getattr(m, 'CONVOS', [])
 lines, cats, pairs, convos = {}, {}, [], []
 def add(prefix, n, v, en, es):
     k = '%s%03d' % (prefix, n); lines[k] = {'v': v, 'en': en, 'es': es}; return k
+used = {}
 for cat, items in SINGLE.items():
-    cats[cat] = [add(cat[:2] + cat[-1], i, v, en, es) for i, (v, en, es) in enumerate(items)]
+    pre = cat[:2] + cat[-1]
+    if pre in used and used[pre] != cat: pre = cat[:3] + cat[-1] if (cat[:3] + cat[-1]) not in used else cat[:4] + cat[-1]
+    used[pre] = cat
+    cats[cat] = [add(pre, i, v, en, es) for i, (v, en, es) in enumerate(items)]
 for i, d in enumerate(PAIRS):
     pairs.append([add('pr%02d_' % i, k, v, en, es) for k, (v, en, es) in enumerate(d)])
 for i, (v, (oen, oes), choices) in enumerate(CONVOS):

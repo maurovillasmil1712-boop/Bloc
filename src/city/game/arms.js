@@ -149,7 +149,7 @@ export class Arms {
     g.cam.shake = Math.max(g.cam.shake || 0, w.id === 'shotgun' ? 0.12 : 0.05);
     g.fcam.pitch = Math.max(-0.5, g.fcam.pitch - (w.id === 'shotgun' ? 0.03 : w.id === 'pistol' ? 0.015 : 0.008));
     if (!inside) {
-      if (g.crowd) g.crowd.panic(f.x, f.z, 45, (p) => { if (Math.random() < 0.15) g.talk.remark(p, 'dodge'); });
+      if (g.crowd) g.crowd.panic(f.x, f.z, 45, (p) => { if (Math.random() < 0.2) g.talk.remark(p, 'panic'); });
       if (g.traffic) for (const c of g.traffic.near(f.x, f.z, 30)) if (c.type !== 'police' && c.mode === 'lane' && Math.random() < 0.5) c.mode = 'flee';
       if (g.police) g.police.crime('shoot', f.x, f.z);
     }
@@ -249,7 +249,7 @@ export class Arms {
     if (res === 'down' && before !== 'down') {
       this.pool(who);
       if (g.police) g.police.crime('kill', who.x, who.z);
-    } else if (res === 'hit' && Math.random() < 0.6) g.talk.remark(who, 'dodge');
+    } else if (res === 'hit' && Math.random() < 0.7) { g.talk.busy = 0; g.talk.remark(who, 'shot'); }
   }
   /* blood: a spray of drops away from the shooter, and a pool once they're down */
   bleed(pt, d, n) {
@@ -270,6 +270,7 @@ export class Arms {
     if (!hitIt) to.add(new THREE.Vector3((Math.random() - 0.5) * 3, (Math.random() - 0.3) * 1.5, (Math.random() - 0.5) * 3));
     this.tracer(from, to); this.flash.position.copy(from); this.flash.visible = true; this.flashT = 0.04;
     if (g.audio) g.audio.shot('pistol', dist);
+    if (Math.random() < 0.3) g.talk.remark({ x: c.x, z: c.z, voice: Math.random() < 0.5 ? 'f' : 'm', i: null }, 'cop_gun');
     if (hitIt) { g.hurt(9, null); this.bleed(to, to.clone().sub(from).normalize(), 5); }
     else this.dust.add({ x: to.x, y: Math.max(f.y + 0.05, to.y), z: to.z, a: 0, life: 0.4, s: 0.6 });
   }

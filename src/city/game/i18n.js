@@ -63,7 +63,11 @@ Object.assign(S.en, {
   holster: 'Fists', reload: 'Reloading', no_arms: 'No weapons yet', no_arms_sub: 'Buy one at Bullseye Range (the yellow door)', web_arms: 'Weapons are on the website only',
   not_here: 'Not in here', not_here_sub: 'Put it away inside shops', aim_hint: 'Right mouse to aim, click to shoot, R to reload, G to switch',
   aim_touch: 'Tap Fire to shoot', fire: 'Fire', arm: 'Weapon', down: 'Down', down_sub: 'You come round a moment later. No coins lost.', armour_hud: 'Armour',
-  target_hit: 'Hit', bullseye: 'Bullseye'
+  target_hit: 'Hit', bullseye: 'Bullseye',
+  your_plane: 'Your plane', plane_buy: 'Buy your own plane', plane_sub: 'Faster than the school plane, in your colour, waiting at the airport', plane_owned: 'Yours. It waits on the airport apron. Pick its colour:', plane_bought: 'Your plane is at the airport', own_plane: 'Your plane',
+  furn_title: 'Order furniture', furn_sub: 'It arrives straight away. Everything stays in your flat.', furn_home: 'In your flat', p_desk: 'Order furniture',
+  furn_rug: 'Rug', furn_plants: 'Three plants', furn_beanbags: 'Bean bags', furn_shelf: 'Bookshelf', furn_art: 'Wall art', furn_chair: 'Gaming chair', furn_neon: 'Neon sign', furn_speakers: 'Speakers', furn_console: 'Games console and big TV', furn_telescope: 'Telescope', furn_aquarium: 'Aquarium', furn_arcade: 'Arcade cabinet',
+  me: 'You', bus_driver: 'Bus driver', tower: 'Tower', courier: 'Delivery', steal: 'Take this car', too_fast: 'It’s moving too fast', too_fast_sub: 'Wait for it to stop, at a light for example', jack_title: 'They won’t let go', jack_keys: 'Hold or keep pressing F', jack_touch: 'Keep tapping Pull', jack_btn: 'Pull', stolen: 'It’s yours now', stolen_sub: 'Your own car stays where you left it', stolen_cop: 'A police car. They will not like this.'
 });
 Object.assign(S.es, {
   place_arms: 'Galería Bullseye', p_arms: 'Armas y chaleco', p_lane: 'Calles de tiro', staff_gunsmith: 'Encargado de la galería',
@@ -75,7 +79,11 @@ Object.assign(S.es, {
   holster: 'Puños', reload: 'Recargando', no_arms: 'Aún no tienes armas', no_arms_sub: 'Compra una en la Galería Bullseye (la puerta amarilla)', web_arms: 'Las armas solo están en la web',
   not_here: 'Aquí no', not_here_sub: 'Guárdala dentro de las tiendas', aim_hint: 'Botón derecho para apuntar, clic para disparar, R recarga, G cambia',
   aim_touch: 'Toca Disparar', fire: 'Disparar', arm: 'Arma', down: 'Al suelo', down_sub: 'Te recuperas enseguida. No pierdes monedas.', armour_hud: 'Chaleco',
-  target_hit: 'Tocado', bullseye: 'En el centro'
+  target_hit: 'Tocado', bullseye: 'En el centro',
+  your_plane: 'Tu avioneta', plane_buy: 'Comprar tu propia avioneta', plane_sub: 'Más rápida que la de la escuela, de tu color, esperando en el aeropuerto', plane_owned: 'Tuya. Te espera en el aeropuerto. Elige el color:', plane_bought: 'Tu avioneta está en el aeropuerto', own_plane: 'Tu avioneta',
+  furn_title: 'Pedir muebles', furn_sub: 'Llegan al momento. Todo se queda en tu piso.', furn_home: 'En tu piso', p_desk: 'Pedir muebles',
+  furn_rug: 'Alfombra', furn_plants: 'Tres plantas', furn_beanbags: 'Pufs', furn_shelf: 'Estantería', furn_art: 'Cuadros', furn_chair: 'Silla gaming', furn_neon: 'Cartel de neón', furn_speakers: 'Altavoces', furn_console: 'Consola y tele grande', furn_telescope: 'Telescopio', furn_aquarium: 'Acuario', furn_arcade: 'Máquina recreativa',
+  me: 'Tú', bus_driver: 'Conductor del bus', tower: 'Torre', courier: 'Repartidor', steal: 'Llevarte este coche', too_fast: 'Va demasiado rápido', too_fast_sub: 'Espera a que pare, en un semáforo por ejemplo', jack_title: 'No suelta el volante', jack_keys: 'Mantén o pulsa repetidamente la F', jack_touch: 'Toca Tirar sin parar', jack_btn: 'Tirar', stolen: 'Ahora es tuyo', stolen_sub: 'Tu coche se queda donde lo dejaste', stolen_cop: 'Un coche de policía. No les va a hacer gracia.'
 });
 export function setLang(l) { LANG.v = l === 'es' ? 'es' : 'en'; try { localStorage.setItem('bloc:city:lang', LANG.v); } catch (e) { /* private mode */ } }
 export function initLang(fromApp) {

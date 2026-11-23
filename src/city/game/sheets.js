@@ -2,6 +2,7 @@
    Purchases go to POST /api/farm/act; the server checks coins and ownership. ?test=1 works offline. */
 import { T } from './i18n.js';
 import { FAKE_ARMS } from './arms.js';
+import { FURN_IDS } from './interiors.js';
 
 const FAKE = {
   outfits: [
@@ -14,7 +15,7 @@ const FAKE = {
   ],
   skins: ['#F6D7C3', '#E8B896', '#C98E66', '#9A6440', '#6B4228', '#3F2718'], hairs: ['short', 'buzz', 'curly', 'long', 'bun', 'none'],
   hairColors: ['#1B1714', '#3B2A1E', '#6A4A2E', '#A7763F', '#D9B26B', '#B8433A', '#8E8E8E', '#EDEDED'],
-  cars: [{ id: 'hatch', name: 'Hatchback', cost: 0, house: 0 }, { id: 'buggy', name: 'Beach Buggy', cost: 1500, house: 1 }, { id: 'van', name: 'Garden Van', cost: 2500, house: 2 }, { id: 'gt', name: 'Sunset GT', cost: 6000, house: 3 }],
+  cars: [{ id: 'hatch', name: 'Hatchback', cost: 0, house: 0 }, { id: 'buggy', name: 'Beach Buggy', cost: 1500, house: 1 }, { id: 'van', name: 'Garden Van', cost: 2500, house: 2 }, { id: 'gt', name: 'Sunset GT', cost: 6000, house: 3 }, { id: 'moto', name: 'Street Bike', cost: 2200, house: 1 }],
   colors: ['#FFE14D', '#FF5A5F', '#3E9BD6', '#1E9E6A', '#F28C28', '#8C3B72', '#191D29', '#F3F4F6']
 };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -37,6 +38,8 @@ export class Sheets {
       if (body.a === 'avatar') Object.assign(f.avatar, Object.fromEntries(Object.entries(body).filter(([k]) => k !== 'a')));
       if (body.a === 'car') { const c = cat.cars.find((x) => x.id === body.id); if (!f.cars.includes(c.id)) { if (f.coins < c.cost) throw new Error('coins'); f.coins -= c.cost; f.cars.push(c.id); } f.car = c.id; }
       if (body.a === 'color') f.color = body.c;
+      if (body.a === 'furn') { f.furn = f.furn || [...(this.g.rooms.furn || [])]; if (!f.furn.includes(body.id)) { if (f.coins < 200) throw new Error('coins'); f.coins -= 200; f.furn.push(body.id); } }
+      if (body.a === 'plane') { if (!f.plane || !f.plane.own) { if (f.coins < 30000) throw new Error('coins'); f.coins -= 30000; } f.plane = { own: true, c: body.c }; }
       if (body.a === 'arm' || body.a === 'armour' || body.a === 'gore') {
         const A = f.arms = f.arms || { own: this.g.arms.own.slice(), armour: this.g.arms.armour, blood: false, asked: false };
         if (body.a === 'arm') { const w = FAKE_ARMS.find((x) => x.id === body.id); if (!A.own.includes(w.id)) { if (f.coins < w.price) throw new Error('coins'); f.coins -= w.price; A.own.push(w.id); } }
@@ -97,6 +100,24 @@ export class Sheets {
       catch (x) { this.err(x); }
     });
   }
+  /* ---- your flat: order furniture from the laptop on the desk ---- */
+  async flat() {
+    const el = this.frame(T('furn_title'), `<p class="bc-note">${T('furn_sub')}</p><div class="bc-grid furn"></div>`);
+    try { await this.load(); } catch (e) { this.say(T('try_again')); return; }
+    const cat = (this.g.data.cat && this.g.data.cat.furn) || FURN_IDS.map((id, i) => ({ id, name: T('furn_' + id), price: [220, 150, 200, 350, 280, 300, 450, 800, 650, 700, 900, 2000][i] }));
+    const draw = () => {
+      this.coins();
+      const own = this.farm.furn || [...(this.g.rooms.furn || [])];
+      el.querySelector('.furn').innerHTML = cat.map((x) => `<button type="button" class="bc-item${own.includes(x.id) ? ' on' : ''}" data-furn="${x.id}"><span>${esc(T('furn_' + x.id))}</span><small>${own.includes(x.id) ? T('furn_home') : T('arms_buy', { p: x.price })}</small></button>`).join('');
+    };
+    draw();
+    el.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-furn]'); if (!b) return;
+      const own = this.farm.furn || [...(this.g.rooms.furn || [])]; if (own.includes(b.dataset.furn)) return;
+      try { await this.act({ a: 'furn', id: b.dataset.furn }); this.g.rooms.setFurn(this.farm.furn); this.say(T('bought', { n: T('furn_' + b.dataset.furn) })); this.g.talk.say(null, this.g.talk.pick('furn_delivery'), { name: T('courier') }); draw(); }
+      catch (x) { this.err(x); }
+    });
+  }
   /* ---- Bullseye Range: weapons, armour and the blood setting (website only) ---- */
   async arms() {
     const A = this.g.arms;
@@ -146,7 +167,7 @@ export class Sheets {
   }
   /* ---- the garage ---- */
   async garage() {
-    const el = this.frame(T('place_garage'), `<button type="button" class="bc-item" data-fix><span>${T('repair')}</span><small>${T('repair_sub')}</small></button><h4>${T('cars')}</h4><div class="bc-grid cars"></div><h4>${T('paint')}</h4><div class="bc-sw paint"></div>`);
+    const el = this.frame(T('place_garage'), `<button type="button" class="bc-item" data-fix><span>${T('repair')}</span><small>${T('repair_sub')}</small></button><h4>${T('cars')}</h4><div class="bc-grid cars"></div><h4>${T('paint')}</h4><div class="bc-sw paint"></div><h4>${T('your_plane')}</h4><div class="bc-plane"></div>`);
     try { await this.load(); } catch (e) { this.say(T('try_again')); return; }
     const draw = () => {
       this.coins();
@@ -154,10 +175,20 @@ export class Sheets {
       el.querySelector('.cars').innerHTML = cat.cars.map((c) => { const own = f.cars.includes(c.id), on = f.car === c.id, locked = !own && f.house < c.house;
         return `<button type="button" class="bc-item${on ? ' on' : ''}" data-car="${c.id}"${locked ? ' disabled' : ''}><span>${esc(c.name)}</span><small>${on ? T('driving') : own ? T('owned') : locked ? T('need_house') : c.cost + ' ' + T('cash')}</small></button>`; }).join('');
       el.querySelector('.paint').innerHTML = cat.colors.map((c) => `<button type="button" aria-label="${c}" aria-pressed="${f.color === c}" data-c="${c}" style="background:${c}"></button>`).join('');
+      const pl = f.plane || { own: false }, price = cat.plane || 30000;
+      el.querySelector('.bc-plane').innerHTML = pl.own
+        ? `<p class="bc-note">${T('plane_owned')}</p><div class="bc-sw">${cat.colors.map((c) => `<button type="button" aria-label="${c}" aria-pressed="${pl.c === c}" data-pc="${c}" style="background:${c}"></button>`).join('')}</div>`
+        : `<button type="button" class="bc-item" data-plane><span>${T('plane_buy')}</span><small>${price} ${T('cash')}</small><small>${T('plane_sub')}</small></button>`;
     };
     draw();
     el.addEventListener('click', async (e) => {
       if (e.target.closest('[data-fix]')) { this.g.car.repair(); this.say(T('repaired')); return; }
+      const pb = e.target.closest('[data-plane],[data-pc]');
+      if (pb) {
+        try { await this.act({ a: 'plane', c: pb.dataset.pc || this.farm.color }); const pl = this.farm.plane; if (pl && pl.own) this.g.ownPlane(pl); this.say(pb.dataset.plane ? T('plane_bought') : ''); draw(); }
+        catch (x) { this.err(x); }
+        return;
+      }
       const car = e.target.closest('[data-car]'), col = e.target.closest('[data-c]');
       if (!car && !col) return;
       try { await this.act(car ? { a: 'car', id: car.dataset.car } : { a: 'color', c: col.dataset.c }); this.g.setCar(this.farm.car, this.farm.color); draw(); this.say(''); }
