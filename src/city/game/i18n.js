@@ -12,7 +12,7 @@ const S = {
     time_driven: 'Time in the city', notes: 'Sticky notes', crates: 'Seed crates', jumps: 'Stunt jumps', visits: 'Friends visited', best_trial: 'Best trial', back: 'Back to the garden',
     loading: 'Loading the city', loading_tex: 'Loading textures', loading_city: 'Building the city', loading_trees: 'Growing trees', loading_props: 'Placing street furniture', loading_cars: 'Filling the streets', loading_light: 'Lighting',
     get_out: 'Get out', get_in: 'Get in', talk: 'Talk', enter: 'Go in', settings: 'Settings', quality: 'Quality', language: 'Language', voices: 'Voices', subtitles: 'Subtitles',
-    q_auto: 'Auto', q_low: 'Low', q_medium: 'Medium', q_high: 'High', q_ultra: 'Ultra', on: 'On', off: 'Off', close: 'Close',
+    q_next: 'Changes on your next drive', q_auto: 'Auto', q_low: 'Low', q_medium: 'Medium', q_high: 'High', q_ultra: 'Ultra', on: 'On', off: 'Off', close: 'Close',
     radio_off: 'Radio off', wanted: 'Wanted', busted: 'Busted', wasted: 'Wasted', cash: 'coins'
   },
   es: {
@@ -27,7 +27,7 @@ const S = {
     time_driven: 'Tiempo en la ciudad', notes: 'Pósits', crates: 'Cajas de semillas', jumps: 'Saltos', visits: 'Amigos visitados', best_trial: 'Mejor contrarreloj', back: 'Volver al huerto',
     loading: 'Cargando la ciudad', loading_tex: 'Cargando texturas', loading_city: 'Construyendo la ciudad', loading_trees: 'Plantando árboles', loading_props: 'Colocando el mobiliario', loading_cars: 'Llenando las calles', loading_light: 'Encendiendo luces',
     get_out: 'Bajar', get_in: 'Subir', talk: 'Hablar', enter: 'Entrar', settings: 'Ajustes', quality: 'Calidad', language: 'Idioma', voices: 'Voces', subtitles: 'Subtítulos',
-    q_auto: 'Automática', q_low: 'Baja', q_medium: 'Media', q_high: 'Alta', q_ultra: 'Ultra', on: 'Sí', off: 'No', close: 'Cerrar',
+    q_next: 'Cambia en tu próximo paseo', q_auto: 'Auto', q_low: 'Baja', q_medium: 'Media', q_high: 'Alta', q_ultra: 'Ultra', on: 'Sí', off: 'No', close: 'Cerrar',
     radio_off: 'Radio apagada', wanted: 'Buscado', busted: 'Detenido', wasted: 'K.O.', cash: 'monedas'
   }
 };

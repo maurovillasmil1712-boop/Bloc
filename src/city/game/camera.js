@@ -18,7 +18,7 @@ export class ChaseCam {
     /* chase direction: the heading, pulled toward the direction of travel when sliding */
     const vDir = sp > 3 ? Math.atan2(car.vx, car.vz) : car.h;
     let diff = vDir - car.h; while (diff > Math.PI) diff -= Math.PI * 2; while (diff < -Math.PI) diff += Math.PI * 2;
-    const want = car.h + (fwd < -1 ? 0 : diff * 0.35);
+    const want = car.h + (fwd < -1 ? 0 : diff * 0.15);
     let dy = want - this.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
     this.yaw += dy * Math.min(1, dt * (this.mode === 'far' ? 3.2 : 4.2));
     if (this.orbit.t > 0) this.orbit.t -= dt; else { this.orbit.yaw *= Math.exp(-dt * 2.5); this.orbit.pitch *= Math.exp(-dt * 2.5); }
@@ -27,17 +27,17 @@ export class ChaseCam {
     const L = car.T ? car.T.L : 4.2, H = car.T ? car.T.H : 1.45;
     if (this.mode === 'near' || this.mode === 'far') {
       const far = this.mode === 'far';
-      const back = (far ? 9.5 : 6.2) + L * 0.55 + sp * (far ? 0.07 : 0.05), up = (far ? 3.4 : 2.1) + H * 0.55 + sp * 0.012 + this.orbit.pitch * 6;
+      const back = (far ? 7.2 : 4.4) + L * 0.5 + sp * (far ? 0.045 : 0.025), up = (far ? 2.6 : 1.45) + H * 0.45 + sp * 0.006 + this.orbit.pitch * 6;
       T.set(car.x - cfx * back, car.y + up, car.z - cfz * back);
       const gy = ground(T.x, T.z) + 0.8; if (T.y < gy) T.y = gy;
       if (!this.init) { this.pos.copy(T); this.vel.set(0, 0, 0); this.init = true; }
       /* critically damped spring */
-      const k = far ? 22 : 34, c = 2 * Math.sqrt(k);
+      const k = far ? 36 : 64, c = 2 * Math.sqrt(k);
       this.vel.x += ((T.x - this.pos.x) * k - this.vel.x * c) * dt; this.vel.y += ((T.y - this.pos.y) * k - this.vel.y * c) * dt; this.vel.z += ((T.z - this.pos.z) * k - this.vel.z * c) * dt;
       this.pos.addScaledVector(this.vel, dt);
       this.cam.position.copy(this.pos);
-      const ahead = 5 + sp * 0.25, side = (car.steer || 0) * -sp * 0.12;
-      this.look.set(car.x + fx * ahead + Math.cos(car.h) * side, car.y + H * 0.7, car.z + fz * ahead - Math.sin(car.h) * side);
+      const ahead = 4 + sp * 0.15, side = (car.steer || 0) * -sp * 0.06;
+      this.look.set(car.x + fx * ahead + Math.cos(car.h) * side, car.y + H * 0.6, car.z + fz * ahead - Math.sin(car.h) * side);
       this.cam.up.set(0, 1, 0);
       this.cam.lookAt(this.look);
       this.lean += ((car.steer || 0) * Math.min(1, sp / 25) * 0.035 - this.lean) * Math.min(1, dt * 3);
@@ -53,7 +53,7 @@ export class ChaseCam {
       this.init = false;
     }
     if (this.shake > 0) { this.cam.position.x += (Math.random() - 0.5) * this.shake; this.cam.position.y += (Math.random() - 0.5) * this.shake * 0.6; this.shake = Math.max(0, this.shake - dt * 1.8); }
-    const fov = (this.mode === 'cockpit' ? 70 : 60) + Math.min(16, sp * 0.32);
+    const fov = (this.mode === 'cockpit' ? 70 : 58) + Math.min(10, sp * 0.2);
     if (Math.abs(this.cam.fov - fov) > 0.05) { this.cam.fov += (fov - this.cam.fov) * Math.min(1, dt * 2.5); this.cam.updateProjectionMatrix(); }
   }
 }

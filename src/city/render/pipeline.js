@@ -14,7 +14,7 @@ import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 
 export const PRESETS = {
-  low: { scale: [0.7, 0.85], dpr: 1.25, shadow: 1024, cascades: 1, shadowFar: 90, ao: false, ssr: false, bloom: false, aa: 'fxaa', far: 1600, detail: 160, trees: 60, peds: 40, cars: 16, lamps: 16, terrainNear: 8, fog: 1.4 },
+  low: { scale: [0.7, 0.85], dpr: 1.0, shadow: 1024, cascades: 1, shadowFar: 70, ao: false, ssr: false, bloom: false, aa: 'fxaa', far: 1600, detail: 160, trees: 60, peds: 40, cars: 16, lamps: 16, terrainNear: 8, fog: 1.4 },
   medium: { scale: [0.8, 1.0], dpr: 1.5, shadow: 2048, cascades: 2, shadowFar: 220, ao: false, ssr: false, bloom: true, aa: 'smaa', far: 2600, detail: 260, trees: 120, peds: 80, cars: 24, lamps: 48, terrainNear: 4, fog: 1.0 },
   high: { scale: [0.85, 1.0], dpr: 1.75, shadow: 2048, cascades: 3, shadowFar: 420, ao: true, aoScale: 0.5, ssr: true, ssrScale: 0.5, bloom: true, aa: 'traa', far: 4200, detail: 420, trees: 250, peds: 140, cars: 36, lamps: 128, terrainNear: 4, fog: 0.8 },
   ultra: { scale: [0.75, 1.0], dpr: 2, shadow: 4096, cascades: 4, shadowFar: 800, ao: true, aoScale: 0.75, ssr: true, ssrScale: 0.75, bloom: true, aa: 'traa', far: 6000, detail: 600, trees: 400, peds: 220, cars: 50, lamps: 256, terrainNear: 4, fog: 0.65, motion: true }
@@ -24,12 +24,19 @@ export const PRESETS = {
 export function detectPreset(info) {
   const ua = navigator.userAgent || '', mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || (navigator.maxTouchPoints > 1 && /Mac/.test(ua));
   const mem = navigator.deviceMemory || 8, cores = navigator.hardwareConcurrency || 4;
-  if (mobile) return mem >= 6 && cores >= 6 && info.webgpu ? 'medium' : 'low';
-  const gpu = (info.gpu || '').toLowerCase();
+  /* a drive that ran slow on Auto leaves a lower start for next time */
+  let cap = null; try { cap = localStorage.getItem('bloc:city:autocap'); } catch (e) { /* private mode */ }
+  const order = ['low', 'medium', 'high', 'ultra'], capped = (p) => (cap && order.indexOf(cap) >= 0 && order.indexOf(cap) < order.indexOf(p) ? cap : p);
+  if (mobile) return capped(mem >= 6 && cores >= 6 && info.webgpu ? 'medium' : 'low');
+  const gpu = (info.gpu || '').toLowerCase(), mac = /Mac/.test(ua), safari = /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Firefox/.test(ua);
   if (/swiftshader|llvmpipe|software/.test(gpu)) return 'low';
-  if (/nvidia|geforce|rtx|radeon rx|radeon pro|apple m[2-9]|apple m1 (pro|max|ultra)|arc a/.test(gpu)) return 'ultra';
-  if (/intel|uhd|iris|apple m1|adreno|mali/.test(gpu)) return 'medium';
-  return info.webgpu ? 'high' : 'medium';
+  /* Safari hides the GPU name, and on Intel Macs its WebGPU and WebGL run slower than Chrome: start low, the frame-rate watcher handles the rest */
+  if (mac && safari) return 'low';
+  /* Intel Macs (Radeon Pro or Intel graphics) and integrated GPUs can't carry the full post stack */
+  if (mac && !/apple/.test(gpu)) return capped(/intel|uhd|iris/.test(gpu) ? 'low' : 'medium');
+  if (/intel|uhd|iris|adreno|mali/.test(gpu)) return capped('low');
+  if (/rtx [2-9]0[6-9]0|rtx [4-9]0[7-9]0|radeon rx [6-9][7-9]|apple m[2-9] (pro|max|ultra)|apple m1 (max|ultra)/.test(gpu)) return capped('high');
+  return capped('medium');
 }
 
 export async function makeRenderer(canvas, opts) {
@@ -82,7 +89,8 @@ export const POST = { motion: uniform(0), grade: uniform(1) };
 
 export function makePipeline(renderer, scene, camera, preset, sunLight) {
   const P = PRESETS[preset];
-  /* shadows */
+  /* shadows: hard-edged and cheap on Low */
+  if (preset === 'low') renderer.shadowMap.type = THREE.BasicShadowMap;
   sunLight.shadow.mapSize.set(P.shadow, P.shadow);
   sunLight.shadow.bias = -0.0004; sunLight.shadow.normalBias = 0.6;
   if (P.cascades > 1) {
@@ -125,7 +133,6 @@ export function makePipeline(renderer, scene, camera, preset, sunLight) {
     depth = scenePass.getTextureNode('depth');
   }
   if (P.bloom) color = color.add(bloom(color, preset === 'medium' ? 0.18 : 0.24, 0.55, 1.15));
-  if (P.motion && vel) color = mix(color, motionBlur(color, vel.mul(POST.motion.mul(0.6)), 8), clamp(POST.motion, 0, 1));
   if (P.aa === 'traa') color = traa(color, depth, vel, camera);
   pipe.outputColorTransform = false;
   let out = renderOutput(color);

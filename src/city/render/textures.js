@@ -18,7 +18,7 @@ class FileWorkerKTX2Loader extends KTX2Loader {
       this.transcoderPending = fetch(BASE + 'lib/basis/basis_transcoder.wasm').then((r) => { if (!r.ok) throw new Error('decoder ' + r.status); return r.arrayBuffer(); }).then((bin) => {
         this.transcoderBinary = bin;
         this.workerPool.setWorkerCreator(() => {
-          const worker = new Worker(BASE + 'lib/basis/ktx2-worker.js');
+          const worker = new Worker(BASE + 'lib/basis/ktx2-worker.js?v=' + __V__);
           const transcoderBinary = this.transcoderBinary.slice(0);
           worker.postMessage({ type: 'init', config: this.workerConfig, transcoderBinary }, [transcoderBinary]);
           return worker;
@@ -78,7 +78,7 @@ export async function loadSet(renderer, group, tier, onBytes) {
 }
 export function layerOf(group, id) { const s = SETS[group] || (index && { layers: index.groups[group] }); const i = s ? s.layers.indexOf(id) : -1; return i < 0 ? 0 : i; }
 export function onUpgrade(f) { listeners.add(f); return () => listeners.delete(f); }
-export function tiersFor(preset) { return preset === 'low' ? [512] : preset === 'medium' ? [512, 1024] : [512, 1024, 2048]; }
+export function tiersFor(preset) { return preset === 'low' ? [512] : [512, 1024]; }
 
 /* small textures drawn in code: noise for water and puddles, signs */
 export function canvasTexture(w, h, draw, srgb = true) {

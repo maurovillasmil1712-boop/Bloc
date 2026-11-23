@@ -8477,7 +8477,7 @@
   function cityLang() { var l = sget('bloc:city:lang'); return l === 'es' || l === 'en' ? l : (/^es\b/i.test(navigator.language || '') ? 'es' : 'en'); }
   function cityOpen(data) {
     var f = document.createElement('iframe'), ended = false, opener = document.activeElement;
-    f.className = 'city-frame'; f.title = 'Bloc City'; f.src = '/city/?v=7.0';
+    f.className = 'city-frame'; f.title = 'Bloc City'; f.src = '/city/?v=7.0.3';
     f.setAttribute('allow', 'fullscreen; gamepad; autoplay');
     function onMsg(e) {
       if (e.origin !== location.origin || e.source !== f.contentWindow || !e.data) return;

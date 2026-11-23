@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const site = resolve(here, '../../site/city');
 const prod = !process.argv.includes('--dev');
+const VERSION = '7.0.3';  /* bump every release: busts the 4-hour browser cache on city files */
 mkdirSync(resolve(site, 'lib/basis'), { recursive: true });
 for (const f of ['basis_transcoder.js', 'basis_transcoder.wasm']) copyFileSync(resolve(here, 'node_modules/three/examples/jsm/libs/basis', f), resolve(site, 'lib/basis', f));
 /* The texture decoder's worker as a real file, not a blob: the Basis transcoder builds functions from strings
@@ -37,7 +38,7 @@ await build({
   minify: prod,
   sourcemap: false,
   legalComments: 'eof',
-  define: { 'process.env.NODE_ENV': '"production"' },
+  define: { 'process.env.NODE_ENV': '"production"', __V__: JSON.stringify(VERSION) },
   logLevel: 'warning'
 });
 console.log('built site/city/city.js and plan.js');

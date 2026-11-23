@@ -62,7 +62,7 @@ async function sendEnd(start, result) {
 function planInWorker() {
   return new Promise((res) => {
     let w;
-    try { w = new Worker(new URL('./plan.js', import.meta.url), { type: 'module' }); } catch (e) { res(null); return; }
+    try { w = new Worker(new URL('./plan.js?v=' + __V__, import.meta.url), { type: 'module' }); } catch (e) { res(null); return; }
     const to = setTimeout(() => { w.terminate(); res(null); }, 30000);
     w.onmessage = (e) => { clearTimeout(to); w.terminate(); res(e.data && e.data.plan ? adoptPlan(e.data.plan) : null); };
     w.onerror = () => { clearTimeout(to); w.terminate(); res(null); };
@@ -151,7 +151,8 @@ async function boot() {
   game.onClose = () => { if (inFrame) post({ type: 'bloc-city-close' }); else if (!TEST) location.href = '/#pet'; };
   window.addEventListener('pagehide', () => { if (!game.ended && !TEST) game.finish('exit'); });
 
-  let frames = 0, last = performance.now(), slow = 0, fast = 0, scale = 1;
+  let frames = 0, last = performance.now(), slow = 0, fast = 0, scale = 1, floorT = 0;
+  const auto = !Q.get('preset') && !(saved && saved !== 'auto' && PRESETS[saved]);
   const target = matchMedia('(pointer: coarse)').matches ? 1000 / 30 : 1000 / 60;
   window.__city = { renderer, scene, camera, sky, city, plan, preset, webgpu, gpu, game, inst, frames: () => frames, info: () => renderer.info,
     tp: (x, z, h = 0) => { game.car.place(x, z, h, groundAt(plan, x, z)); game.cam.init = false; },
@@ -182,7 +183,9 @@ async function boot() {
     /* dynamic resolution: hold the frame rate on phones and laptops */
     if (!TEST && frames > 30) {
       if (dtMs > target * 1.2) { slow++; fast = 0; } else if (dtMs < target * 0.8) { fast++; slow = 0; } else { slow = Math.max(0, slow - 1); fast = Math.max(0, fast - 1); }
-      if (slow > 45 && scale > 0.6) { scale = Math.max(0.6, scale - 0.1); renderer.setPixelRatio(dprBase * scale); slow = 0; }
+      if (slow > 45 && scale > 0.5) { scale = Math.max(0.5, scale - 0.1); renderer.setPixelRatio(dprBase * scale); slow = 0; }
+      /* still slow at the smallest size on Auto: start one preset lower next time */
+      if (auto && scale <= 0.5 && dtMs > target * 1.2) { floorT += dtMs; if (floorT > 6000) { const lower = { ultra: 'high', high: 'medium', medium: 'low' }[preset]; if (lower) { try { localStorage.setItem('bloc:city:autocap', lower); } catch (e) { /* ignore */ } } floorT = -1e12; } }
       if (fast > 240 && scale < 1) { scale = Math.min(1, scale + 0.1); renderer.setPixelRatio(dprBase * scale); fast = 0; }
     }
   });

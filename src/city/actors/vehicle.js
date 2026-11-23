@@ -27,7 +27,7 @@ export class Vehicle {
     this.roll = 0; this.pitch = 0; this.rollV = 0; this.pitchV = 0; this.spin = 0; this.lastHit = 0; this.ax = 0; this.ay = 0;
     this.input = { throttle: 0, brake: 0, steer: 0, hand: 0 };
     const T = this.T;
-    this.p = { m: T.mass, a: T.wb * 0.48, b: T.wb * 0.52, hcg: 0.5 + (T.H - 1.4) * 0.3, top: T.top, F: T.mass * T.acc, mu: 1.05 * T.grip, C: T.mass * 13 * T.grip, maxSteer: 0.62 };
+    this.p = { m: T.mass, a: T.wb * 0.48, b: T.wb * 0.52, hcg: 0.5 + (T.H - 1.4) * 0.3, top: T.top, F: T.mass * T.acc, mu: 1.05 * T.grip, C: T.mass * 42 * T.grip, maxSteer: 0.62 };
     this.p.Iz = this.p.m * (T.L * T.L + T.W * T.W) / 12 * 1.1;
   }
   place(x, z, h, y) { this.x = x; this.z = z; this.h = h; this.y = y; this.vx = this.vz = this.r = 0; }
@@ -68,6 +68,8 @@ export class Vehicle {
       }
       const axl = (Fx - Fyf * Math.sin(d)) / P.m, ayl = (Fyr + Fyf * Math.cos(d)) / P.m;
       vf += (axl + vl * this.r) * dt; vl += (ayl - vf * this.r) * dt;
+      /* tyres that bite: bleed off sideways sliding unless the handbrake is on */
+      if (!I.hand) vl *= Math.exp(-dt * 3.2 * grip);
       if (Math.abs(vf) > 2.5 || I.steer) this.h += this.r * dt;
       this.ax += (axl - this.ax) * Math.min(1, dt * 8); this.ay += (ayl - this.ay) * Math.min(1, dt * 8);
       if (vf > topNow * 1.02) vf -= (vf - topNow) * Math.min(1, dt * 1.5);
@@ -92,23 +94,28 @@ export class Vehicle {
       const dy = g - this.y;
       this.y = dy > 0.6 || dy < -1.5 ? g : this.y + dy * Math.min(1, dt * 18);
     }
-    /* walls, poles, trees */
-    const hitN = { x: 0, z: 0 };
-    let hit = 0;
+    /* walls, poles, trees: push out of every contact, then one soft impulse for the deepest. Cars crumple, they don't bounce */
+    const hitN = { x: 0, z: 0 }, best = { x: 0, z: 0, pen: 0, o: 0 };
     for (const o of [-1, 0, 1]) {
-      const c = { x: this.x + nfx * o * this.T.L * 0.33, z: this.z + nfz * o * this.T.L * 0.33 };
+      const bx = this.x + nfx * o * this.T.L * 0.33, bz = this.z + nfz * o * this.T.L * 0.33, c = { x: bx, z: bz };
       const pen = W.collide.resolve(c, this.T.W * 0.5, this.y + 0.5, hitN);
-      if (pen > 0) {
-        this.x += c.x - (this.x + nfx * o * this.T.L * 0.33); this.z += c.z - (this.z + nfz * o * this.T.L * 0.33);
-        const vn = this.vx * hitN.x + this.vz * hitN.z;
-        if (vn < 0) {
-          this.vx -= 1.25 * vn * hitN.x; this.vz -= 1.25 * vn * hitN.z;
-          this.r += o * vn * 0.12 * Math.sign(hitN.x * nlx + hitN.z * nlz);
-          hit = Math.max(hit, -vn);
-        }
+      if (pen > 0) { this.x += c.x - bx; this.z += c.z - bz; if (pen > best.pen) { best.x = hitN.x; best.z = hitN.z; best.pen = pen; best.o = o; } }
+    }
+    let hit = 0;
+    if (best.pen > 0) {
+      const vn = this.vx * best.x + this.vz * best.z;
+      if (vn < 0) {
+        hit = -vn;
+        /* kill the speed into the wall (8% comes back), scrub some speed along it, a little spin off corners */
+        this.vx -= 1.08 * vn * best.x; this.vz -= 1.08 * vn * best.z;
+        const scrub = Math.max(0.55, 1 - hit * 0.025);
+        const tx = this.vx - (this.vx * best.x + this.vz * best.z) * best.x, tz = this.vz - (this.vx * best.x + this.vz * best.z) * best.z;
+        this.vx += (tx * scrub - tx); this.vz += (tz * scrub - tz);
+        this.r += best.o * vn * 0.04 * Math.sign(best.x * nlx + best.z * nlz);
+        this.r = Math.max(-2.5, Math.min(2.5, this.r));
       }
     }
-    if (hit > 3) { this.vx *= 0.8; this.vz *= 0.8; this.lastHit = hit; }
+    if (hit > 3) this.lastHit = hit;
     /* body: roll into turns, dip on brakes, squat on the gas, with springs */
     const rollT = Math.max(-0.09, Math.min(0.09, -this.ay * 0.011)) + surf.roll, pitchT = Math.max(-0.07, Math.min(0.07, -this.ax * 0.008)) + surf.pitch;
     this.rollV += ((rollT - this.roll) * 90 - this.rollV * 12) * dt; this.roll += this.rollV * dt;

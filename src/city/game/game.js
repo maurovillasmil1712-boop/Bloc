@@ -10,6 +10,7 @@ import { POST } from '../render/pipeline.js';
 import { U } from '../render/materials.js';
 import { T as TEXT } from './i18n.js';
 
+function qNow() { let q = null; try { q = localStorage.getItem('bloc:city:q'); } catch (e) { /* ignore */ } return ['low', 'medium', 'high', 'ultra'].indexOf(q) >= 0 ? q : 'auto'; }
 const fmt = (s) => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 const fmtMs = (ms) => { const s = ms / 1000, m = Math.floor(s / 60); return m + ':' + (s - m * 60).toFixed(2).padStart(5, '0'); };
 
@@ -95,7 +96,7 @@ export class Game {
     const el = document.createElement('div'); el.className = 'bc-hud';
     el.innerHTML =
       `<div class="bc-top"><div class="bc-panel bc-fuel"><b class="bc-f">0:00</b><span class="bc-sub">${t('fuel')}</span><div class="bc-bar"><i></i></div></div>` +
-      `<div class="bc-btns"><button type="button" class="bc-btn" data-k="view">${t('view')}</button><button type="button" class="bc-btn" data-k="sky">${t('sky_live')}</button><button type="button" class="bc-btn" data-k="map">${t('map')}</button><button type="button" class="bc-btn x" data-k="exit">${t('done')}</button></div></div>` +
+      `<div class="bc-btns"><button type="button" class="bc-btn" data-k="view">${t('view')}</button><button type="button" class="bc-btn" data-k="sky">${t('sky_live')}</button><button type="button" class="bc-btn" data-k="q">${t('quality')}: ${t('q_' + qNow())}</button><button type="button" class="bc-btn" data-k="map">${t('map')}</button><button type="button" class="bc-btn x" data-k="exit">${t('done')}</button></div></div>` +
       `<canvas class="bc-mini" width="320" height="320" aria-hidden="true"></canvas><div class="bc-place"></div>` +
       `<div class="bc-trial" hidden></div><div class="bc-msg"></div>` +
       `<div class="bc-speed"><b>0</b><span>km/h</span></div>` +
@@ -108,13 +109,19 @@ export class Game {
     el.addEventListener('click', (e) => {
       const b = e.target.closest('[data-k]'); if (!b) return;
       const k = b.dataset.k;
-      if (k === 'exit') this.finish('exit'); else if (k === 'map') this.toggleMap(); else if (k === 'view') this.say(t('view_' + this.cam.next())); else if (k === 'sky') this.cycleSky();
+      if (k === 'exit') this.finish('exit'); else if (k === 'map') this.toggleMap(); else if (k === 'view') this.say(t('view_' + this.cam.next())); else if (k === 'sky') this.cycleSky(); else if (k === 'q') this.cycleQuality(b);
     });
     this.ui.map.addEventListener('click', () => this.toggleMap());
     this.labels = this.homes.map((h) => { const d = document.createElement('div'); d.className = 'bc-label' + (h.me ? ' home' : ''); d.textContent = h.me ? t('home') : h.name; el.appendChild(d); return d; });
     this.trialLabels = this.trials.map((tr) => { const d = document.createElement('div'); d.className = 'bc-label'; d.textContent = tr.name; el.appendChild(d); return d; });
     this.mapImg = drawMapImage(this.plan, 1.25);
     this.say('Bloc City', coarse ? t('hint_touch') : t('hint_keys'));
+  }
+  cycleQuality(b) {
+    const order = ['auto', 'low', 'medium', 'high', 'ultra'], next = order[(order.indexOf(qNow()) + 1) % order.length];
+    try { localStorage.setItem('bloc:city:q', next); if (next === 'auto') localStorage.removeItem('bloc:city:autocap'); } catch (e) { /* ignore */ }
+    b.textContent = TEXT('quality') + ': ' + TEXT('q_' + next);
+    this.say(TEXT('quality') + ': ' + TEXT('q_' + next), TEXT('q_next'));
   }
   cycleSky() {
     const modes = ['live', 'sunset', 'night'], i = (modes.indexOf(this.sky.mode) + 1) % 3;
@@ -143,11 +150,11 @@ export class Game {
     if (this.traffic) {
       for (const o of this.traffic.near(car.x, car.z, 6)) {
         const dx = car.x - o.x, dz = car.z - o.z, d = Math.hypot(dx, dz);
-        if (d < 3.6 && d > 0.01) { const nx = dx / d, nz = dz / d, pen = 3.6 - d; car.x += nx * pen; car.z += nz * pen; const vn = car.vx * nx + car.vz * nz; if (vn < 0) { car.vx -= 1.3 * vn * nx; car.vz -= 1.3 * vn * nz; if (-vn > 4) { this.cam.shake = Math.min(0.5, -vn / 25); if (this.audio) this.audio.hit(-vn); } } o.v = 0; }
+        if (d < 3.6 && d > 0.01) { const nx = dx / d, nz = dz / d, pen = 3.6 - d; car.x += nx * pen; car.z += nz * pen; const vn = car.vx * nx + car.vz * nz; if (vn < 0) { car.vx -= 1.1 * vn * nx; car.vz -= 1.1 * vn * nz; car.vx *= 0.9; car.vz *= 0.9; if (-vn > 4) { this.cam.shake = Math.min(0.3, -vn / 45); if (this.audio) this.audio.hit(-vn); } } o.v = 0; }
       }
       this.traffic.update(dt, { x: car.x, z: car.z, forwardSpeed: car.vf });
     }
-    if (car.lastHit > 4) { this.cam.shake = Math.min(0.6, car.lastHit / 25); if (this.audio) this.audio.hit(car.lastHit); car.lastHit = 0; }
+    if (car.lastHit > 4) { this.cam.shake = Math.min(0.35, car.lastHit / 40); if (this.audio) this.audio.hit(car.lastHit); car.lastHit = 0; }
     if (car.landed) { if (car.landed > 0.9) this.jumped(car.landed); car.landed = 0; this.cam.shake = 0.25; }
     /* the sea: back to the last safe road */
     if (!car.air && this.world.inWater(car.x, car.z, car.y)) {
