@@ -8499,13 +8499,14 @@
   }
   function cityEnd(run, res) {
     res = res || {};
-    api('POST', '/api/farm/drive', { a: 'end', run: run, secs: res.secs || 0, notes: res.notes || [], crates: res.crates || [], jumps: res.jumps || [], visits: res.visits || [], trial: res.trial || null }, { timeout: 20000, keepalive: false }).then(function (r) {
+    api('POST', '/api/farm/drive', { a: 'end', run: run, secs: res.secs || 0, notes: res.notes || [], crates: res.crates || [], jumps: res.jumps || [], visits: res.visits || [], trial: res.trial || null, jobs: res.jobs || [] }, { timeout: 20000, keepalive: false }).then(function (r) {
       FARM.driving = false;
       if (r.status !== 200 || !r.data) { toast(farmErrText(r)); return; }
       farmTake(r.data);
       render();
       var x = r.data.result || {}, lines = [];
       if (x.notes) lines.push(x.notes + ' sticky ' + (x.notes === 1 ? 'note' : 'notes'));
+      if (x.jobs && x.jobs.length) lines.push(x.jobs.length + (x.jobs.length === 1 ? ' job' : ' jobs'));
       (x.crates || []).forEach(function (id) { var s = farmSp(id); if (s) lines.push('a ' + s.name + ' seed'); });
       (x.jumps || []).forEach(function (j) { lines.push(j.first ? 'a new stunt jump' : 'a stunt jump'); });
       if (x.trial) lines.push(FARM.cat.trials.filter(function (t) { return t.id === x.trial.id; })[0].name + ' in ' + fmtWatch(x.trial.ms / 1000) + (x.trial.medal ? ' (' + x.trial.medal + ')' : ''));

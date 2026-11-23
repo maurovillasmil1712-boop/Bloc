@@ -21,7 +21,9 @@ const S = {
     do_mirror: 'Looking good', do_mirror_sub: 'Change clothes at the counter', do_ring: 'The ring opens soon', do_ring_sub: 'Boxing matches come with the fights update', do_bag: 'Jab', do_bag_sub: 'Click or press J to punch',
     slot_top: 'Tops', slot_bottom: 'Bottoms', slot_shoes: 'Shoes', slot_hat: 'Hats', slot_body: 'Body and hair', skin: 'Skin', hair: 'Hair', hair_colour: 'Hair colour', body_free: 'Body and hair changes are free.',
     hair_short: 'Short', hair_buzz: 'Buzz', hair_curly: 'Curly', hair_long: 'Long', hair_bun: 'Bun', hair_none: 'Shaved',
-    wearing: 'Wearing', owned: 'Yours', bought: 'Bought: {n}', no_coins: 'Not enough coins yet', need_house: 'Needs a bigger house', try_again: 'That didn’t work. Try again.', cars: 'Cars', paint: 'Paint', driving: 'Driving'
+    wearing: 'Wearing', owned: 'Yours', bought: 'Bought: {n}', no_coins: 'Not enough coins yet', need_house: 'Needs a bigger house', try_again: 'That didn’t work. Try again.', cars: 'Cars', paint: 'Paint', driving: 'Driving',
+    staff_barista: 'Barista', staff_clerk: 'Shop assistant', staff_mechanic: 'Mechanic', staff_coach: 'Coach',
+    job_courier: 'Courier job', job_taxi: 'Taxi job', job_errand: 'Errand on foot', job_go: 'Get to the red marker', job_done: 'Job done: +{n} coins at the end', job_late: 'Too slow, the job is off', need_car: 'This one needs a car', need_foot: 'This one is on foot', passenger: 'Passenger', customer: 'Customer', jobs: 'Jobs'
   },
   es: {
     fuel: 'gasolina', fuel_notes: '{n} notas', view: 'Cámara', map: 'Mapa', done: 'Salir', sky_live: 'Cielo real', sky_sunset: 'Atardecer', sky_night: 'Noche',
@@ -44,7 +46,9 @@ const S = {
     do_mirror: 'Qué bien te queda', do_mirror_sub: 'Cámbiate de ropa en el mostrador', do_ring: 'El ring abre pronto', do_ring_sub: 'Los combates llegan con la actualización de peleas', do_bag: 'Directo', do_bag_sub: 'Clic o J para golpear',
     slot_top: 'Arriba', slot_bottom: 'Abajo', slot_shoes: 'Zapatos', slot_hat: 'Gorras', slot_body: 'Cuerpo y pelo', skin: 'Piel', hair: 'Pelo', hair_colour: 'Color de pelo', body_free: 'Cambiar cuerpo y pelo es gratis.',
     hair_short: 'Corto', hair_buzz: 'Rapado', hair_curly: 'Rizado', hair_long: 'Largo', hair_bun: 'Moño', hair_none: 'Calvo',
-    wearing: 'Puesto', owned: 'Tuyo', bought: 'Comprado: {n}', no_coins: 'Aún no tienes monedas suficientes', need_house: 'Necesitas una casa más grande', try_again: 'No ha funcionado. Inténtalo otra vez.', cars: 'Coches', paint: 'Pintura', driving: 'En uso'
+    wearing: 'Puesto', owned: 'Tuyo', bought: 'Comprado: {n}', no_coins: 'Aún no tienes monedas suficientes', need_house: 'Necesitas una casa más grande', try_again: 'No ha funcionado. Inténtalo otra vez.', cars: 'Coches', paint: 'Pintura', driving: 'En uso',
+    staff_barista: 'Camarera', staff_clerk: 'Dependiente', staff_mechanic: 'Mecánico', staff_coach: 'Entrenador',
+    job_courier: 'Reparto', job_taxi: 'Taxi', job_errand: 'Recado a pie', job_go: 'Ve al marcador rojo', job_done: 'Hecho: +{n} monedas al terminar', job_late: 'Demasiado lento, se cancela', need_car: 'Este necesita coche', need_foot: 'Este es a pie', passenger: 'Pasajera', customer: 'Cliente', jobs: 'Trabajos'
   }
 };
 export const LANG = { v: 'en' };

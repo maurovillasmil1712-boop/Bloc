@@ -75,6 +75,12 @@ export class Audio {
     /* a metallic ring on harder crashes */
     if (strength > 8) { const o = c.createOscillator(), og = c.createGain(); o.type = 'square'; o.frequency.value = 180 + Math.random() * 90; og.gain.setValueAtTime(0.06, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.3); o.connect(og).connect(this.sfx); o.start(t); o.stop(t + 0.32); }
   }
+  honk() {
+    if (!this.ctx || performance.now() - (this.lastHonk || 0) < 900) return; this.lastHonk = performance.now();
+    const c = this.ctx, t = c.currentTime, g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.02); g.gain.setValueAtTime(0.12, t + 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1800; f.connect(g); g.connect(this.sfx);
+    for (const fr of [392, 494]) { const o = c.createOscillator(); o.type = 'square'; o.frequency.value = fr; o.connect(f); o.start(t); o.stop(t + 0.42); }
+  }
   /* the engine fades while a menu or the map is open */
   duck(on) { if (this.eng) this.eng.gain.setTargetAtTime(on ? 0 : 0.05, this.ctx.currentTime, 0.1); }
 }

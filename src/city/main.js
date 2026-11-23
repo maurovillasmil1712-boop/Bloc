@@ -12,6 +12,7 @@ import { setupTrees } from './world/trees.js';
 import { setupProps } from './world/props.js';
 import { setupParked } from './world/parked.js';
 import { Traffic } from './actors/traffic.js';
+import { Crowd } from './actors/crowd.js';
 import { Game } from './game/game.js';
 import { Audio } from './audio/audio.js';
 import { initLang, T } from './game/i18n.js';
@@ -57,7 +58,7 @@ async function sendEnd(start, result) {
   if (inFrame) { post({ type: 'bloc-city-end', result }); return; }
   const d = start.data;
   await fetch('/api/farm/drive', { method: 'POST', credentials: 'same-origin', keepalive: true, headers: { 'Content-Type': 'application/json', 'X-MyIB': '1' },
-    body: JSON.stringify({ a: 'end', run: d.run.id, secs: result.secs, notes: result.notes, crates: result.crates, jumps: result.jumps, visits: result.visits, trial: result.trial }) }).catch(() => {});
+    body: JSON.stringify({ a: 'end', run: d.run.id, secs: result.secs, notes: result.notes, crates: result.crates, jumps: result.jumps, visits: result.visits, trial: result.trial, jobs: result.jobs }) }).catch(() => {});
 }
 /* the plan: in a worker when we can, so the bar keeps moving */
 function planInWorker() {
@@ -141,6 +142,7 @@ async function boot() {
     setupParked(inst, plan, P);
     for (const t of inst.types) if (t.id.startsWith('parked-')) for (const cells of t.grid.values()) for (const it of cells) game.world.collide.addBox(it.x, it.z, 0.95, 2.15, -it.r, it.y + 1.6);
   }
+  if (Q.get('peds') !== '0' && P.peds > 0) game.crowd = new Crowd(scene, plan, Math.round(P.peds * 0.6));
   if (Q.get('traffic') !== '0' && P.cars > 0) { game.traffic = new Traffic(scene, plan, P.cars); game.traffic.init(game.car.x, game.car.z); }
   /* tests: start on foot, or inside a place */
   if (Q.get('foot') === '1' || Q.get('room')) game.toggleCar();

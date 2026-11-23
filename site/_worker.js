@@ -4411,6 +4411,37 @@ function lookOf(f) {
   for (const slot of OUTFIT_SLOTS) { const it = OUTFIT_BY.get(f.outfit[slot]); out[slot] = { kind: it.kind, c: it.c }; }
   return out;
 }
+/* side jobs (v7.2): same routes as placeJobs() in src/city/world/plan.js. Six are offered each day. */
+const JOBS = [
+  {"id": "j0", "type": "courier", "a": [-610, 838.5], "b": [160, 948.5], "d": 778, "pay": 46},
+  {"id": "j1", "type": "taxi", "a": [211.5, 450], "b": [-228.5, -870], "d": 1391, "pay": 70},
+  {"id": "j2", "type": "errand", "a": [-500, -1248.5], "b": [-77.5, -1358.5], "d": 437, "pay": 52},
+  {"id": "j3", "type": "courier", "a": [-275, -2133.5], "b": [761.5, -1310], "d": 1324, "pay": 64},
+  {"id": "j4", "type": "taxi", "a": [-390, -701.5], "b": [-583.5, 1200], "d": 1911, "pay": 92},
+  {"id": "j5", "type": "errand", "a": [160, 951.5], "b": [160, 621.5], "d": 330, "pay": 41},
+  {"id": "j6", "type": "courier", "a": [710, -591.5], "b": [-500, 728.5], "d": 1791, "pay": 80},
+  {"id": "j7", "type": "taxi", "a": [-939.6, -345.7], "b": [456.5, 1105], "d": 2013, "pay": 96},
+  {"id": "j8", "type": "errand", "a": [-231.5, -1200], "b": [-671.5, -1200], "d": 440, "pay": 52},
+  {"id": "j9", "type": "courier", "a": [-1142.5, -1031.5], "b": [31, -1997.5], "d": 1520, "pay": 71},
+  {"id": "j10", "type": "taxi", "a": [-1142.5, -151.5], "b": [816.9, 343.8], "d": 2021, "pay": 96},
+  {"id": "j11", "type": "errand", "a": [-891.5, -980], "b": [-1001.5, -760], "d": 246, "pay": 33},
+  {"id": "j12", "type": "courier", "a": [135, 1255.8], "b": [163, -100], "d": 1356, "pay": 65},
+  {"id": "j13", "type": "taxi", "a": [-717.6, -1462.3], "b": [-1050, 508.5], "d": 1999, "pay": 95},
+  {"id": "j14", "type": "errand", "a": [-500, 731.5], "b": [-891.5, 560], "d": 427, "pay": 51},
+  {"id": "j15", "type": "courier", "a": [-940, -481.5], "b": [-30.5, -1997.5], "d": 1768, "pay": 79},
+  {"id": "j16", "type": "taxi", "a": [541.5, 1000], "b": [-280, -1361.5], "d": 2500, "pay": 116},
+  {"id": "j17", "type": "errand", "a": [710, 841.5], "b": [318.5, 780], "d": 396, "pay": 48},
+  {"id": "j18", "type": "courier", "a": [-1050, -41.5], "b": [-170, -1251.5], "d": 1496, "pay": 70},
+  {"id": "j19", "type": "taxi", "a": [-1103.5, 1105], "b": [-830, -921.5], "d": 2045, "pay": 97},
+  {"id": "j20", "type": "errand", "a": [470, -2130.5], "b": [54.5, -1919], "d": 466, "pay": 55},
+  {"id": "j21", "type": "courier", "a": [820, -811.5], "b": [-610, -1251.5], "d": 1496, "pay": 70},
+  {"id": "j22", "type": "taxi", "a": [-775, 1153.5], "b": [862.2, 244], "d": 1873, "pay": 90},
+  {"id": "j23", "type": "errand", "a": [-1142.5, 291.5], "b": [-1050, 621.5], "d": 343, "pay": 42}
+];
+const JOB_BY = new Map(JOBS.map((j) => [j.id, j]));
+/* fastest believable times: 40 m/s straight-line in a car, 7 m/s on foot */
+function jobFloor(j) { return Math.round(j.d / (j.type === 'errand' ? 7 : 40) * 1000); }
+function jobsToday(date) { const ids = JOBS.map((j) => j.id); const out = []; let h = hash32('jobs:' + date); while (out.length < 6 && ids.length) { const i = h % ids.length; out.push(ids.splice(i, 1)[0]); h = hash32(h + ':' + out.length); } return out; }
 /* time trials: checkpoints on Bloc City's road grid (metres). Medals from the route's length. */
 const TRIALS = [
   /* v7: the redesigned city. Same points as placeTrials() in src/city/world/plan.js */
@@ -4422,7 +4453,7 @@ const TRIALS = [
 ];
 const FARM = {
   SUN_MAX: 3000, FUEL_MAX: 1200, FUEL_PER_MIN: 12, FUEL_START: 180, DAY_CAP: 480,
-  BASKET_MAX: 200, NOTE_N: 160, NOTE_COINS: 3, CRATE_N: 10, JUMP_N: 12,
+  BASKET_MAX: 200, NOTE_N: 160, NOTE_COINS: 3, CRATE_N: 10, JUMP_N: 12, JOB_CAP: 450,
   WATER_SKIP: 0.15, SKIP_MAX: 0.6, WET_CHANCE: 0.25, NATIVE: 0.75, REGROW: 0.5,
   SHARED_BASE: 6, SHARED_MAX: 30, MOVE_WAIT: 12 * 60 * MIN, STAR_BASE: 80 * 60, STAR_STEP: 600,
   FEATURED: 3, DECO_BASE: 2, LOG_MAX: 24, VISIT_COINS: 10
@@ -4443,7 +4474,7 @@ function trialTimes(t) {
 function farmCatalog() {
   return {
     rarity: RARITY, species: SPECIES, houses: HOUSES, locs: LOCS, decos: DECOS, cars: CARS, colors: CAR_COLORS,
-    outfits: OUTFITS, skins: SKINS, hairs: HAIRS, hairColors: HAIR_COLORS,
+    outfits: OUTFITS, skins: SKINS, hairs: HAIRS, hairColors: HAIR_COLORS, jobs: JOBS,
     trials: TRIALS.map((t) => Object.assign({ id: t.id, name: t.name, pts: t.pts }, trialTimes(t))),
     rules: { fuelPerMin: FARM.FUEL_PER_MIN, fuelMax: FARM.FUEL_MAX, sunMax: FARM.SUN_MAX, dayCap: FARM.DAY_CAP, noteN: FARM.NOTE_N, noteCoins: FARM.NOTE_COINS, crateN: FARM.CRATE_N, jumpN: FARM.JUMP_N, starStep: FARM.STAR_STEP, starBase: FARM.STAR_BASE }
   };
@@ -5026,7 +5057,7 @@ async function farmDrive(c) {
       loc: locOf.get(id) || 'oldtown', house: (hmap.get(id) || {}).house || 0, visited: f.drive.visits.includes(id) }));
     /* it rains in Bloc City when it rains on your garden */
     const weather = weatherAt(locOf.get(s.user) || 'oldtown', c.now).rain ? 1 : 0;
-    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather, look: lookOf(f), coins: f.coins });
+    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather, look: lookOf(f), coins: f.coins, jobs: jobsToday(today).filter((id) => !(f.drive.jobs || []).includes(id)) });
   }
   if (b.a !== 'end') throw new HttpError(400, 'action');
   const friends = await friendsOf(c, s);
@@ -5073,6 +5104,17 @@ async function farmDrive(c) {
         out.coins += coins;
         out.trial = { id: tr.id, ms, medal, pb, coins, seed };
       }
+    }
+    /* side jobs: today's offer only, each once a day, a believable time, at most 450 coins a day */
+    if (!Array.isArray(f.drive.jobs)) f.drive.jobs = [];
+    f.drive.jobCoins = Number(f.drive.jobCoins) || 0;
+    out.jobs = [];
+    const offer = jobsToday(f.drive.day);
+    for (const r of (Array.isArray(b.jobs) ? b.jobs : []).slice(0, 12)) {
+      const j = r && JOB_BY.get(r.id), ms = Math.round(Number(r && r.ms));
+      if (!j || !offer.includes(j.id) || f.drive.jobs.includes(j.id) || !(ms >= jobFloor(j) && ms <= used * 1000 + 1000)) continue;
+      const pay = Math.max(0, Math.min(j.pay, FARM.JOB_CAP - f.drive.jobCoins));
+      f.drive.jobs.push(j.id); f.drive.jobCoins += pay; out.coins += pay; out.jobs.push({ id: j.id, coins: pay });
     }
     /* driving past a friend's house: 10 coins for both of you, once a day */
     const visits = [...new Set((Array.isArray(b.visits) ? b.visits : []).filter((id) => typeof id === 'string' && friendIds.has(id) && !f.drive.visits.includes(id)))].slice(0, 20);

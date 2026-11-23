@@ -5,3 +5,4 @@ tests/__pycache__/
 .wrangler/
 *.zip
 .DS_Store
+tools/city/talk/.voice-meta.json

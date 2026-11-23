@@ -11,7 +11,7 @@ function mat(color, rough = 0.8, extra) {
   return MATS.get(k);
 }
 /* a tapered capsule hanging down from its joint: radius r0 at the top, r1 at the bottom */
-function limb(len, r0, r1, seg = 14, sx = 1, sz = 1) {
+export function limb(len, r0, r1, seg = 14, sx = 1, sz = 1) {
   const pts = [];
   for (let i = 0; i <= 5; i++) { const a = Math.PI / 2 * (1 - i / 5); pts.push(V2(Math.cos(a) * r0 + 1e-4, Math.sin(a) * r0 * 0.7)); }
   for (let i = 1; i < 8; i++) { const t = i / 8, bulge = Math.sin(t * Math.PI) * 0.08; pts.push(V2((r0 + (r1 - r0) * t) * (1 + bulge), -t * len)); }
@@ -21,7 +21,7 @@ function limb(len, r0, r1, seg = 14, sx = 1, sz = 1) {
   return g;
 }
 /* the torso as a lathe with an elliptical section: hips, waist, chest, shoulders */
-function torsoGeo(scale = 1, depth = 0.62, hood = false) {
+export function torsoGeo(scale = 1, depth = 0.62, hood = false) {
   const p = [[0.001, -0.02], [0.15, -0.02], [0.165, 0.05], [0.15, 0.16], [0.155, 0.26], [0.175, 0.36], [0.185, 0.43], [0.16, 0.49], [0.09, 0.535], [0.055, 0.545], [0.001, 0.55]];
   const g = new THREE.LatheGeometry(p.map(([r, y]) => V2(r * scale, y)), 20);
   g.scale(1, 1, depth);
@@ -31,7 +31,7 @@ function torsoGeo(scale = 1, depth = 0.62, hood = false) {
   }
   return g;
 }
-function mergeGeos(list) {
+export function mergeGeos(list) {
   const pos = [], nor = [], idx = []; let base = 0;
   for (const g0 of list) {
     const g = g0.index ? g0 : g0; const P = g.attributes.position.array, N = g.attributes.normal.array;
@@ -43,7 +43,9 @@ function mergeGeos(list) {
   out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); out.setIndex(idx);
   return out;
 }
+let RIG_ONLY = false;
 function mesh(g, m, parent, x = 0, y = 0, z = 0) {
+  if (RIG_ONLY) { const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); return o; }
   const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.castShadow = true; o.receiveShadow = true; parent.add(o); return o;
 }
 function joint(parent, x, y, z) { const j = new THREE.Object3D(); j.position.set(x, y, z); parent.add(j); return j; }
@@ -56,6 +58,7 @@ export class Human {
     this.group = new THREE.Group(); this.group.name = 'human';
     this.h = opts.height || 1;      /* overall scale: 1 is 1.76 m */
     this.phase = Math.random() * 6; this.t = 0; this.punchT = 0; this.punchSide = 1;
+    this.rigOnly = !!opts.rigOnly;
     this.build(Object.assign({}, DEFAULT_LOOK, look || {}));
   }
   setLook(look) {
@@ -65,7 +68,7 @@ export class Human {
     this.group.position.set(keep.x, keep.y, keep.z); this.group.rotation.y = keep.r;
   }
   build(L) {
-    this.look = L;
+    this.look = L; RIG_ONLY = this.rigOnly;
     const root = new THREE.Group(); root.scale.setScalar(this.h); this.group.add(root); this.root = root;
     const skin = mat(L.skin, 0.55), top = mat(L.top.c, L.top.kind === 'jacket' && L.top.c === '#2A201C' ? 0.45 : 0.85), bot = mat(L.bottom.c, 0.88), shoe = mat(L.shoes.c, 0.6), sole = mat('#E9E6E0', 0.7);
     const hair = mat(L.hairC, 0.7), dark = mat('#15120F', 0.4), white = mat('#F4F1EA', 0.3);
@@ -108,7 +111,7 @@ export class Human {
       mesh(limb(0.28, 0.047, 0.039), skin, upper);
       if (long) mesh(limb(0.285, 0.056, 0.047), top, upper); else mesh(limb(0.14, 0.058, 0.052), top, upper);
       const fore = joint(upper, 0, -0.28, 0);
-      mesh(new THREE.SphereGeometry(long ? 0.046 : 0.038, 10, 8), long ? top : skin, fore);
+      mesh(new THREE.SphereGeometry(long ? 0.044 : 0.036, 10, 8), long ? top : skin, fore);
       mesh(limb(0.25, 0.038, 0.03), skin, fore);
       if (long) mesh(limb(0.235, 0.047, 0.04), top, fore);
       const hand = joint(fore, 0, -0.25, 0);
@@ -125,7 +128,7 @@ export class Human {
       mesh(limb(0.44, 0.075, 0.053), skin, thigh);
       if (shorts) mesh(limb(0.26, 0.085, 0.072), bot, thigh); else mesh(limb(0.445, L.bottom.kind === 'joggers' ? 0.086 : 0.082, 0.06), bot, thigh);
       const shin = joint(thigh, 0, -0.44, 0);
-      mesh(new THREE.SphereGeometry(shorts ? 0.052 : 0.062, 12, 10), shorts ? skin : bot, shin);
+      mesh(new THREE.SphereGeometry(shorts ? 0.05 : 0.057, 12, 10), shorts ? skin : bot, shin);
       mesh(limb(0.42, 0.052, 0.036), skin, shin);
       if (!shorts) mesh(limb(0.41, 0.06, L.bottom.kind === 'joggers' ? 0.042 : 0.05), bot, shin);
       const ankle = joint(shin, 0, -0.42, 0);
@@ -135,6 +138,7 @@ export class Human {
       if (boot) mesh(limb(0.1, 0.052, 0.05), shoe, ankle, 0, 0.06, 0);
       this.legs.push({ hip, thigh, shin, ankle, sx });
     }
+    RIG_ONLY = false;
   }
   buildHair(L, head, hair) {
     const kind = L.hair;

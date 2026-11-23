@@ -666,6 +666,27 @@ function routePts(G, names, opts = {}) {
   }
   return pts;
 }
+/* side jobs: 24 fixed routes; the server copies them (JOBS in _worker.js) and offers six a day.
+   courier: drive a parcel (40 to 80 coins), taxi: drive a passenger (50 to 120), errand: on foot (30 to 60) */
+function placeJobs(G) {
+  const R = rng('jobs'), roads = G.edges.filter((e) => !e.bridge && e.kind !== 'ronda' && e.kind !== 'lane' && e.len > 60 && e.sw >= 2);
+  const pt = (e, side) => { const a = along(e.dense, e.len * 0.5), off = e.w / 2 + (side ? Math.min(e.sw, 3) * 0.5 : -1.5); return [+(a.x - a.dz * off).toFixed(1), +(a.z + a.dx * off).toFixed(1)]; };
+  const out = [];
+  const kinds = [['courier', 600, 1800, 40, 80], ['taxi', 900, 2600, 50, 120], ['errand', 220, 520, 30, 60]];
+  for (let i = 0; i < 24; i++) {
+    const [type, dmin, dmax, pmin, pmax] = kinds[i % 3];
+    for (let t = 0; t < 400; t++) {
+      const ea = roads[Math.floor(R() * roads.length)], eb = roads[Math.floor(R() * roads.length)];
+      const foot = type === 'errand', a = pt(ea, foot), b = pt(eb, foot), d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      if (d < dmin || d > dmax || isWater(a[0], a[1]) || isWater(b[0], b[1])) continue;
+      if (out.some((j) => Math.hypot(j.a[0] - a[0], j.a[1] - a[1]) < 120)) continue;
+      const pay = Math.round(pmin + (pmax - pmin) * (d - dmin) / (dmax - dmin));
+      out.push({ id: 'j' + i, type, a, b, d: Math.round(d), pay });
+      break;
+    }
+  }
+  return out;
+}
 function placeTrials(G) {
   const pick = (path, every) => { const L = polyLen(path), out = []; for (let s = 0; s <= L; s += every) { const a = along(path, s); out.push([Math.round(a.x), Math.round(a.z)]); } const last = path[path.length - 1]; if (dist(out[out.length - 1], last) > every * 0.4) out.push([Math.round(last[0]), Math.round(last[1])]); return out; };
   const beach = pick([[-1335, 1150], [-1335, -1290], [-1380, -1600], [-1430, -1950], [-1455, -2300]], 300);
@@ -706,8 +727,9 @@ export function makePlan(opts = {}) {
   const notes = placeNotes(G, R);
   const ramps = placeRamps(G);
   const trials = placeTrials(G);
+  const jobs = placeJobs(G);
   for (const r of ramps) r.y = sampleHeight(F, r.x, r.z);
-  cached = { seed: SEED, nodes: G.nodes, edges: G.edges, height: F, occ, lots, trees, props, notes, ramps, trials, ms: Date.now() - t0 };
+  cached = { seed: SEED, nodes: G.nodes, edges: G.edges, height: F, occ, lots, trees, props, notes, ramps, trials, jobs, ms: Date.now() - t0 };
   return cached;
 }
 /* friends' houses: the same lot for the same person and place, every time */
