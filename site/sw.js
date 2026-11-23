@@ -2,7 +2,7 @@
    Network first, cache as fallback: new uploads show up on the next load,
    and the app shell still opens offline. It never touches /api/, so account
    data is never cached here. It also shows the reminders the server sends. */
-var CACHE = 'myib-v6-1';
+var CACHE = 'myib-v7-0';
 var CORE = [
   './',
   'styles.css',
@@ -34,6 +34,8 @@ self.addEventListener('fetch', function (e) {
   var url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname === '/api' || url.pathname.indexOf('/api/') === 0) return;
+  /* Bloc City streams about 100 MB of textures and models: leave it to the browser's own cache */
+  if (url.pathname === '/city' || url.pathname.indexOf('/city/') === 0) return;
   e.respondWith(
     fetch(req).then(function (res) {
       if (res.ok && res.type === 'basic' && !res.redirected) {

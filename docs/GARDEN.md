@@ -1,4 +1,4 @@
-# Bloc Garden and Bloc City (v6.1)
+# Bloc Garden and Bloc City (v6.1, city v7)
 
 The design document for the garden update. Numbers here match `FARM`, `SPECIES`, `HOUSES`, `LOCS`, `CARS` and `TRIALS` in `site/_worker.js`. If you change one, change both.
 
@@ -91,12 +91,12 @@ The puppy gardens from v5 became real gardens. Anyone in one can plant from thei
 
 ## Bloc City
 
-An original coastal city, 2.6 km by 3 km plus Lotus Island across a bridge. Districts: Old Town (perimeter blocks with courtyards), Downtown (towers), Campus, The Beach with a palm boulevard, the Port, Pine Hills, Midtown. The map comes from a fixed seed, so every student drives the same streets. No names, logos, characters or map shapes from any real game.
+v7 redesigned the whole city (full plan in `docs/CITY-V7.md`). It's an original coastal city of about 6 km by 5 km with 15 districts: Old Town, Ensanche, Gran Vía, El Paseo, Downtown (towers from 60 to 240 m), The Park with its lake, Campus, The Beach (a palm promenade and beach towers), The Port, El Polígono, Barrio Sur, Pine Hills, The Airport, La Ronda (the ring road) and Lotus Island across an arched bridge. The map comes from a fixed seed (`bloc-city-7`), so every student drives the same streets. No names, logos, characters or map shapes from any real game.
 
 - Sticky notes: 160 on the road edges, 3 coins each, once a day.
 - Seed crates: 10 a day, in new places every morning, each a random seed (Legendary 0.5%).
-- Stunt jumps: 6 ramps. 100 coins the first time, then 10 once a day.
-- Time trials: Beach Run, Downtown Dash, Bridge Sprint. A medal pays 20, 40 or 80 coins once a day; your first gold on each gives a rare seed. Medal times come from the route length (gold at 25 m/s average).
+- Stunt jumps: 12 ramps spread over the map. 100 coins the first time, then 10 once a day.
+- Time trials: Beach Run, Downtown Dash, Bridge Sprint, Sierra Climb, Runway Rush (ids end in 7; the v6.1 routes are retired). A medal pays 20, 40 or 80 coins once a day; your first gold on each gives a rare seed. Medal times come from the route length (gold at 25 m/s average).
 - Friends' houses: drive past one and you both get 10 coins, once a day.
 - Sky: the real time in Madrid by default, or a fixed sunset or night.
 

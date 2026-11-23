@@ -8456,7 +8456,8 @@
           '<p class="pet-note">Drive into a yellow ring to start. A medal pays coins once a day; your first gold on each route gives a rare seed.</p></section>' +
         '<section class="card farm-card" aria-labelledby="h-garage"><header class="card-head"><h2 id="h-garage">Garage</h2></header>' + grp(cars) + '<div class="car-sws" role="group" aria-label="Car colour">' + swatches + '</div></section>' +
         '<section class="card farm-card" aria-labelledby="h-keys"><header class="card-head"><h2 id="h-keys">Controls</h2></header><ul class="farm-list">' +
-          '<li><span>Drive</span><span class="hint">W A S D or the arrows</span></li><li><span>Handbrake and drift</span><span class="hint">Space</span></li><li><span>Map</span><span class="hint">M</span></li><li><span>Leave</span><span class="hint">Esc</span></li></ul>' +
+          '<li><span>Drive</span><span class="hint">W A S D or the arrows</span></li><li><span>Handbrake and drift</span><span class="hint">Space</span></li><li><span>Camera</span><span class="hint">V</span></li><li><span>Map</span><span class="hint">M</span></li><li><span>Leave</span><span class="hint">Esc</span></li></ul>' +
+          '<div class="row"><span>Language in the city</span><span class="seg" role="group" aria-label="Language in the city"><button type="button" data-act="city-lang" data-l="en" aria-pressed="' + (cityLang() === 'en') + '">English</button><button type="button" data-act="city-lang" data-l="es" aria-pressed="' + (cityLang() === 'es') + '">Español</button></span></div>' +
           '<p class="pet-note">On a phone: steer with the left buttons, gas and brake on the right.</p></section>' +
       '</div>';
   }
@@ -8468,10 +8469,33 @@
       if (r.status !== 200 || !r.data || !r.data.run) { FARM.driving = false; toast(farmErrText(r)); return; }
       var data = r.data;
       farmLearn(data.homes);
-      return import('./drive.js?v=6.1').then(function (mod) {
-        mod.start({ data: data, me: ME.id, onEnd: function (res) { cityEnd(data.run.id, res); } });
-      });
+      cityOpen(data);
     }).catch(function () { FARM.driving = false; toast('Bloc City couldn’t load. Check your connection.'); });
+  }
+  /* Bloc City v7 lives at /city/ with its own security policy (WebAssembly, workers). It opens full screen in a
+     frame and talks to the app by postMessage: ready, data, started, end (the result), close. */
+  function cityLang() { var l = sget('bloc:city:lang'); return l === 'es' || l === 'en' ? l : (/^es\b/i.test(navigator.language || '') ? 'es' : 'en'); }
+  function cityOpen(data) {
+    var f = document.createElement('iframe'), ended = false, opener = document.activeElement;
+    f.className = 'city-frame'; f.title = 'Bloc City'; f.src = '/city/?v=7.0';
+    f.setAttribute('allow', 'fullscreen; gamepad; autoplay');
+    function onMsg(e) {
+      if (e.origin !== location.origin || e.source !== f.contentWindow || !e.data) return;
+      var m = e.data;
+      if (m.type === 'bloc-city-ready') f.contentWindow.postMessage({ type: 'bloc-city-data', data: data, me: ME.id, native: !!NATIVE, lang: cityLang() }, location.origin);
+      else if (m.type === 'bloc-city-started') { try { f.focus(); } catch (x) { /* ignore */ } }
+      else if (m.type === 'bloc-city-end') { if (!ended) { ended = true; cityEnd(data.run.id, m.result || {}); } }
+      else if (m.type === 'bloc-city-close' || m.type === 'bloc-city-error') close(m.type === 'bloc-city-error');
+    }
+    function close(failed) {
+      window.removeEventListener('message', onMsg);
+      if (!ended) { ended = true; if (failed) { FARM.driving = false; api('POST', '/api/farm/drive', { a: 'end', run: data.run.id, secs: 0 }, { timeout: 20000 }).then(function () {}, function () {}); toast('Bloc City couldn’t start on this device.'); } else cityEnd(data.run.id, { secs: 0 }); }
+      f.remove(); document.documentElement.classList.remove('city-on');
+      if (opener && opener.focus) try { opener.focus(); } catch (x) { /* ignore */ }
+    }
+    window.addEventListener('message', onMsg);
+    document.documentElement.classList.add('city-on');
+    document.body.appendChild(f);
   }
   function cityEnd(run, res) {
     res = res || {};
@@ -8559,6 +8583,7 @@
     'farm-index': function () { if (FARM.d && FARM.cat) farmIndexSheet(); },
     'farm-more': function () { farmMoreSheet(); },
     'city-go': function () { cityGo(); },
+    'city-lang': function (el) { sset('bloc:city:lang', el.getAttribute('data-l') === 'es' ? 'es' : 'en'); render(); },
     'farm-open': function () { GARDEN.view = ''; UI.petPane = 'garden'; if (ME) sset('myib:petpane:' + ME.id, 'garden'); go('pet'); }
   };
 

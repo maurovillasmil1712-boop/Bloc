@@ -1,0 +1,14 @@
+{
+  "name": "bloc-city-7",
+  "private": true,
+  "description": "Bloc City v7, the open-world city in Bloc's Pet tab. Bundles three.js (WebGPU with WebGL2 fallback) into site/city/city.js.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "plan": "node tools/plan-export.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "three": "0.187.0"
+  }
+}

@@ -65,6 +65,9 @@ const BASE_HEADERS = {
 };
 const PAGE_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 const API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+/* Bloc City (/city/) runs in a frame inside the app. It needs WebAssembly for its texture decoder and workers
+   for the decoder and the map builder; nothing from other origins. */
+const CITY_CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' data: blob:; media-src 'self' blob:; manifest-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'self'";
 
 class HttpError extends Error {
   constructor(status, code, extra) { super(code); this.status = status; this.code = code; this.extra = extra || {}; }
@@ -97,7 +100,14 @@ export default {
     const res = await env.ASSETS.fetch(request);
     const out = new Response(res.body, res);
     for (const k in BASE_HEADERS) out.headers.set(k, BASE_HEADERS[k]);
-    out.headers.set('Content-Security-Policy', PAGE_CSP);
+    if (path === '/city/lib/basis/ktx2-worker.js') {
+      /* the texture decoder's worker: the Basis transcoder (embind) builds functions from strings, so only this worker may eval */
+      out.headers.set('Content-Security-Policy', "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'self'");
+    } else if (path === '/city' || path.startsWith('/city/')) {
+      out.headers.set('Content-Security-Policy', CITY_CSP);
+      out.headers.set('X-Frame-Options', 'SAMEORIGIN');
+      out.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self)');
+    } else out.headers.set('Content-Security-Policy', PAGE_CSP);
     if (path === '/sw.js') out.headers.set('Cache-Control', 'no-cache');
     return out;
   }
@@ -4347,13 +4357,16 @@ const CAR_BY = new Map(CARS.map((x) => [x.id, x]));
 const CAR_COLORS = ['#FFE14D', '#FF5A5F', '#3E9BD6', '#1E9E6A', '#F28C28', '#8C3B72', '#191D29', '#F3F4F6'];
 /* time trials: checkpoints on Bloc City's road grid (metres). Medals from the route's length. */
 const TRIALS = [
-  { id: 'beach', name: 'Beach Run', pts: [[1200, 720], [1200, 240], [1200, -240], [1200, -720], [880, -1040], [400, -1040]] },
-  { id: 'downtown', name: 'Downtown Dash', pts: [[0, -160], [0, -560], [320, -560], [320, -880], [-320, -880], [-320, -160], [0, -160]] },
-  { id: 'island', name: 'Bridge Sprint', pts: [[1040, -320], [1200, -320], [1440, -320], [1680, -320], [1900, -100], [2120, -320], [1900, -540], [1680, -320]] }
+  /* v7: the redesigned city. Same points as placeTrials() in src/city/world/plan.js */
+  {id: 'beach7', name: 'Beach Run', pts: [[-1335, 1150], [-1335, 850], [-1335, 550], [-1335, 250], [-1335, -50], [-1335, -350], [-1335, -650], [-1335, -950], [-1335, -1250], [-1372, -1547], [-1415, -1844], [-1444, -2143], [-1455, -2300]]},
+  {id: 'downtown7', name: 'Downtown Dash', pts: [[0, -1500], [0, -1860], [300, -1860], [300, -2280], [-300, -2280], [-300, -1580], [0, -1580]]},
+  {id: 'bridge7', name: 'Bridge Sprint', pts: [[-1250, -150], [-1335, -150], [-1720, -150], [-2150, -150], [-2640, -150], [-2900, -375], [-3125, -150], [-2900, 75], [-2675, -150], [-2150, -150]]},
+  {id: 'sierra7', name: 'Sierra Climb', pts: [[930, -500], [1161, -610], [1288, -828], [1467, -980], [1592, -1194], [1801, -1331], [1960, -1170]]},
+  {id: 'runway7', name: 'Runway Rush', pts: [[1440, 1330], [1700, 1360], [1880, 1360], [2150, 1420], [2300, 1560], [2400, 1760], [1800, 1760], [1100, 1760], [1300, 1620], [1600, 1500]]}
 ];
 const FARM = {
   SUN_MAX: 3000, FUEL_MAX: 1200, FUEL_PER_MIN: 12, FUEL_START: 180, DAY_CAP: 480,
-  BASKET_MAX: 200, NOTE_N: 160, NOTE_COINS: 3, CRATE_N: 10, JUMP_N: 6,
+  BASKET_MAX: 200, NOTE_N: 160, NOTE_COINS: 3, CRATE_N: 10, JUMP_N: 12,
   WATER_SKIP: 0.15, SKIP_MAX: 0.6, WET_CHANCE: 0.25, NATIVE: 0.75, REGROW: 0.5,
   SHARED_BASE: 6, SHARED_MAX: 30, MOVE_WAIT: 12 * 60 * MIN, STAR_BASE: 80 * 60, STAR_STEP: 600,
   FEATURED: 3, DECO_BASE: 2, LOG_MAX: 24, VISIT_COINS: 10
@@ -4940,7 +4953,9 @@ async function farmDrive(c) {
     const hmap = new Map(houses.map((h) => [h.id, h]));
     const homes = ids.map((id) => ({ id, name: id === s.user ? 'Home' : (friends.find((x) => x.id === id) || {}).name || id, me: id === s.user,
       loc: locOf.get(id) || 'oldtown', house: (hmap.get(id) || {}).house || 0, visited: f.drive.visits.includes(id) }));
-    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today });
+    /* it rains in Bloc City when it rains on your garden */
+    const weather = weatherAt(locOf.get(s.user) || 'oldtown', c.now).rain ? 1 : 0;
+    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather });
   }
   if (b.a !== 'end') throw new HttpError(400, 'action');
   const friends = await friendsOf(c, s);

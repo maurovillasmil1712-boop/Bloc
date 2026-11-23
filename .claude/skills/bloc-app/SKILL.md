@@ -11,7 +11,7 @@ Read this whole file before changing anything. Then read the file you're changin
 
 ## 1. Stack and files
 
-Cloudflare Pages in advanced mode: static files plus one `_worker.js` that serves `/api/*` and adds security headers to everything else. Data lives in Cloudflare D1 (binding `DB`). No framework and no build step, except Bloc City (`drive.js`), which esbuild bundles from `src/drive/drive.src.js` with three.js.
+Cloudflare Pages in advanced mode: static files plus one `_worker.js` that serves `/api/*` and adds security headers to everything else. Data lives in Cloudflare D1 (binding `DB`). No framework and no build step, except Bloc City (`site/city/`), which esbuild bundles from `src/city/` with three.js.
 
 | File (in `site/`) | What it is |
 |---|---|
@@ -21,7 +21,7 @@ Cloudflare Pages in advanced mode: static files plus one `_worker.js` that serve
 | `pet.js` | The puppy engine (SVG, no libraries): `window.MyIBPetEngine = { BREEDS, STAGES, ITEMS, svg, itemSVG, mount }`. app.js owns the puppy's stats; this file only draws. |
 | `data.js` | Study levels (IB, Bachillerato, ESO, University): subject lists and starting planners (`LEVELS`). |
 | `_worker.js` (~310 KB) | The server: routes, D1 schema, auth, sync, chat, gardens, push, Siri, assistant, farm. |
-| `drive.js` | Bloc City, an ES module loaded with `import('./drive.js?v=…')` only when someone drives. Built output: edit `src/drive/drive.src.js`. |
+| `city/` | Bloc City v7: its own page (`city/index.html`, `city.js`, `plan.js`, `city.css`), KTX2 textures in `city/tex/`, models in `city/models/`, the Basis decoder in `city/lib/`. Built output: edit `src/city/`. The old `drive.js` (v6.1) is no longer loaded and goes in the next release. |
 | `sw.js` | Service worker, network first. `CACHE` name changes every release (`myib-v6-1`). |
 | `fonts/` | Schibsted Grotesk (variable, latin and latin-ext) and its OFL licence. |
 | `icons/`, `manifest.webmanifest` | App icons and the PWA manifest. |
@@ -70,7 +70,7 @@ Planner shape (version 3): `profile`, `settings` (`theme`, `weekend`, `accent`, 
 - Exam season (from `PET_SEASON` days before an exam or mock until it ends): no study for 48 hours turns the puppy into a ghost; 25 minutes of study bring it back.
 - Shared gardens (`gardens`, `garden_members`, up to 8 people, 5 gardens each, invites like group chats): each member publishes a puppy card (`PUT /api/pet/card`) and sees the others' puppies.
 
-## 6. The garden and Bloc City (v6.1)
+## 6. The garden (v6.1) and Bloc City (v7)
 
 Full design and numbers: `docs/GARDEN.md`. The essentials:
 
@@ -79,8 +79,13 @@ Full design and numbers: `docs/GARDEN.md`. The essentials:
 - Endpoints: `GET /api/farm` (`?cat=1` adds the catalog: species, houses, places, decorations, cars, trials, rules), `GET /api/farm/plot?g=me|<gardenId>`, `POST /api/farm/act` (`a`: plant, water, harvest, clear, move, buy, sell, house, unlock, deco, place, car, color, star, seen), `POST /api/farm/drive` (`a: 'start'` then `a: 'end'` with notes, crates, jumps, trial, visits, secs), `GET /api/farm/now` (friends with a timer running, unless they turned off `settings.shareFocus`).
 - Catalog constants: `SPECIES` (19 plants), `HOUSES` (Tent to Castle), `LOCS` (6 places), `DECOS`, `CARS`, `TRIALS`, `FARM` (tuning knobs). Change numbers there and in `docs/GARDEN.md`.
 - Client: the Pet tab has three panes (`UI.petPane`: puppy, garden, city, saved in `myib:petpane:<id>`). Garden code sits in app.js between the `FARM` block and `FARM_ACT`. Plants, houses, places and decorations are drawn as inline SVG (`plantSVG`, `houseSVG`, `placeSVG`, `decoSVG`). Today shows "Studying now" (`cardNow`) and a ripe-plants nudge (`gardenNudge`).
-- Bloc City (`src/drive/drive.src.js`): `start({ data, me, onEnd })` builds a fixed-seed city (`bloc-city-1`) of 2.6 × 3 km plus Lotus Island, draws it in about 20 draw calls (instanced buildings with a window shader, instanced trees), runs arcade car physics at 120 Hz with AABB collisions in an 80 m grid, and reports `{ secs, notes, crates, jumps, trial, visits }` to `onEnd`. Controls: WASD or arrows, Space to drift, M for the map, Esc to leave; touch buttons on phones. Sky follows Madrid time (or Sunset/Night). Original city only: never use a real game's names, logos, characters or map.
-- Build: `cd src/drive && npm install && npm run build` writes `site/drive.js` (three.js is bundled in; the CSP allows nothing else).
+- Bloc City v7 (`src/city/`, plan in `docs/CITY-V7.md`, credits in `docs/CREDITS.md`). The app calls `POST /api/farm/drive {a:'start'}`, then opens `/city/` full screen in an iframe (`cityOpen` in app.js). The frame and the app talk by postMessage on the same origin: the city sends `bloc-city-ready`, the app answers `bloc-city-data` `{ data, me, native, lang }`, the city sends `bloc-city-end` `{ result }` (the app calls `cityEnd`, which posts `a:'end'`) and `bloc-city-close`. Opened on its own, `/city/` starts and ends the run itself; `/city/?test=1` runs on made-up data.
+- `/city/` has its own CSP (`CITY_CSP` in `_worker.js`): `'wasm-unsafe-eval'` for the texture decoder, `worker-src 'self' blob:`, `frame-ancestors 'self'`. The service worker skips `/city/` (about 100 MB of textures).
+- Engine: three.js r187 `WebGPURenderer` (WebGL2 fallback), TSL materials, post (GTAO, SSR, bloom, TRAA or SMAA, a 3D LUT grade, motion blur), CSM shadows, a physical sky on Madrid time, presets Low, Medium, High, Ultra with auto-detect and dynamic resolution. The map (`world/plan.js`, seed `bloc-city-7`) is pure JS and builds in a worker (`site/city/plan.js`); the city streams in 400 m chunks.
+- Gameplay (`game/game.js`): fuel burns every second; notes, crates, 12 ramps, 5 trials, friends' houses; result `{ v: 7, secs, notes, crates, jumps, visits, trial }`. Trial points must match `TRIALS` in `_worker.js` (copied from `placeTrials()`).
+- Controls: WASD or arrows, Space to drift, V camera (close, far, bonnet, cockpit), M map, N sky, Esc to leave; touch buttons on phones. Language: English or Spanish (`localStorage['bloc:city:lang']`, set in the city pane).
+- Build: `cd src/city && npm install && node build.mjs` (add `--dev` for an unminified build). Textures and models: `tools/city/` (`fetch.py`, `textures.py`, `foliage.py`, `models.mjs`).
+- Original city only: never use a real game's names, logos, characters or map.
 
 ## 7. Design system: "Fosforito" (v6)
 
@@ -96,11 +101,11 @@ python3 seed.py http://127.0.0.1:8789      # Mauro (admin) plus classmates, chat
 python3 smoke.py http://127.0.0.1:8789     # 56 browser checks, phone and laptop
 python3 farmtest.py                        # garden API end to end
 python3 gcap.py http://127.0.0.1:8789 out phone   # garden and city screenshots
-python3 dcap2.py http://127.0.0.1:8789 out        # Bloc City from set places (needs WebGL)
+python3 city7/shot.py http://127.0.0.1:8789 out "name=gl=1&preset=medium&at=-380,-120,0"   # Bloc City v7 (software GPU: minutes per shot)
 ```
 
 - Set `WRANGLER_SEND_METRICS=false CI=1`. A 503 from `/api/push/key` is normal locally.
-- Playwright: Chromium works; for WebGL launch with `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader`. Software GL runs Bloc City at about 3 fps, so judge looks from screenshots, not speed. `localStorage['bloc:city:debug'] = '1'` exposes `window.__blocCity` so a test can move the car.
+- Playwright: Chromium works; for WebGL launch with `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader`. Headless WebGPU screenshots come out blank, so tests pass `gl=1` (the WebGL2 backend on SwiftShader). It renders a frame every few seconds: judge looks from screenshots, not speed. With `?test=1`, `window.__city` exposes the game, `tp(x, z, h)` to move the car and `snap()`.
 - Tests log in through `ctx.request.post('/api/login')`. Hash-only navigation doesn't reload the page: click the UI or reload when you need `loadUI` again.
 
 ## 9. Ship a version
@@ -118,5 +123,5 @@ python3 dcap2.py http://127.0.0.1:8789 out        # Bloc City from set places (n
 - D1's `json_extract` returns JSON text for arrays and objects: `JSON.parse` it.
 - The Siri Shortcut must pass its state token back each turn (see "Bloc Siri setup" in the project).
 - Six tabs already fill a phone's tab bar: new features go inside an existing tab or a sheet.
-- Bloc City's coordinates: roads sit on multiples of 80 m (x from −1440 to 1120, z from −1440 to 1440), the beach boulevard at x = 1200, the bridge at z = −320. Anything placed on a road (trial checkpoints, ramps, crates) must respect that.
+- Bloc City v7 coordinates: x from −3400 to 2600, z from −2500 to 2400. The beach promenade runs along x ≈ −1335, the bridge sits at z = −150, Lotus Island is centred at (−2900, −150), Glorieta Central at (0, −760). Anything placed on a road (checkpoints, ramps, crates) comes from the plan's road graph, never from fixed numbers.
 - Bloc City steering: three.js rotation about y turns the car toward screen-left, so pressing right lowers the heading.

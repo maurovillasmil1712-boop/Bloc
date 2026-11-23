@@ -1,0 +1,63 @@
+{
+ "tiers": [
+  512,
+  1024,
+  2048
+ ],
+ "groups": {
+  "roof": [
+   "clay_roof_tiles",
+   "clay_roof_tiles_02",
+   "grey_roof_tiles",
+   "roof_tiles",
+   "gravel_concrete",
+   "corrugated_iron"
+  ],
+  "ground": [
+   "asphalt_02",
+   "worn_asphalt",
+   "clean_asphalt",
+   "cobblestone_floor_04",
+   "cobblestone_square",
+   "concrete_pavement",
+   "herringbone_pavement",
+   "hexagonal_concrete_paving",
+   "coast_sand_01",
+   "leafy_grass",
+   "forest_ground_04",
+   "park_dirt",
+   "concrete_floor_worn_001",
+   "gravel_ground_01"
+  ],
+  "wall": [
+   "painted_plaster_wall",
+   "white_plaster_02",
+   "clay_plaster",
+   "damaged_plaster",
+   "blue_plaster_weathered",
+   "painted_brick",
+   "brick_wall_10",
+   "concrete_wall_006",
+   "concrete_tile_facade",
+   "rectangular_facade_tiles",
+   "large_sandstone_blocks",
+   "granite_tile",
+   "corrugated_iron_02",
+   "rusty_metal_02",
+   "painted_metal_shutter",
+   "brown_planks_05"
+  ],
+  "bark": [
+   "bark_platanus",
+   "palm_tree_bark",
+   "pine_bark"
+  ],
+  "leaf": [
+   "plane",
+   "broad",
+   "pine",
+   "palm",
+   "grass"
+  ]
+ }
+}

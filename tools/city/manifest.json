@@ -1,0 +1,84 @@
+{
+  "about": "Every third-party asset Bloc City v7 uses. fetch.py downloads these into ../../.cache/city-src (not in git); build scripts process them into site/city/. credits.py writes docs/CREDITS.md from this file. Poly Haven's scanned trees are millions of triangles each, so Bloc City grows its own trees in code from the CC0 bark and leaf textures.",
+  "polyhaven_textures": {
+    "ground": [
+      "asphalt_02",
+      "worn_asphalt",
+      "clean_asphalt",
+      "cobblestone_floor_04",
+      "cobblestone_square",
+      "concrete_pavement",
+      "herringbone_pavement",
+      "hexagonal_concrete_paving",
+      "coast_sand_01",
+      "leafy_grass",
+      "forest_ground_04",
+      "park_dirt",
+      "concrete_floor_worn_001",
+      "gravel_ground_01"
+    ],
+    "wall": [
+      "painted_plaster_wall",
+      "white_plaster_02",
+      "clay_plaster",
+      "damaged_plaster",
+      "blue_plaster_weathered",
+      "painted_brick",
+      "brick_wall_10",
+      "concrete_wall_006",
+      "concrete_tile_facade",
+      "rectangular_facade_tiles",
+      "large_sandstone_blocks",
+      "granite_tile",
+      "corrugated_iron_02",
+      "rusty_metal_02",
+      "painted_metal_shutter",
+      "brown_planks_05"
+    ],
+    "roof": [
+      "clay_roof_tiles",
+      "clay_roof_tiles_02",
+      "grey_roof_tiles",
+      "roof_tiles",
+      "gravel_concrete",
+      "corrugated_iron"
+    ],
+    "bark": [
+      "bark_platanus",
+      "palm_tree_bark",
+      "pine_bark"
+    ]
+  },
+  "polyhaven_models": [
+    "street_lamp_01",
+    "street_lamp_02",
+    "fire_hydrant",
+    "metal_trash_can",
+    "utility_box_01",
+    "exterior_aircon_unit",
+    "concrete_road_barrier",
+    "modular_street_seating",
+    "painted_wooden_bench",
+    "planter_box_01",
+    "potted_plant_01",
+    "outdoor_table_chair_set_01",
+    "covered_car",
+    "modular_electricity_poles",
+    "security_camera_01",
+    "rollershutter_door",
+    "water_manhole_cover",
+    "shrub_01",
+    "grass_medium_01",
+    "grass_bermuda_01"
+  ],
+  "ambientcg": [
+    "LeafSet009",
+    "LeafSet010",
+    "LeafSet026",
+    "Foliage003",
+    "PineNeedles001",
+    "GraffitiSet001",
+    "RoadLines006",
+    "RoadLines008"
+  ]
+}

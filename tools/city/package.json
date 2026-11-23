@@ -1,0 +1,13 @@
+{
+  "name": "bloc-city-tools",
+  "private": true,
+  "type": "module",
+  "description": "Offline asset pipeline for Bloc City v7. Run only when assets change; outputs land in site/city/.",
+  "dependencies": {
+    "@gltf-transform/core": "^4.2.1",
+    "@gltf-transform/extensions": "^4.2.1",
+    "@gltf-transform/functions": "^4.2.1",
+    "meshoptimizer": "^0.22.0",
+    "sharp": "^0.34.2"
+  }
+}

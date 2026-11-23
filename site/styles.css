@@ -2072,3 +2072,7 @@ button.win { cursor: pointer; text-decoration: underline; text-decoration-color:
 .city-art svg { height: 100%; }
 .garden-nudge .pet-nudge-art { background: #E7CDAA; border-radius: var(--r-s); }
 .garden-nudge .pet-nudge-art svg { width: 100%; height: 100%; }
+
+/* Bloc City v7 opens full screen in a frame */
+.city-frame { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 9999; background: #0B0E14; }
+html.city-on, html.city-on body { overflow: hidden; }
