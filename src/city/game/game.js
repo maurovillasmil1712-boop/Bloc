@@ -60,6 +60,7 @@ export class Game {
     if (this.car.moto) this.ride();
     this.fcam = new FootCam(this.camera, this.root);
     this.rooms = new Interiors(this.scene, this.plan, this.homes, this.native);
+    this.rooms.pool();
     this.rooms.setFurn(ctx.test ? ['rug', 'neon', 'console', 'plants'] : d.furn);
     { const ds = this.rooms.doors.filter((x) => x.id !== 'flat'); if (ds.length) { const cx = ds.reduce((a, x) => a + x.x, 0) / ds.length, cz = ds.reduce((a, x) => a + x.z, 0) / ds.length; const near = ds.reduce((b, x) => (Math.hypot(x.x - cx, x.z - cz) < Math.hypot(b.x - cx, b.z - cz) ? x : b)); this.startPos(near.x, near.z); this.safe = { x: this.car.x, z: this.car.z, h: this.car.h }; } }
     this.car.own = true; this.parked = []; this.mods = d.mods || (ctx.test ? { spoiler: true, glow: '#7CE3FF', rims: 'gold', tint: true } : {}); this.car.setMods(this.mods);
@@ -286,7 +287,8 @@ export class Game {
     const f = this.foot, car = this.car;
     /* the parked car settles with the handbrake on */
     /* the empty car rolls on and slows down by itself; the handbrake only goes on once it has nearly stopped */
-    if (!this.rooms.inside) { const rolling = car.speed > 1.2; this.stepCar(dt, { throttle: 0, brake: rolling ? 0.2 : 1, steer: 0, hand: rolling ? 0 : 1 }); car.sync(); }
+    /* the empty car glides to a stop in a second or two: handbrake on, speed bleeding off, never into reverse */
+    if (!this.rooms.inside) { this.stepCar(dt, { throttle: 0, brake: 0, steer: 0, hand: car.speed < 1.5 ? 1 : 0 }); const k = Math.exp(-dt * (car.speed > 3 ? 0.9 : 2.5)); car.vx *= k; car.vz *= k; if (car.speed < 0.15) { car.vx = 0; car.vz = 0; } car.sync(); }
     const obstacles = [];
     if (!this.rooms.inside) {
       const fx = Math.sin(car.h), fz = Math.cos(car.h);
@@ -395,6 +397,7 @@ export class Game {
         const mine = this.parked.find((v) => Math.hypot(f.x - v.x, f.z - v.z) < 3.6);
         if (mine) { this.swapTo(mine); return; }
         const c = this.jackable(); if (c) { this.jackStart(c); return; }
+        const pk = this.parkedNear(); if (pk) { this.stealParked(pk); return; }
         this.say(TEXT('too_far'), TEXT('find_car')); return;
       }
       this.mode = 'car'; f.group.visible = false; this.fcam.active = false; this.cam.init = false;
@@ -413,6 +416,29 @@ export class Game {
       if (d < bd) { bd = d; best = c; }
     }
     return best;
+  }
+  /* a parked car next to you (the instanced ones along the kerbs) */
+  parkedNear() {
+    if (!this.inst) return null;
+    const f = this.foot; let best = null, bd = 3.3;
+    for (const T of this.inst.types) {
+      if (!T.id.startsWith('parked-')) continue;
+      const c = T.cell, i0 = Math.floor((f.x - 6) / c), i1 = Math.floor((f.x + 6) / c), j0 = Math.floor((f.z - 6) / c), j1 = Math.floor((f.z + 6) / c);
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const l = T.grid.get(i * 4096 + j); if (!l) continue; for (const it of l) { const d = Math.hypot(it.x - f.x, it.z - f.z); if (d < bd) { bd = d; best = { T, it, list: l }; } } }
+    }
+    return best;
+  }
+  /* no driver to argue with: the alarm goes off and you drive away */
+  stealParked(p) {
+    const { T, it, list } = p, i = list.indexOf(it); if (i >= 0) list.splice(i, 1);
+    this.world.collide.removeBoxAt(it.x, it.z);
+    if (this.inst) { this.inst.last.set(1e9, 0, 1e9); this.inst.update(this.camera, true); }
+    const hex = '#' + [0, 1, 2].map((k) => Math.round(Math.max(0, Math.min(1, it.c ? it.c[k] : 0.8)) * 255).toString(16).padStart(2, '0')).join('');
+    const c = { type: T.id.slice(7), color: hex, x: it.x, z: it.z, h: it.r, y: it.y, parked: true };
+    this.talk.say(null, this.talk.pick('me_jack', 'm'), { name: TEXT('me') });
+    if (this.audio) { this.audio.honk(); setTimeout(() => this.audio && (this.audio.lastHonk = 0, this.audio.honk()), 450); setTimeout(() => this.audio && (this.audio.lastHonk = 0, this.audio.honk()), 900); }
+    if (this.police) this.police.crime('steal', c.x, c.z);
+    this.takeCar(c);
   }
   jackStart(c) {
     if (c.v > 4.5) { this.say(TEXT('too_fast'), TEXT('too_fast_sub')); return; }
@@ -479,7 +505,7 @@ export class Game {
     this.unride();
     if (old.own) { if (!this.parked.includes(old)) this.parked.push(old); } else this.scene.remove(old.group);
     const v = new Vehicle(type, c.color, this.world); v.place(c.x, c.z, c.h, c.y); this.scene.add(v.group); v.sync(); v.stolen = type;
-    this.car = v; this.traffic.spawn(c, c.x, c.z, true);
+    this.car = v; if (!c.parked && this.traffic) this.traffic.spawn(c, c.x, c.z, true);
     const f = this.foot; this.mode = 'car'; f.group.visible = false; this.fcam.active = false; this.cam.init = false;
     this.camera.fov = 60; this.camera.updateProjectionMatrix();
     if (this.audio) this.audio.duck(false);
@@ -658,7 +684,7 @@ export class Game {
       else if (this.plane.ground && Math.hypot(this.plane.x - this.foot.x, this.plane.z - this.foot.z) < 7) { label = TEXT('fly'); a = 'use'; }
       else if (this.crowd && !this.talk.convo && this.crowd.nearest(this.foot.x, this.foot.z)) { const p = this.crowd.nearest(this.foot.x, this.foot.z); label = TEXT('talk') + ': ' + this.talk.nameOf(p); a = 'use'; }
       else if (Math.hypot(this.foot.x - this.car.x, this.foot.z - this.car.z) < 3.6 || this.parked.some((v) => Math.hypot(this.foot.x - v.x, this.foot.z - v.z) < 3.6)) { label = TEXT('get_in'); a = 'car'; }
-      else if (!this.jack && this.jackable()) { label = TEXT('steal'); a = 'car'; }
+      else if (!this.jack && (this.jackable() || this.parkedNear())) { label = TEXT('steal'); a = 'car'; }
     }
     const b = this.ui.act;
     if (!label) { if (!b.hidden) b.hidden = true; return; }
@@ -795,7 +821,9 @@ export class Game {
     const c = this.ui.mini, g = c.getContext('2d'), W = c.width, half = W / 2, img = this.mapImg, car = this.me();
     const zoom = 1.6 + Math.min(1.2, car.speed / 30) * -0.5;
     g.save(); g.fillStyle = '#1f5f86'; g.fillRect(0, 0, W, W);
-    g.translate(half, half * 1.25); g.rotate(Math.PI + car.h); g.scale(zoom, zoom);
+    /* the map turns with the camera, like what you see; the arrow shows which way you face within that */
+    const cd = this.camera.getWorldDirection(this._v3 || (this._v3 = new THREE.Vector3())), view = Math.atan2(cd.x, cd.z);
+    g.translate(half, half * 1.25); g.rotate(Math.PI + view); g.scale(zoom, zoom);
     const mx = (car.x - MAP.x0) * img.s, mz = (car.z - MAP.z0) * img.s;
     g.drawImage(img.c, -mx, -mz);
     const dot = (x, z, col, r) => { g.fillStyle = col; g.beginPath(); g.arc((x - MAP.x0) * img.s - mx, (z - MAP.z0) * img.s - mz, r / zoom, 0, 7); g.fill(); };
@@ -808,7 +836,9 @@ export class Game {
     if (this.trial) { const p = this.trial.t.pts[this.trial.i]; dot(p[0], p[1], '#FF5A5F', 8); }
     g.restore();
     g.fillStyle = '#FFFFFF'; g.strokeStyle = '#191D29'; g.lineWidth = 3;
-    g.beginPath(); g.moveTo(half, half * 1.25 - 13); g.lineTo(half + 9, half * 1.25 + 10); g.lineTo(half, half * 1.25 + 5); g.lineTo(half - 9, half * 1.25 + 10); g.closePath(); g.fill(); g.stroke();
+    { const th = Math.PI + view, ax = Math.sin(car.h), az = Math.cos(car.h), sx = ax * Math.cos(th) - az * Math.sin(th), sy = ax * Math.sin(th) + az * Math.cos(th);
+      g.save(); g.translate(half, half * 1.25); g.rotate(Math.atan2(sx, -sy));
+      g.beginPath(); g.moveTo(0, -13); g.lineTo(9, 10); g.lineTo(0, 5); g.lineTo(-9, 10); g.closePath(); g.fill(); g.stroke(); g.restore(); }
     const d = districtAt(car.x, car.z), name = (DISTRICTS.find((q) => q.id === d) || {}).name || '';
     const label = this.mode === 'plane' ? name + ', ' + Math.round(this.plane.y - sampleHeight(this.plan.height, this.plane.x, this.plane.z)) + ' m' : name;
     if (this.ui.place.textContent !== label) this.ui.place.textContent = label;

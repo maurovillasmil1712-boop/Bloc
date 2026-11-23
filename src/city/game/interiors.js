@@ -1,7 +1,8 @@
 /* Places you can walk into: a café, a clothing shop, a garage, a gym and your own flat. Each room is built in code
    the first time you go in, far below the city, and its door in the street glows yellow. */
 import * as THREE from 'three/webgpu';
-import { positionWorld, floor, mod, mix, vec3, float, step, fract } from 'three/tsl';
+import { positionWorld, normalWorld, floor, mod, mix, vec3, float, step, fract, abs, select, texture, normalMap } from 'three/tsl';
+import { SETS, layerOf, track } from '../render/textures.js';
 import { Human } from '../actors/human.js';
 import { gunMesh } from '../actors/guns.js';
 import { homeLot, sampleHeight } from '../world/plan.js';
@@ -21,6 +22,30 @@ function mat(color, rough = 0.8, metal = 0, extra) {
   if (!M.has(k)) M.set(k, new THREE.MeshStandardNodeMaterial(Object.assign({ color, roughness: rough, metalness: metal }, extra || {})));
   return M.get(k);
 }
+/* v7.6.1: real textures indoors, from the same CC0 sets as the street (walls, floors, ceilings), projected by
+   world position so every wall and floor tiles at a true scale. Falls back to flat colours if a set isn't loaded. */
+const TM = new Map();
+function texMat(group, name, tint, scale = 2.2) {
+  const S = SETS[group]; if (!S || !S.c) return null;
+  const k = group + name + tint + scale; if (TM.has(k)) return TM.get(k);
+  const L = float(layerOf(group, name)), n = normalWorld, p = positionWorld;
+  const uvw = select(abs(n.x).greaterThan(0.5), p.zy, select(abs(n.y).greaterThan(0.5), p.xz, p.xy)).div(scale);
+  const sm = (kk) => { const t = texture(S[kk], uvw); track(group, kk, t); return t.depth(L); };
+  const m = new THREE.MeshStandardNodeMaterial();
+  const tc = new THREE.Color(tint);
+  m.colorNode = sm('c').rgb.mul(vec3(tc.r, tc.g, tc.b).mul(1.35).add(0.15));
+  if (S.n) m.normalNode = normalMap(sm('n').rgb);
+  if (S.m) { const orm = sm('m'); m.roughnessNode = orm.g; m.aoNode = orm.r; }
+  TM.set(k, m); return m;
+}
+const ROOM_TEX = {
+  cafe: { wall: ['wall', 'painted_plaster_wall'], floor: ['wall', 'brown_planks_05', 1.6], ceil: ['wall', 'white_plaster_02'] },
+  shop: { wall: ['wall', 'white_plaster_02'], floor: ['wall', 'granite_tile', 1.4], ceil: ['wall', 'white_plaster_02'] },
+  garage: { wall: ['wall', 'concrete_wall_006'], floor: ['ground', 'concrete_floor_worn_001', 3], ceil: ['wall', 'concrete_wall_006'] },
+  gym: { wall: ['wall', 'painted_brick'], floor: null, ceil: ['wall', 'concrete_wall_006'] },
+  flat: { wall: ['wall', 'painted_plaster_wall'], floor: ['wall', 'brown_planks_05', 1.6], ceil: ['wall', 'white_plaster_02'] },
+  arms: { wall: ['wall', 'concrete_wall_006'], floor: ['ground', 'concrete_floor_worn_001', 3], ceil: ['wall', 'concrete_wall_006'] }
+};
 /* floors drawn in the shader: planks, tiles, concrete, rubber */
 function floorMat(kind) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.7 });
@@ -60,12 +85,17 @@ class Room {
     if (solid) this.boxes.push({ x, z, hw: r, hd: r });
     return o;
   }
-  light(x, y, z, color = '#FFE2B8', intensity = 18, dist = 12) { const l = new THREE.PointLight(color, intensity * 2.2, dist * 1.4, 2); l.position.set(x, y, z); this.group.add(l); return l; }
+  /* v7.6.1: rooms no longer add their own lights (a new light makes every shader in the scene rebuild, which froze
+     the game for seconds on real graphics cards). They record where light comes from; a fixed pool of lights owned by
+     Interiors moves into the room you enter. */
+  light(x, y, z, color = '#FFE2B8', intensity = 18, dist = 12) { (this.lights || (this.lights = [])).push({ x, y, z, color, intensity, dist }); return null; }
   shell(floorKind, wallColor, ceilColor = '#EDEBE6', h = 3.4) {
     const W = this.W, D = this.D;
-    const f = new THREE.Mesh(new THREE.PlaneGeometry(W, D), floorMat(floorKind)); f.rotation.x = -Math.PI / 2; f.receiveShadow = true; this.group.add(f);
-    const c = new THREE.Mesh(new THREE.PlaneGeometry(W, D), mat(ceilColor, 0.9)); c.rotation.x = Math.PI / 2; c.position.y = h; c.castShadow = true; this.group.add(c);
-    const wm = mat(wallColor, 0.9);
+    const RT = ROOM_TEX[this.place.id] || {};
+    const fm = (RT.floor && texMat(RT.floor[0], RT.floor[1], floorKind === 'planks' ? '#A08060' : '#9A9A98', RT.floor[2])) || floorMat(floorKind);
+    const f = new THREE.Mesh(new THREE.PlaneGeometry(W, D), fm); f.rotation.x = -Math.PI / 2; f.receiveShadow = true; this.group.add(f);
+    const c = new THREE.Mesh(new THREE.PlaneGeometry(W, D), (RT.ceil && texMat(RT.ceil[0], RT.ceil[1], ceilColor, 3)) || mat(ceilColor, 0.9)); c.rotation.x = Math.PI / 2; c.position.y = h; c.castShadow = true; this.group.add(c);
+    const wm = (RT.wall && texMat(RT.wall[0], RT.wall[1], wallColor, 2.2)) || mat(wallColor, 0.9);
     const wall = (w, x, z, ry) => { const o = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wm); o.position.set(x, h / 2, z); o.rotation.y = ry; o.receiveShadow = true; o.castShadow = true; this.group.add(o); };
     wall(W, 0, D / 2, Math.PI); wall(D, W / 2, 0, -Math.PI / 2); wall(D, -W / 2, 0, Math.PI / 2);
     /* the street side has the door in the middle */
@@ -220,7 +250,6 @@ function buildFurniture(r) {
       }
     });
     put('neon', 1.8, 0.7, 0.02, mat('#101216', 0.6), -3.2, y0 - 0.14, 4.96);
-    const l = new THREE.PointLight('#FFE14D', 6, 5, 2); l.position.set(-3.2, y0 + 0.2, 4.6); r.furn.neon.g.add(l);
   }
   grp('speakers'); for (const x of [-4.5, -1.9]) { put('speakers', 0.35, 1.05, 0.35, mat('#1A1B1F', 0.5), x, 0, -1.3, true); put('speakers', 0.22, 0.22, 0.02, mat('#3A3F45', 0.3, 0.6), x, 0.65, -1.11); put('speakers', 0.14, 0.14, 0.02, mat('#3A3F45', 0.3, 0.6), x, 0.3, -1.11); }
   grp('console'); put('console', 0.4, 0.08, 0.3, mat('#F2F2EE', 0.35), -3.6, 0.5, -1.2); put('console', 1.7, 0.95, 0.03, glow('#5A8FD8', 0.9), -3.2, 0.88, -1.27); put('console', 0.14, 0.04, 0.09, mat('#191D29', 0.4), -3.1, 0.42, 1.1);
@@ -261,7 +290,7 @@ function buildArms(r) {
   for (let i = 0; i < 7; i++) r.box(W, 0.3, 0.25, mat('#1B1C1F', 0.95), 0, 0.4 + i * 0.45, D / 2 - 0.2, false);
   for (const z of [-6, -2]) for (const x of [-3, 3]) r.light(x, 3.4, z, '#F6F3EA', 10, 9);
   for (const x of [-4.7, 0, 4.7]) r.light(x, 3.3, D / 2 - 3, '#FFFFFF', 12, 9);
-  r.spots.push({ x: -3.6, z: -3.2, r: 1.3, act: 'arms' });
+  r.spots.push({ x: -3.6, z: -2.9, r: 2.2, act: 'arms' });
   r.spots.push({ x: 0, z: line - 0.7, r: 1.2, act: 'lane' });
 }
 const BUILD = { cafe: buildCafe, shop: buildShop, garage: buildGarage, gym: buildGym, flat: buildFlat, arms: buildArms };
@@ -298,6 +327,35 @@ export class Interiors {
       scene.add(g); d.marker = g;
     }
   }
+  /* the light pool: always in the scene, dark outside; same number of lights all the time, so no shader rebuilds */
+  pool() {
+    if (this.lightPool) return this.lightPool;
+    this.lightPool = [0, 1, 2].map(() => { const l = new THREE.PointLight('#FFFFFF', 0, 1, 2); l.position.set(0, -2000, 0); this.scene.add(l); return l; });
+    return this.lightPool;
+  }
+  light(r) {
+    const P = this.pool();
+    if (!r) { for (const l of P) { l.intensity = 0; l.position.set(0, -2000, 0); } return; }
+    /* the room's light spots, merged into three: the brightest few, each covering more of the room */
+    /* spread them out: start with the brightest, then keep picking the spot farthest from the ones already picked */
+    const all = (r.lights || []).slice().sort((a, b) => b.intensity - a.intensity), specs = all.length ? [all[0]] : [];
+    while (specs.length < Math.min(P.length, all.length)) { let best = null, bd = -1; for (const s of all) { if (specs.includes(s)) continue; const d = Math.min(...specs.map((q) => Math.hypot(q.x - s.x, q.z - s.z))); if (d > bd) { bd = d; best = s; } } specs.push(best); }
+    const n = Math.min(P.length, specs.length), total = all.reduce((a, s) => a + s.intensity, 0) * 1.3;
+    P.forEach((l, i) => {
+      const s = specs[i]; if (!s) { l.intensity = 0; l.position.set(0, -2000, 0); return; }
+      l.color.set(s.color); l.position.set(r.o.x + s.x, r.o.y + s.y, r.o.z + s.z);
+      l.intensity = (total / n) * 2.2 * (i === 0 ? 1.15 : 0.95); l.distance = Math.max(s.dist * 1.4, Math.hypot(r.W, r.D) * 0.9); l.decay = 2;
+    });
+  }
+  /* build every room up front and let the GPU compile their materials in the background, so walking in is instant */
+  async prebuild(renderer, camera) {
+    this.pool();
+    for (const d of this.doors) {
+      const r = this.room(d);
+      if (renderer && renderer.compileAsync) { r.group.visible = true; try { await renderer.compileAsync(r.group, camera, this.scene); } catch (e) { /* compiles on entry instead */ } if (!this.inside || this.inside.room !== r) r.group.visible = false; }
+      await new Promise((ok) => setTimeout(ok, 30));
+    }
+  }
   room(door) {
     if (!this.rooms.has(door.id)) { const r = new Room(door.place, door.origin); BUILD[door.id](r); r.group.visible = false; this.scene.add(r.group); this.rooms.set(door.id, r); if (r.furn) this.applyFurn(r); }
     return this.rooms.get(door.id);
@@ -312,8 +370,8 @@ export class Interiors {
     }
   }
   near(x, z, r = 1.9) { return this.doors.find((d) => Math.hypot(d.x - x, d.z - z) < r) || null; }
-  enter(door) { const r = this.room(door); r.group.visible = true; this.inside = { door, room: r }; return r; }
-  leave() { if (!this.inside) return null; const d = this.inside.door; this.inside.room.group.visible = false; this.inside = null; return d; }
+  enter(door) { const r = this.room(door); r.group.visible = true; this.inside = { door, room: r }; this.light(r); return r; }
+  leave() { if (!this.inside) return null; const d = this.inside.door; this.inside.room.group.visible = false; this.inside = null; this.light(null); return d; }
   /* the interaction spot you're standing on, in room-local metres */
   spotAt(x, z) {
     if (!this.inside) return null; const r = this.inside.room, lx = x - r.o.x, lz = z - r.o.z;

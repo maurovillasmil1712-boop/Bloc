@@ -19,6 +19,13 @@ export class Collide {
     }
   }
   addBox(x, z, hw, hd, rot, top) { const r = Math.hypot(hw, hd); this.put({ b: 1, x, z, hw, hd, c: Math.cos(rot), s: Math.sin(rot), top }, x - r, z - r, x + r, z + r); }
+  /* take away a box centred at (x, z) (a parked car that someone drove off in) */
+  removeBoxAt(x, z, tol = 0.4) {
+    for (let i = Math.floor((x - 4) / CELL); i <= Math.floor((x + 4) / CELL); i++) for (let j = Math.floor((z - 4) / CELL); j <= Math.floor((z + 4) / CELL); j++) {
+      const k = this.key(i, j), l = this.g.get(k); if (!l) continue;
+      const keep = l.filter((o) => !(o.b && Math.abs(o.x - x) < tol && Math.abs(o.z - z) < tol)); if (keep.length !== l.length) this.g.set(k, keep);
+    }
+  }
   addCircle(x, z, r, top) { this.put({ b: 0, x, z, r, top }, x - r, z - r, x + r, z + r); }
   /* push a circle (px, pz, radius) out of everything it overlaps; returns the deepest contact normal */
   resolve(p, radius, y, out) {
