@@ -1,6 +1,6 @@
 # Bloc City v7: the plan
 
-Status: waiting for Mauro's OK. Nothing is built yet.
+Status: approved by Mauro on 23 Nov 2026, with additions the same day (high-rises, radio wheel, car feel, cameras, NPC life, fights, crashes, Bloc FM).
 
 Written 23 Nov 2026 from the v7 prompt (`Bloc_City_v7_prompt_for_Claude.pdf`), `.claude/skills/bloc-app/SKILL.md`, `docs/GARDEN.md`, `docs/DESIGN.md` and the v6.1 `src/drive/drive.src.js` (1,070 lines: flat-shaded boxes on an 80 m grid, one draw call for all buildings, arcade car physics at 120 Hz).
 
@@ -38,10 +38,10 @@ An original Spanish coastal city with a Madrid core. Compass: north is −z, eas
 | Ensanche | The grid around Old Town: 110 m blocks with courtyards, plane trees, shops at street level, six to eight floors | |
 | Gran Vía | A diagonal avenue of 1900s buildings with domes, cinemas, theatres and neon, ending at the main roundabout | |
 | El Paseo | A north to south boulevard with side lanes and tree-lined medians, from the main roundabout to Downtown | |
-| Downtown | Glass and stone towers from 60 to 240 m, plazas, a sunken square | Downtown |
+| Downtown | Modern high-rises from 60 to 240 m: glass curtain walls, setbacks and slanted tops, podiums with lobbies, lit offices at night, antennas, helipads and cranes on the roofs. Plazas and a sunken square. | Downtown |
 | The Park | A big park east of Old Town: a lake with rowing boats, a glass pavilion, fountains, sports courts | |
 | Campus | Brick faculties, lawns, a library, a small stadium | Campus |
-| The Beach | Wide sand, a palm promenade, beach bars, lifeguard towers, a pier | The Beach |
+| The Beach | Wide sand, a palm promenade, a row of residential towers facing the sea, beach bars, lifeguard towers, a pier | The Beach |
 | The Port | Container cranes, warehouses, a ferry terminal, a marina, a lighthouse on the breakwater | |
 | El Polígono | Warehouses, factories and a rail yard. Gang territory on the website. | |
 | Barrio Sur | 1960s and 70s housing blocks with balconies and washing lines, a market hall, basketball courts | |
@@ -61,14 +61,14 @@ Each stage is playable, committed on its own branch (`v7.1-visuals` to `v7.8-sou
 
 | # | Branch | What it adds | Done when |
 |---|---|---|---|
-| 1 | `v7.1-visuals` | New renderer and presets, the new map and terrain, roads, buildings, street furniture, trees and grass, sea, beach, port and airport (static), sky, weather and wet roads, streaming and the loading bar, the `/city/` page. Today's game moves over: driving, notes, crates, ramps, trials, friends' houses, fuel, the maps. | Ultra screenshots from 12 viewpoints (day, golden hour, night, rain) look clearly more real than v6.1, every preset stays inside its budget, smoke test passes, **you approve** |
-| 2 | `v7.2-onfoot` | Third-person character (walk, run, jump, smooth camera), getting in and out of cars (F or a touch button), character customisation saved on the server (body, skin tone, hair, clothes, colours), interiors: café, clothing shop, garage, gym, your flat | You can walk into the café, buy a jacket, wear it, drive away, and see it next time |
-| 3 | `v7.3-npcs` | Pedestrians with daily routines (walk, shop, sit, chat, cross at crossings), reactions (step aside, run, call the police), voiced dialogue in English and Spanish (at least 600 lines in each language) with no repeats per NPC per session, NPC missions (deliveries, races, finding things) paid by the server | 140 pedestrians on High within budget; a mission pays only through the server |
-| 4 | `v7.4-vehicles` | Detailed cars with working lights and damage, better handling, motorbikes, a bus you can drive, traffic with traffic lights, the airport with small planes (throttle, pitch, roll, take-off, landing) | Take off, fly over the city, land back on the runway |
-| 5 | `v7.5-police` | Wanted level from 1 to 5 stars (speeding near police, crashes, and on the website combat), chases, roadblocks from 3 stars, a helicopter at 4 and 5, arrests, losing them | A full chase ends both ways: you escape, or you get busted |
-| 6 | `v7.6-combat` | Website only: weapons from a shop and pickups, mouse aiming, aim assist on phones, gangs in El Polígono with cover-and-shoot AI, health and armour, gang jobs paid by the server, the blood-effects gate | The iPhone app shows no weapons; blood stays off until the 16+ check and your approval |
+| 1 | `v7.1-visuals` | New renderer and presets, the new map and terrain, roads, buildings, street furniture, trees and grass, sea, beach, port and airport (static), sky, weather and wet roads, streaming and the loading bar, the `/city/` page. Today's game moves over: driving, notes, crates, ramps, trials, friends' houses, fuel, the maps. Car feel: the body rolls into corners, dips under braking and squats on the gas; the camera trails on a spring, leans into turns and looks ahead. A blur layer in the post stack for menus and the radio wheel. | Ultra screenshots from 12 viewpoints (day, golden hour, night, rain) look clearly more real than v6.1, every preset stays inside its budget, smoke test passes, **you approve** |
+| 2 | `v7.2-onfoot` | Third-person character (walk, run, jump, smooth camera), getting in and out of cars (F or a touch button), character customisation saved on the server (body, skin tone, hair, clothes, colours), interiors: café, clothing shop, garage, gym, your flat. Camera views on V: close, far and first person on foot; close chase, far chase and bonnet in a car. | You can walk into the café, buy a jacket, wear it, drive away, and see it next time |
+| 3 | `v7.3-npcs` | Pedestrians with daily routines (walk, shop, sit, chat, cross at crossings), reactions (step aside, run, call the police), voiced dialogue in English and Spanish (2,000+ lines in each language, no strong swearing, so the iPhone app uses all of it) with no repeats per NPC per session, comedy scenes between NPCs, talking to anyone (E or a tap) and picking how you react (apologise, joke, be rude, leave), road ragers who honk, shout, get out and chase you, NPC traffic that yields, merges and brakes like people do, NPC missions (deliveries, races, finding things) paid by the server | 140 pedestrians on High within budget; a mission pays only through the server |
+| 4 | `v7.4-vehicles` | Detailed cars with working lights, modelled interiors and a cockpit camera, a reflection probe per car, crash physics (bodies bend, parts fall off, glass breaks, cars spin and roll with real momentum), better handling, motorbikes, a bus you can drive, traffic with traffic lights, the airport with small planes (throttle, pitch, roll, take-off, landing) | Take off, fly over the city, land back on the runway |
+| 5 | `v7.5-police` | Wanted level from 1 to 5 stars (speeding near police, crashes, and on the website combat), chases, roadblocks from 3 stars, a helicopter at 4 and 5, arrests, losing them. Police also pull NPCs over and talk to them; the NPC cooperates or runs, and the chase plays out without you. | A full chase ends both ways: you escape, or you get busted |
+| 6 | `v7.6-combat` | Website only: weapons from a shop and pickups, mouse aiming, aim assist on phones, gangs in El Polígono with cover-and-shoot AI, health and armour, fist fights with NPCs, gang jobs paid by the server, the blood-effects gate. Boxing at the gym (gloves, a sport) works everywhere, the iPhone app included. | The iPhone app shows no weapons; blood stays off until the 16+ check and your approval |
 | 7 | `v7.7-multiplayer` | Friends from shared gardens who are in the city at the same time: their cars and characters, wave, race, quick phrases | Two test accounts see each other and race |
-| 8 | `v7.8-sound` | Engines per car with pitch by speed, tyres, crashes, horns, footsteps by surface, city sound by district and time of day, weapons, sirens, planes, a radio with royalty-free tracks plus Bloc FM with your beats, a pause menu with volume sliders | Every listed sound plays; volumes save |
+| 8 | `v7.8-sound` | Engines per car with pitch by speed, tyres, crashes, horns, footsteps by surface, city sound by district and time of day, weapons, sirens, planes, a radio with royalty-free stations plus Bloc FM with your 19 songs, a GTA-style radio wheel (hold Q or tap the radio button: the game slows, the screen blurs, a tuning sweep crossfades into the new station), a pause menu with volume sliders | Every listed sound plays; volumes save |
 
 Release after stage 8: service worker cache `myib-v7-0`, the skill file, `docs/GARDEN.md`, the versions doc, and `bloc-v7.0-city.zip` of `site/`.
 
@@ -155,8 +155,8 @@ Rule: CC0, or a clear royalty-free licence that allows commercial use. Every fil
 |---|---|
 | [Kenney](https://opengameart.org/users/kenney) (CC0, through OpenGameArt) | RPG Audio (footsteps on stone, wood, grass, gravel), Impact Sounds, Interface Sounds and UI Audio for menus |
 | [Freesound](https://freesound.org), CC0 filter only | Engine loops, tyre squeal, crashes, horns, sirens, prop planes, gunshots and impacts (website), rain, sea, wind, gulls, crowds, traffic hum, night crickets. Each file's ID goes in the credits. |
-| [OpenGameArt](https://opengameart.org), CC0 filter only | Radio tracks for two or three stations (pop, electronic, lo-fi). FreePD closed down, so it's out. |
-| Your beats | Bloc FM. Send the files and I'll add them. |
+| [Free Music Archive](https://freemusicarchive.org) and [OpenGameArt](https://opengameart.org), CC0 and CC-BY only | Three or four stations in the styles students listen to now (Latin urban, trap, house, lo-fi), from the most popular tracks under those licences. Chart hits from real artists stay out: labels own them. FreePD closed down, so it's out. Optional: original tracks in those styles made with Higgsfield credits, only with your OK. |
+| Your songs (19 tracks, all explicit) | Bloc FM, loudness-matched and encoded for the web. Website only: the iPhone app hides the station. The songs stay out of git (the repo is public) and go only into the zip. |
 | Kokoro-82M (Apache 2.0) | NPC voices and radio DJ lines, generated offline in English and Spanish. Only the audio ships. |
 
 **Code and tools**
