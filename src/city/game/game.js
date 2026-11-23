@@ -179,6 +179,7 @@ export class Game {
     this.world.wet = U.wet.value;
     if (this.mode === 'car') this.updateCar(dt); else if (this.mode === 'plane') this.updatePlane(dt); else this.updateFoot(dt);
     this.updateCrowd(dt);
+    if (this.police && !this.rooms.inside) this.police.update(dt);
     this.pickups();
     this.prompt();
     this.hud(dt);
@@ -193,7 +194,7 @@ export class Game {
     const drive = this.mode === 'car' ? { x: car.x, z: car.z, vx: car.vx, vz: car.vz, speed: car.speed } : null;
     C.update(dt, me, drive, {
       scared: (p) => T2.remark(p, 'dodge'), bump: (p) => T2.remark(p, 'bump'), pair: (a, b) => T2.pair(a, b),
-      hit: (p, sp) => { this.cam.shake = Math.min(0.3, sp / 40); if (this.audio) this.audio.hit(sp * 0.5); },
+      hit: (p, sp) => { this.cam.shake = Math.min(0.3, sp / 40); if (this.audio) this.audio.hit(sp * 0.5); if (this.police) this.police.crime('hit', p.x, p.z); },
       up: (p) => T2.say(p, T2.pick('up', p.voice))
     });
     C.draw(dt, this.camera);
@@ -229,7 +230,7 @@ export class Game {
     if (this.traffic) {
       for (const o of this.traffic.near(car.x, car.z, 6)) {
         const dx = car.x - o.x, dz = car.z - o.z, d = Math.hypot(dx, dz);
-        if (d < 3.6 && d > 0.01) { const nx = dx / d, nz = dz / d, pen = 3.6 - d; car.x += nx * pen; car.z += nz * pen; const vn = car.vx * nx + car.vz * nz; if (vn < 0) { car.damage(nx, nz, -vn); car.vx -= 1.1 * vn * nx; car.vz -= 1.1 * vn * nz; car.vx *= 0.9; car.vz *= 0.9; if (-vn > 4) { this.cam.shake = Math.min(0.3, -vn / 45); if (this.audio) { this.audio.hit(-vn); this.audio.honk(); } this.talk.remark({ x: o.x, z: o.z, voice: Math.random() < 0.5 ? 'f' : 'm', i: null }, 'rage'); } } o.v = 0; }
+        if (d < 3.6 && d > 0.01) { const nx = dx / d, nz = dz / d, pen = 3.6 - d; car.x += nx * pen; car.z += nz * pen; const vn = car.vx * nx + car.vz * nz; if (vn < 0) { car.damage(nx, nz, -vn); car.vx -= 1.1 * vn * nx; car.vz -= 1.1 * vn * nz; car.vx *= 0.9; car.vz *= 0.9; if (-vn > 4) { this.cam.shake = Math.min(0.3, -vn / 45); if (this.audio) { this.audio.hit(-vn); this.audio.honk(); } this.talk.remark({ x: o.x, z: o.z, voice: Math.random() < 0.5 ? 'f' : 'm', i: null }, o.type === 'police' ? 'cop_chase' : 'rage'); if (o.type === 'police' && this.police) this.police.crime('ram', car.x, car.z); } } o.v = 0; }
       }
       this.traffic.update(dt, { x: car.x, z: car.z, forwardSpeed: car.vf });
     }

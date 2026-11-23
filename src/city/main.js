@@ -13,6 +13,7 @@ import { setupProps } from './world/props.js';
 import { setupParked } from './world/parked.js';
 import { Traffic } from './actors/traffic.js';
 import { Crowd } from './actors/crowd.js';
+import { Police } from './game/police.js';
 import { Game } from './game/game.js';
 import { Audio } from './audio/audio.js';
 import { initLang, T } from './game/i18n.js';
@@ -143,7 +144,7 @@ async function boot() {
     for (const t of inst.types) if (t.id.startsWith('parked-')) for (const cells of t.grid.values()) for (const it of cells) game.world.collide.addBox(it.x, it.z, 0.95, 2.15, -it.r, it.y + 1.6);
   }
   if (Q.get('peds') !== '0' && P.peds > 0) game.crowd = new Crowd(scene, plan, Math.round(P.peds * 0.6));
-  if (Q.get('traffic') !== '0' && P.cars > 0) { game.traffic = new Traffic(scene, plan, P.cars); game.traffic.init(game.car.x, game.car.z); game.traffic.buildLights(scene); }
+  if (Q.get('traffic') !== '0' && P.cars > 0) { game.traffic = new Traffic(scene, plan, P.cars); game.traffic.init(game.car.x, game.car.z); game.traffic.buildLights(scene); game.police = new Police(game, game.traffic, scene); }
   if (Q.get('view')) game.cam.mode = Q.get('view');
   if (Q.get('plane')) {
     game.toggleCar(); game.foot.place(game.plane.x + 3, game.plane.z, 0); game.enterPlane();

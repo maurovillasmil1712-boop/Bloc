@@ -75,6 +75,18 @@ export class Audio {
     /* a metallic ring on harder crashes */
     if (strength > 8) { const o = c.createOscillator(), og = c.createGain(); o.type = 'square'; o.frequency.value = 180 + Math.random() * 90; og.gain.setValueAtTime(0.06, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.3); o.connect(og).connect(this.sfx); o.start(t); o.stop(t + 0.32); }
   }
+  /* a two-tone wail that gets louder as the patrol gets closer */
+  siren(dist) {
+    if (!this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    if (!this.sir) {
+      const o = c.createOscillator(), g = c.createGain(), f = c.createBiquadFilter(); o.type = 'sawtooth'; f.type = 'bandpass'; f.frequency.value = 1100; f.Q.value = 1.4; g.gain.value = 0;
+      o.connect(f).connect(g).connect(this.sfx); o.start(); this.sir = { o, g };
+    }
+    const vol = dist > 260 ? 0 : Math.min(0.11, 0.11 * (1 - dist / 260) + 0.01);
+    this.sir.g.gain.setTargetAtTime(vol, t, 0.2);
+    if (vol > 0) this.sir.o.frequency.setTargetAtTime(Math.floor(t / 0.55) % 2 ? 960 : 720, t, 0.06);
+  }
   honk() {
     if (!this.ctx || performance.now() - (this.lastHonk || 0) < 900) return; this.lastHonk = performance.now();
     const c = this.ctx, t = c.currentTime, g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.02); g.gain.setValueAtTime(0.12, t + 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);

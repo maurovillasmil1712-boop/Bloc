@@ -82003,7 +82003,7 @@ function carMaterials() {
 }
 
 // actors/traffic.js
-var TYPES2 = ["hatch", "sedan", "suv", "hatch", "sedan", "van", "taxi"];
+var TYPES2 = ["hatch", "sedan", "suv", "hatch", "sedan", "van", "taxi", "police"];
 var COLORS = ["#F3F4F6", "#1B1E24", "#8A9099", "#B8BCC2", "#7C1E22", "#1F3B66", "#2E4A3A", "#C9C2B0", "#E9E6DF", "#5B616B", "#A34A28", "#14161A"];
 var M4 = new Matrix4();
 var Q3 = new Quaternion();
@@ -82046,11 +82046,16 @@ var Traffic = class {
     this.signalT = 0;
   }
   spawn(c, px, pz, near) {
-    for (let tries = 0; tries < 30; tries++) {
+    c.mode = "lane";
+    c.kerb = 0;
+    c.siren = false;
+    c.target = null;
+    c.chaser = null;
+    for (let tries = 0; tries < 60; tries++) {
       const e = this.edges[Math.floor(this.R() * this.edges.length)];
       const s = 10 + this.R() * Math.max(1, e.len - 20), f = frame(e, s), d = Math.hypot(f.x - px, f.z - pz);
       if (d < (near ? 140 : 40) || d > 380) continue;
-      Object.assign(c, { e, dir: this.R() < 0.5 ? 1 : -1, s, lane: Math.floor(this.R() * Math.max(1, Math.floor(e.lanes / 2))), v: e.speed * 0.6, v0: e.speed * (0.85 + this.R() * 0.3), turning: null, alive: true, wait: 0 });
+      Object.assign(c, { mode: "lane", kerb: 0, target: null, route: [], e, dir: this.R() < 0.5 ? 1 : -1, s, lane: Math.floor(this.R() * Math.max(1, Math.floor(e.lanes / 2))), v: e.speed * 0.6, v0: e.speed * (0.85 + this.R() * 0.3), turning: null, alive: true, wait: 0 });
       return true;
     }
     c.alive = false;
@@ -82059,7 +82064,7 @@ var Traffic = class {
   init(px, pz) {
     for (let i = 0; i < this.count; i++) {
       const t2 = TYPES2[i % TYPES2.length];
-      const c = { type: t2, color: t2 === "taxi" ? "#F6F5F0" : COLORS[Math.floor(this.R() * COLORS.length)], x: 0, z: 0, y: 0, h: 0 };
+      const c = { type: t2, color: t2 === "taxi" ? "#F6F5F0" : t2 === "police" ? "#F3F4F6" : COLORS[Math.floor(this.R() * COLORS.length)], x: 0, z: 0, y: 0, h: 0, mode: "lane", kerb: 0 };
       this.spawn(c, px, pz, false);
       this.cars.push(c);
     }
@@ -82067,7 +82072,7 @@ var Traffic = class {
   /* position on the lane: the right-hand side of travel */
   pose(c) {
     const e = c.e, s = c.dir > 0 ? c.s : e.len - c.s, f = frame(e, s), dx = f.dx * c.dir, dz = f.dz * c.dir;
-    const off = laneOffset(e, c.lane);
+    const off = laneOffset(e, c.lane) + (c.kerb || 0) * Math.max(0, e.w / 2 - 1.3 - laneOffset(e, c.lane));
     c.x = f.x - dz * off * -1 * -1 + 0;
     c.z = f.z;
     const h = Math.atan2(dx, dz);
@@ -82150,9 +82155,15 @@ var Traffic = class {
     this.updateLights();
     const px = player.x, pz = player.z;
     for (const c of this.cars) {
-      if (!c.alive || Math.hypot(c.x - px, c.z - pz) > 430) {
+      if (c.mode === "free") continue;
+      if (!c.alive || Math.hypot(c.x - px, c.z - pz) > 430 && c.mode === "lane") {
         this.spawn(c, px, pz, true);
         if (c.alive) this.pose(c);
+        continue;
+      }
+      if (c.mode === "stop") {
+        c.v = 0;
+        this.pose(c);
         continue;
       }
       const e = c.e, end = e.len - (c.dir > 0 ? e.tb || 0 : e.ta || 0);
@@ -82174,16 +82185,30 @@ var Traffic = class {
         }
       }
       const node = this.plan.nodes[c.dir > 0 ? e.b : e.a];
-      if (this.signalRed(node, e)) {
+      if (this.signalRed(node, e) && c.mode !== "flee" && c.mode !== "chase") {
         const g2 = end - c.s - 3;
         if (g2 > -1 && g2 < gap) {
           gap = Math.max(0.1, g2);
           vLead = 0;
         }
       }
+      if (c.mode === "pull") {
+        c.kerb = Math.min(1, c.kerb + dt2 * 0.6);
+        const stopAt = c.target ? c.target.s - (c.target.e === c.e && c.target.dir === c.dir ? 9 : -1e9) : c.s + Math.max(4, c.v * 1.5);
+        const g2 = stopAt - c.s;
+        if (g2 < gap) {
+          gap = Math.max(0.1, g2);
+          vLead = 0;
+        }
+        if (c.v < 0.3 && c.kerb >= 1 && (!c.target || g2 < 2 || g2 > 40)) {
+          c.mode = "stop";
+          c.v = 0;
+        }
+      } else if (c.kerb > 0) c.kerb = Math.max(0, c.kerb - dt2 * 0.4);
       const a = 2.2, b = 3.4, s0 = 2.5, T4 = 1.3, dv = c.v - vLead;
       const ss = s0 + Math.max(0, c.v * T4 + c.v * dv / (2 * Math.sqrt(a * b)));
-      const acc = a * (1 - Math.pow(c.v / Math.max(1, c.v0), 4) - (gap < 1e8 ? (ss / gap) ** 2 : 0));
+      const v0 = c.mode === "flee" ? c.v0 * 1.8 + 6 : c.mode === "chase" ? c.v0 * 1.8 + 8 : c.v0;
+      const acc = a * (c.mode === "flee" || c.mode === "chase" ? 1.8 : 1) * (1 - Math.pow(c.v / Math.max(1, v0), 4) - (gap < 1e8 ? (ss / gap) ** 2 : 0));
       c.v = Math.max(0, c.v + Math.max(-9, acc) * dt2);
       c.s += c.v * dt2;
       if (c.s >= end) {
@@ -82193,7 +82218,12 @@ var Traffic = class {
           c.s = e.len - c.s;
           continue;
         }
-        const ne = opts[Math.floor(this.R() * opts.length)];
+        let ne = opts[Math.floor(this.R() * opts.length)];
+        if (c.mode === "chase" && c.route.length) {
+          const want = c.route.shift();
+          if (opts.includes(want)) ne = want;
+        }
+        if (c.mode === "flee" && c.chaser) c.chaser.route.push(ne);
         c.e = ne;
         c.dir = ne.a === n2.id ? 1 : -1;
         c.s = c.dir > 0 ? ne.ta || 0 : ne.tb || 0;
@@ -83049,6 +83079,599 @@ function angDiff(a, b) {
   return d;
 }
 
+// game/i18n.js
+var S3 = {
+  en: {
+    fuel: "fuel left",
+    fuel_notes: "{n} notes",
+    view: "View",
+    map: "Map",
+    done: "Done",
+    sky_live: "Live sky",
+    sky_sunset: "Sunset",
+    sky_night: "Night",
+    view_near: "Close camera",
+    view_far: "Far camera",
+    view_bonnet: "Bonnet camera",
+    view_cockpit: "Inside the car",
+    view_foot: "On foot",
+    view_shoulder: "Over the shoulder",
+    view_first: "First person",
+    left: "Steer left",
+    right: "Steer right",
+    gas: "Gas",
+    brake: "Brake or reverse",
+    drift: "Drift",
+    map_hint: "Tap anywhere to close",
+    home: "Home",
+    hint_keys: "WASD to drive, Space to drift, F to get out, V camera, M map",
+    hint_touch: "Hold the arrows to drive, tap Drift to slide",
+    splash: "Splash",
+    back_on_road: "Back on the road",
+    stunt: "Stunt jump",
+    air: "{s} s in the air",
+    note: "Sticky note",
+    crate: "Seed crate",
+    crate_sub: "A free seed for your garden",
+    visit: "Hi {n}",
+    visit_sub: "Your visit counts at the end",
+    trial_go: "Go! Follow the rings",
+    medal_gold: "Gold medal",
+    medal_silver: "Silver medal",
+    medal_bronze: "Bronze medal",
+    no_medal: "Gold is {t}",
+    out_of_fuel: "Out of fuel",
+    drive_over: "Drive over",
+    study_more: "Study a bit more to fill the tank again.",
+    fuel_waits: "The fuel you didn\u2019t use waits for next time.",
+    time_driven: "Time in the city",
+    notes: "Sticky notes",
+    crates: "Seed crates",
+    jumps: "Stunt jumps",
+    visits: "Friends visited",
+    best_trial: "Best trial",
+    back: "Back to the garden",
+    loading: "Loading the city",
+    loading_tex: "Loading textures",
+    loading_city: "Building the city",
+    loading_trees: "Growing trees",
+    loading_props: "Placing street furniture",
+    loading_cars: "Filling the streets",
+    loading_light: "Lighting",
+    get_out: "Get out",
+    get_in: "Get in",
+    talk: "Talk",
+    enter: "Go in",
+    settings: "Settings",
+    quality: "Quality",
+    language: "Language",
+    voices: "Voices",
+    subtitles: "Subtitles",
+    q_next: "Changes on your next drive",
+    q_auto: "Auto",
+    q_low: "Low",
+    q_medium: "Medium",
+    q_high: "High",
+    q_ultra: "Ultra",
+    on: "On",
+    off: "Off",
+    close: "Close",
+    radio_off: "Radio off",
+    wanted: "Wanted",
+    busted: "Busted",
+    wasted: "Wasted",
+    cash: "coins",
+    back_on_land: "Back on dry land",
+    slow_down: "Stop the car first",
+    too_far: "Your car is too far",
+    find_car: "Walk up to it and press F",
+    place_cafe: "Caf\xE9",
+    place_shop: "Clothing shop",
+    place_garage: "Garage",
+    place_gym: "Gym",
+    place_flat: "Your flat",
+    p_leave: "Go outside",
+    p_coffee: "Order a coffee",
+    p_shop: "Look at clothes",
+    p_garage: "Cars and paint",
+    p_bag: "Hit the bag (click or J)",
+    p_desk: "Your desk",
+    p_bed: "Lie down",
+    p_mirror: "Mirror",
+    p_ring: "The ring",
+    do_coffee: "Caf\xE9 con leche",
+    do_coffee_sub: "On the house today",
+    do_desk: "Your desk",
+    do_desk_sub: "Every minute you study in Bloc fills 12 s of fuel",
+    do_bed: "Five more minutes",
+    do_bed_sub: "The city waits for you",
+    do_mirror: "Looking good",
+    do_mirror_sub: "Change clothes at the counter",
+    do_ring: "The ring opens soon",
+    do_ring_sub: "Boxing matches come with the fights update",
+    do_bag: "Jab",
+    do_bag_sub: "Click or press J to punch",
+    slot_top: "Tops",
+    slot_bottom: "Bottoms",
+    slot_shoes: "Shoes",
+    slot_hat: "Hats",
+    slot_body: "Body and hair",
+    skin: "Skin",
+    hair: "Hair",
+    hair_colour: "Hair colour",
+    body_free: "Body and hair changes are free.",
+    hair_short: "Short",
+    hair_buzz: "Buzz",
+    hair_curly: "Curly",
+    hair_long: "Long",
+    hair_bun: "Bun",
+    hair_none: "Shaved",
+    wearing: "Wearing",
+    owned: "Yours",
+    bought: "Bought: {n}",
+    no_coins: "Not enough coins yet",
+    need_house: "Needs a bigger house",
+    try_again: "That didn\u2019t work. Try again.",
+    cars: "Cars",
+    paint: "Paint",
+    driving: "Driving",
+    staff_barista: "Barista",
+    staff_clerk: "Shop assistant",
+    staff_mechanic: "Mechanic",
+    staff_coach: "Coach",
+    job_courier: "Courier job",
+    job_taxi: "Taxi job",
+    job_errand: "Errand on foot",
+    job_go: "Get to the red marker",
+    job_done: "Job done: +{n} coins at the end",
+    job_late: "Too slow, the job is off",
+    need_car: "This one needs a car",
+    need_foot: "This one is on foot",
+    passenger: "Passenger",
+    customer: "Customer",
+    jobs: "Jobs",
+    repair: "Repair the car",
+    repair_sub: "Free, dents and smoke gone",
+    repaired: "Good as new",
+    plane: "Flight school plane",
+    fly: "Fly the plane",
+    plane_keys: "W and S power, arrows to climb and dive, A and D to turn, F to get out once landed",
+    plane_touch: "Up and down to climb, left and right to turn, Drift for more power",
+    land_first: "Land and stop first",
+    crash: "Crash landing",
+    crash_sub: "The plane is back at the airport",
+    lost_them: "Lost them",
+    lost_them_sub: "The police gave up",
+    busted_sub: "A warning this time, no coins lost",
+    officer: "Officer",
+    driver: "Driver"
+  },
+  es: {
+    fuel: "gasolina",
+    fuel_notes: "{n} notas",
+    view: "C\xE1mara",
+    map: "Mapa",
+    done: "Salir",
+    sky_live: "Cielo real",
+    sky_sunset: "Atardecer",
+    sky_night: "Noche",
+    view_near: "C\xE1mara cercana",
+    view_far: "C\xE1mara lejana",
+    view_bonnet: "C\xE1mara de cap\xF3",
+    view_cockpit: "Dentro del coche",
+    view_foot: "A pie",
+    view_shoulder: "Sobre el hombro",
+    view_first: "Primera persona",
+    left: "Girar a la izquierda",
+    right: "Girar a la derecha",
+    gas: "Acelerar",
+    brake: "Frenar o marcha atr\xE1s",
+    drift: "Derrapar",
+    map_hint: "Toca para cerrar",
+    home: "Casa",
+    hint_keys: "WASD para conducir, Espacio para derrapar, F para bajar, V c\xE1mara, M mapa",
+    hint_touch: "Mant\xE9n las flechas para conducir, toca Derrapar para deslizar",
+    splash: "Al agua",
+    back_on_road: "De vuelta a la carretera",
+    stunt: "Salto",
+    air: "{s} s en el aire",
+    note: "P\xF3sit",
+    crate: "Caja de semillas",
+    crate_sub: "Una semilla gratis para tu huerto",
+    visit: "Hola, {n}",
+    visit_sub: "La visita cuenta al terminar",
+    trial_go: "\xA1Ya! Sigue los aros",
+    medal_gold: "Medalla de oro",
+    medal_silver: "Medalla de plata",
+    medal_bronze: "Medalla de bronce",
+    no_medal: "El oro es {t}",
+    out_of_fuel: "Sin gasolina",
+    drive_over: "Fin del paseo",
+    study_more: "Estudia un poco m\xE1s para llenar el dep\xF3sito.",
+    fuel_waits: "La gasolina que no usaste te espera para la pr\xF3xima.",
+    time_driven: "Tiempo en la ciudad",
+    notes: "P\xF3sits",
+    crates: "Cajas de semillas",
+    jumps: "Saltos",
+    visits: "Amigos visitados",
+    best_trial: "Mejor contrarreloj",
+    back: "Volver al huerto",
+    loading: "Cargando la ciudad",
+    loading_tex: "Cargando texturas",
+    loading_city: "Construyendo la ciudad",
+    loading_trees: "Plantando \xE1rboles",
+    loading_props: "Colocando el mobiliario",
+    loading_cars: "Llenando las calles",
+    loading_light: "Encendiendo luces",
+    get_out: "Bajar",
+    get_in: "Subir",
+    talk: "Hablar",
+    enter: "Entrar",
+    settings: "Ajustes",
+    quality: "Calidad",
+    language: "Idioma",
+    voices: "Voces",
+    subtitles: "Subt\xEDtulos",
+    q_next: "Cambia en tu pr\xF3ximo paseo",
+    q_auto: "Auto",
+    q_low: "Baja",
+    q_medium: "Media",
+    q_high: "Alta",
+    q_ultra: "Ultra",
+    on: "S\xED",
+    off: "No",
+    close: "Cerrar",
+    radio_off: "Radio apagada",
+    wanted: "Buscado",
+    busted: "Detenido",
+    wasted: "K.O.",
+    cash: "monedas",
+    back_on_land: "De vuelta en tierra",
+    slow_down: "Para el coche primero",
+    too_far: "Tu coche est\xE1 lejos",
+    find_car: "Ac\xE9rcate y pulsa F",
+    place_cafe: "Cafeter\xEDa",
+    place_shop: "Tienda de ropa",
+    place_garage: "Taller",
+    place_gym: "Gimnasio",
+    place_flat: "Tu piso",
+    p_leave: "Salir",
+    p_coffee: "Pedir un caf\xE9",
+    p_shop: "Ver ropa",
+    p_garage: "Coches y pintura",
+    p_bag: "Golpear el saco (clic o J)",
+    p_desk: "Tu escritorio",
+    p_bed: "Tumbarte",
+    p_mirror: "Espejo",
+    p_ring: "El ring",
+    do_coffee: "Caf\xE9 con leche",
+    do_coffee_sub: "Hoy invita la casa",
+    do_desk: "Tu escritorio",
+    do_desk_sub: "Cada minuto que estudias en Bloc llena 12 s de gasolina",
+    do_bed: "Cinco minutos m\xE1s",
+    do_bed_sub: "La ciudad te espera",
+    do_mirror: "Qu\xE9 bien te queda",
+    do_mirror_sub: "C\xE1mbiate de ropa en el mostrador",
+    do_ring: "El ring abre pronto",
+    do_ring_sub: "Los combates llegan con la actualizaci\xF3n de peleas",
+    do_bag: "Directo",
+    do_bag_sub: "Clic o J para golpear",
+    slot_top: "Arriba",
+    slot_bottom: "Abajo",
+    slot_shoes: "Zapatos",
+    slot_hat: "Gorras",
+    slot_body: "Cuerpo y pelo",
+    skin: "Piel",
+    hair: "Pelo",
+    hair_colour: "Color de pelo",
+    body_free: "Cambiar cuerpo y pelo es gratis.",
+    hair_short: "Corto",
+    hair_buzz: "Rapado",
+    hair_curly: "Rizado",
+    hair_long: "Largo",
+    hair_bun: "Mo\xF1o",
+    hair_none: "Calvo",
+    wearing: "Puesto",
+    owned: "Tuyo",
+    bought: "Comprado: {n}",
+    no_coins: "A\xFAn no tienes monedas suficientes",
+    need_house: "Necesitas una casa m\xE1s grande",
+    try_again: "No ha funcionado. Int\xE9ntalo otra vez.",
+    cars: "Coches",
+    paint: "Pintura",
+    driving: "En uso",
+    staff_barista: "Camarera",
+    staff_clerk: "Dependiente",
+    staff_mechanic: "Mec\xE1nico",
+    staff_coach: "Entrenador",
+    job_courier: "Reparto",
+    job_taxi: "Taxi",
+    job_errand: "Recado a pie",
+    job_go: "Ve al marcador rojo",
+    job_done: "Hecho: +{n} monedas al terminar",
+    job_late: "Demasiado lento, se cancela",
+    need_car: "Este necesita coche",
+    need_foot: "Este es a pie",
+    passenger: "Pasajera",
+    customer: "Cliente",
+    jobs: "Trabajos",
+    repair: "Reparar el coche",
+    repair_sub: "Gratis, sin abolladuras ni humo",
+    repaired: "Como nuevo",
+    plane: "Avioneta de la escuela",
+    fly: "Pilotar la avioneta",
+    plane_keys: "W y S potencia, flechas para subir y bajar, A y D para girar, F para bajar al aterrizar",
+    plane_touch: "Arriba y abajo para subir y bajar, izquierda y derecha para girar, Derrapar para m\xE1s potencia",
+    land_first: "Aterriza y para primero",
+    crash: "Aterrizaje forzoso",
+    crash_sub: "La avioneta vuelve al aeropuerto",
+    lost_them: "Los has despistado",
+    lost_them_sub: "La polic\xEDa se rinde",
+    busted_sub: "Solo un aviso, no pierdes monedas",
+    officer: "Agente",
+    driver: "Conductor"
+  }
+};
+var LANG = { v: "en" };
+function initLang(fromApp) {
+  let l = null;
+  try {
+    l = localStorage.getItem("bloc:city:lang");
+  } catch (e) {
+  }
+  LANG.v = l === "es" || l === "en" ? l : fromApp === "es" || /^es\b/i.test(navigator.language || "") ? "es" : "en";
+}
+function T2(k, vars) {
+  let s = S3[LANG.v] && S3[LANG.v][k] || S3.en[k] || k;
+  if (vars) for (const v in vars) s = s.replace("{" + v + "}", vars[v]);
+  return s;
+}
+
+// game/police.js
+var Police = class {
+  constructor(game, traffic, scene) {
+    this.g = game;
+    this.tr = traffic;
+    this.stars = 0;
+    this.calm = 0;
+    this.close = 0;
+    this.stopT = 25 + Math.random() * 20;
+    this.stops = [];
+    const geo2 = new BoxGeometry(0.28, 0.12, 0.22);
+    this.beacons = new InstancedMesh(geo2, new MeshBasicNodeMaterial({ color: "#FFFFFF" }), 64);
+    this.beacons.count = 0;
+    this.beacons.frustumCulled = false;
+    scene.add(this.beacons);
+    const el = document.createElement("div");
+    el.className = "bc-wanted";
+    el.setAttribute("aria-live", "polite");
+    game.ui.el.appendChild(el);
+    this.el = el;
+  }
+  get cops() {
+    return this.tr.cars.filter((c) => c.alive && c.type === "police");
+  }
+  /* a crime at (x, z): only counts if a patrol is close enough to see it */
+  crime(kind, x, z) {
+    const seen = kind === "ram" || this.cops.some((c) => Math.hypot(c.x - x, c.z - z) < 95);
+    if (!seen) return;
+    const before = this.stars;
+    this.stars = Math.min(3, this.stars + (kind === "ram" ? 1 : 1));
+    this.calm = 0;
+    if (this.stars !== before) {
+      this.g.say(T2("wanted"), "\u2605".repeat(this.stars));
+      this.pursue();
+    }
+  }
+  pursue() {
+    const me = this.g.me(), want = this.stars * 2;
+    let n2 = 0;
+    for (const c of this.cops) {
+      if (n2 >= want) break;
+      if (c.mode === "free") {
+        n2++;
+        continue;
+      }
+      if (Math.hypot(c.x - me.x, c.z - me.z) < 450) {
+        this.free(c);
+        n2++;
+      }
+    }
+    for (const c of this.tr.cars) {
+      if (n2 >= want) break;
+      if (!c.alive || c.type !== "police" || c.mode === "free") continue;
+      this.free(c);
+      n2++;
+    }
+  }
+  free(c) {
+    if (c.target) {
+      c.target.mode = "lane";
+      c.target = null;
+    }
+    c.mode = "free";
+    c.v = Math.max(c.v, 8);
+    c.siren = true;
+  }
+  release() {
+    const me = this.g.me();
+    for (const c of this.tr.cars) if (c.mode === "free") {
+      c.siren = false;
+      this.tr.spawn(c, me.x, me.z, true);
+    }
+  }
+  update(dt2) {
+    const g2 = this.g, me = g2.me(), tr = this.tr, W = g2.world;
+    let nearest = 1e9, closeCop = false;
+    for (const c of tr.cars) {
+      if (c.mode !== "free") continue;
+      const dx = me.x - c.x, dz = me.z - c.z, d = Math.hypot(dx, dz);
+      nearest = Math.min(nearest, d);
+      const want = Math.atan2(dx, dz);
+      let dh = want - c.h;
+      while (dh > Math.PI) dh -= Math.PI * 2;
+      while (dh < -Math.PI) dh += Math.PI * 2;
+      c.h += Math.max(-1, Math.min(1, dh)) * dt2 * (1.2 + Math.min(1, c.v / 20));
+      const vT = d < 6.5 ? 0 : Math.min(33, Math.max(4, (d - 5) * 1.1)) * (Math.abs(dh) > 1.2 ? 0.5 : 1);
+      c.v += Math.max(-14, Math.min(7, vT - c.v)) * dt2;
+      if (d < 6.5) c.h -= Math.max(-1, Math.min(1, dh)) * dt2 * (1.2 + Math.min(1, c.v / 20));
+      c.x += Math.sin(c.h) * c.v * dt2;
+      c.z += Math.cos(c.h) * c.v * dt2;
+      const p = { x: c.x, z: c.z }, pen = W.collide.resolve(p, 1.4, c.y + 0.8, { x: 0, z: 0 });
+      if (pen > 0.05) {
+        c.x = p.x;
+        c.z = p.z;
+        c.v *= 0.92;
+        c.h += dh > 0 ? 0.04 : -0.04;
+      }
+      c.y = W.surface(c.x, c.z, c.y + 1).y + 0.02;
+      if (d < 7) closeCop = true;
+      if (g2.mode === "car" && d < 3.4 && d > 0.01) {
+        const nx = -dx / d, nz = -dz / d;
+        g2.car.x -= nx * (3.4 - d) * 0.5;
+        g2.car.z -= nz * (3.4 - d) * 0.5;
+      }
+    }
+    if (this.stars > 0) {
+      const slow = g2.mode !== "car" || g2.car.speed < 2.5;
+      this.close = closeCop && slow ? this.close + dt2 : Math.max(0, this.close - dt2 * 2);
+      if (this.close > 2.5) this.busted();
+      this.calm = nearest > 160 ? this.calm + dt2 : 0;
+      if (this.calm > 12) {
+        this.stars = 0;
+        this.calm = 0;
+        g2.say(T2("lost_them"), T2("lost_them_sub"));
+        this.release();
+      }
+      if (g2.audio) g2.audio.siren(nearest);
+    } else if (g2.audio) g2.audio.siren(1e9);
+    this.stopsTick(dt2);
+    this.draw();
+    const txt = this.stars ? "\u2605".repeat(this.stars) + "\u2606".repeat(3 - this.stars) : "";
+    if (this.el.textContent !== txt) {
+      this.el.textContent = txt;
+      this.el.classList.toggle("on", !!txt);
+    }
+  }
+  busted() {
+    const g2 = this.g;
+    this.stars = 0;
+    this.close = 0;
+    this.calm = 0;
+    g2.ui.fade.classList.add("on");
+    g2.say(T2("busted"), T2("busted_sub"));
+    g2.talk.say(null, g2.talk.pick("cop_bust"), { name: T2("officer") });
+    if (g2.mode === "car") {
+      g2.car.vx = g2.car.vz = 0;
+    }
+    this.release();
+    setTimeout(() => g2.ui.fade.classList.remove("on"), 700);
+  }
+  /* police pulling over other drivers, near you so you can watch */
+  stopsTick(dt2) {
+    const g2 = this.g, me = g2.me();
+    this.stopT -= dt2;
+    if (this.stopT <= 0 && this.stars === 0) {
+      this.stopT = 35 + Math.random() * 30;
+      const cop = this.cops.find((c) => c.mode === "lane" && Math.hypot(c.x - me.x, c.z - me.z) < 160);
+      if (cop) {
+        let best = null, bd = 1e9;
+        for (const c of this.tr.cars) {
+          if (!c.alive || c === cop || c.type === "police" || c.mode !== "lane" || c.e !== cop.e || c.dir !== cop.dir) continue;
+          const ahead = c.s - cop.s;
+          if (ahead > 6 && ahead < 70 && ahead < bd) {
+            bd = ahead;
+            best = c;
+          }
+        }
+        if (best) {
+          best.mode = "pull";
+          cop.mode = "pull";
+          cop.target = best;
+          cop.siren = true;
+          this.stops.push({ cop, car: best, t: 0, phase: 0, flee: Math.random() < 0.3 });
+        }
+      }
+    }
+    for (const s of this.stops) {
+      s.t += dt2;
+      const { cop, car } = s, near = Math.hypot(car.x - me.x, car.z - me.z) < 32;
+      if (s.phase === 0 && car.mode === "stop" && (cop.mode === "stop" || s.t > 14)) {
+        s.phase = 1;
+        s.t = 0;
+      }
+      if (s.phase === 1) {
+        if (!s.talked && near) {
+          s.talked = true;
+          this.dialogue(s);
+        }
+        if (s.t > (s.flee ? 6 : 13)) {
+          if (s.flee) {
+            car.mode = "flee";
+            car.chaser = cop;
+            cop.mode = "chase";
+            cop.target = null;
+            cop.route = [];
+            cop.siren = true;
+            s.phase = 2;
+            s.t = 0;
+            if (near) g2.talk.say(car, g2.talk.pick("civ_flee"), { name: T2("driver") });
+          } else {
+            car.mode = "lane";
+            cop.mode = "lane";
+            cop.target = null;
+            cop.siren = false;
+            s.done = true;
+          }
+        }
+      }
+      if (s.phase === 2) {
+        if (s.t > 8 && Math.random() < dt2 * 0.15 || s.t > 28) {
+          car.mode = "lane";
+          car.chaser = null;
+          cop.mode = "lane";
+          cop.route = [];
+          cop.siren = false;
+          s.done = true;
+          if (Math.hypot(cop.x - me.x, cop.z - me.z) < 40) g2.talk.say(cop, g2.talk.pick(Math.random() < 0.5 ? "cop_lost" : "cop_bust"), { name: T2("officer") });
+        } else if (!s.yelled && s.t > 2 && Math.hypot(cop.x - me.x, cop.z - me.z) < 45) {
+          s.yelled = true;
+          g2.talk.say(cop, g2.talk.pick("cop_chase"), { name: T2("officer") });
+        }
+      }
+      if (!car.alive || !cop.alive || cop.mode === "free") {
+        if (car.mode !== "free") car.mode = "lane";
+        s.done = true;
+      }
+    }
+    this.stops = this.stops.filter((s) => !s.done);
+  }
+  async dialogue(s) {
+    const t2 = this.g.talk, cop = s.cop, car = s.car;
+    await t2.say(cop, t2.pick("cop_stop"), { name: T2("officer"), range: 34 });
+    await t2.say(car, t2.pick(s.flee ? "civ_flee" : "civ_comply"), { name: T2("driver"), range: 34 });
+    if (!s.flee) await t2.say(cop, t2.pick("cop_ok"), { name: T2("officer"), range: 34 });
+  }
+  draw() {
+    const M3 = new Matrix4(), on2 = Math.floor(performance.now() / 160) % 2, R = new Color(5, 0.3, 0.3), B3 = new Color(0.3, 0.6, 6), D = new Color(0.05, 0.05, 0.06);
+    let i = 0;
+    for (const c of this.tr.cars) {
+      if (!c.alive || c.type !== "police" || i > 62) continue;
+      const fx = Math.cos(c.h), fz = -Math.sin(c.h), y2 = c.y + 1.56;
+      for (const side of [1, -1]) {
+        M3.makeRotationY(c.h);
+        M3.setPosition(c.x + fx * side * 0.33 - Math.sin(c.h) * 0.1, y2, c.z + fz * side * 0.33 - Math.cos(c.h) * 0.1);
+        this.beacons.setMatrixAt(i, M3);
+        this.beacons.setColorAt(i, c.siren ? (on2 ? side > 0 : side < 0) ? side > 0 ? R : B3 : D : D);
+        i++;
+      }
+    }
+    this.beacons.count = i;
+    this.beacons.instanceMatrix.needsUpdate = true;
+    if (this.beacons.instanceColor) this.beacons.instanceColor.needsUpdate = true;
+  }
+};
+
 // actors/vehicle.js
 var G = 9.81;
 var Vehicle = class {
@@ -83351,7 +83974,7 @@ var Vehicle = class {
 
 // game/camera.js
 var V = new Vector3();
-var T2 = new Vector3();
+var T3 = new Vector3();
 var CAR_VIEWS = ["near", "far", "bonnet", "cockpit"];
 var ChaseCam = class {
   constructor(camera) {
@@ -83400,18 +84023,18 @@ var ChaseCam = class {
     if (this.mode === "near" || this.mode === "far") {
       const far = this.mode === "far";
       const back = (far ? 7.2 : 4.4) + L * 0.5 + sp * (far ? 0.045 : 0.025), up = (far ? 2.6 : 1.45) + H * 0.45 + sp * 6e-3 + this.orbit.pitch * 6;
-      T2.set(car.x - cfx * back, car.y + up, car.z - cfz * back);
-      const gy = ground(T2.x, T2.z) + 0.8;
-      if (T2.y < gy) T2.y = gy;
+      T3.set(car.x - cfx * back, car.y + up, car.z - cfz * back);
+      const gy = ground(T3.x, T3.z) + 0.8;
+      if (T3.y < gy) T3.y = gy;
       if (!this.init) {
-        this.pos.copy(T2);
+        this.pos.copy(T3);
         this.vel.set(0, 0, 0);
         this.init = true;
       }
       const k = far ? 36 : 64, c = 2 * Math.sqrt(k);
-      this.vel.x += ((T2.x - this.pos.x) * k - this.vel.x * c) * dt2;
-      this.vel.y += ((T2.y - this.pos.y) * k - this.vel.y * c) * dt2;
-      this.vel.z += ((T2.z - this.pos.z) * k - this.vel.z * c) * dt2;
+      this.vel.x += ((T3.x - this.pos.x) * k - this.vel.x * c) * dt2;
+      this.vel.y += ((T3.y - this.pos.y) * k - this.vel.y * c) * dt2;
+      this.vel.z += ((T3.z - this.pos.z) * k - this.vel.z * c) * dt2;
       this.pos.addScaledVector(this.vel, dt2);
       this.cam.position.copy(this.pos);
       const ahead = 4 + sp * 0.15, side = (car.steer || 0) * -sp * 0.06;
@@ -83650,344 +84273,6 @@ var World = class {
     return (isSea(x, z) || inBasin(x, z)) && g2 < 0.2 && !onIsland(x, z, -40);
   }
 };
-
-// game/i18n.js
-var S3 = {
-  en: {
-    fuel: "fuel left",
-    fuel_notes: "{n} notes",
-    view: "View",
-    map: "Map",
-    done: "Done",
-    sky_live: "Live sky",
-    sky_sunset: "Sunset",
-    sky_night: "Night",
-    view_near: "Close camera",
-    view_far: "Far camera",
-    view_bonnet: "Bonnet camera",
-    view_cockpit: "Inside the car",
-    view_foot: "On foot",
-    view_shoulder: "Over the shoulder",
-    view_first: "First person",
-    left: "Steer left",
-    right: "Steer right",
-    gas: "Gas",
-    brake: "Brake or reverse",
-    drift: "Drift",
-    map_hint: "Tap anywhere to close",
-    home: "Home",
-    hint_keys: "WASD to drive, Space to drift, F to get out, V camera, M map",
-    hint_touch: "Hold the arrows to drive, tap Drift to slide",
-    splash: "Splash",
-    back_on_road: "Back on the road",
-    stunt: "Stunt jump",
-    air: "{s} s in the air",
-    note: "Sticky note",
-    crate: "Seed crate",
-    crate_sub: "A free seed for your garden",
-    visit: "Hi {n}",
-    visit_sub: "Your visit counts at the end",
-    trial_go: "Go! Follow the rings",
-    medal_gold: "Gold medal",
-    medal_silver: "Silver medal",
-    medal_bronze: "Bronze medal",
-    no_medal: "Gold is {t}",
-    out_of_fuel: "Out of fuel",
-    drive_over: "Drive over",
-    study_more: "Study a bit more to fill the tank again.",
-    fuel_waits: "The fuel you didn\u2019t use waits for next time.",
-    time_driven: "Time in the city",
-    notes: "Sticky notes",
-    crates: "Seed crates",
-    jumps: "Stunt jumps",
-    visits: "Friends visited",
-    best_trial: "Best trial",
-    back: "Back to the garden",
-    loading: "Loading the city",
-    loading_tex: "Loading textures",
-    loading_city: "Building the city",
-    loading_trees: "Growing trees",
-    loading_props: "Placing street furniture",
-    loading_cars: "Filling the streets",
-    loading_light: "Lighting",
-    get_out: "Get out",
-    get_in: "Get in",
-    talk: "Talk",
-    enter: "Go in",
-    settings: "Settings",
-    quality: "Quality",
-    language: "Language",
-    voices: "Voices",
-    subtitles: "Subtitles",
-    q_next: "Changes on your next drive",
-    q_auto: "Auto",
-    q_low: "Low",
-    q_medium: "Medium",
-    q_high: "High",
-    q_ultra: "Ultra",
-    on: "On",
-    off: "Off",
-    close: "Close",
-    radio_off: "Radio off",
-    wanted: "Wanted",
-    busted: "Busted",
-    wasted: "Wasted",
-    cash: "coins",
-    back_on_land: "Back on dry land",
-    slow_down: "Stop the car first",
-    too_far: "Your car is too far",
-    find_car: "Walk up to it and press F",
-    place_cafe: "Caf\xE9",
-    place_shop: "Clothing shop",
-    place_garage: "Garage",
-    place_gym: "Gym",
-    place_flat: "Your flat",
-    p_leave: "Go outside",
-    p_coffee: "Order a coffee",
-    p_shop: "Look at clothes",
-    p_garage: "Cars and paint",
-    p_bag: "Hit the bag (click or J)",
-    p_desk: "Your desk",
-    p_bed: "Lie down",
-    p_mirror: "Mirror",
-    p_ring: "The ring",
-    do_coffee: "Caf\xE9 con leche",
-    do_coffee_sub: "On the house today",
-    do_desk: "Your desk",
-    do_desk_sub: "Every minute you study in Bloc fills 12 s of fuel",
-    do_bed: "Five more minutes",
-    do_bed_sub: "The city waits for you",
-    do_mirror: "Looking good",
-    do_mirror_sub: "Change clothes at the counter",
-    do_ring: "The ring opens soon",
-    do_ring_sub: "Boxing matches come with the fights update",
-    do_bag: "Jab",
-    do_bag_sub: "Click or press J to punch",
-    slot_top: "Tops",
-    slot_bottom: "Bottoms",
-    slot_shoes: "Shoes",
-    slot_hat: "Hats",
-    slot_body: "Body and hair",
-    skin: "Skin",
-    hair: "Hair",
-    hair_colour: "Hair colour",
-    body_free: "Body and hair changes are free.",
-    hair_short: "Short",
-    hair_buzz: "Buzz",
-    hair_curly: "Curly",
-    hair_long: "Long",
-    hair_bun: "Bun",
-    hair_none: "Shaved",
-    wearing: "Wearing",
-    owned: "Yours",
-    bought: "Bought: {n}",
-    no_coins: "Not enough coins yet",
-    need_house: "Needs a bigger house",
-    try_again: "That didn\u2019t work. Try again.",
-    cars: "Cars",
-    paint: "Paint",
-    driving: "Driving",
-    staff_barista: "Barista",
-    staff_clerk: "Shop assistant",
-    staff_mechanic: "Mechanic",
-    staff_coach: "Coach",
-    job_courier: "Courier job",
-    job_taxi: "Taxi job",
-    job_errand: "Errand on foot",
-    job_go: "Get to the red marker",
-    job_done: "Job done: +{n} coins at the end",
-    job_late: "Too slow, the job is off",
-    need_car: "This one needs a car",
-    need_foot: "This one is on foot",
-    passenger: "Passenger",
-    customer: "Customer",
-    jobs: "Jobs",
-    repair: "Repair the car",
-    repair_sub: "Free, dents and smoke gone",
-    repaired: "Good as new",
-    plane: "Flight school plane",
-    fly: "Fly the plane",
-    plane_keys: "W and S power, arrows to climb and dive, A and D to turn, F to get out once landed",
-    plane_touch: "Up and down to climb, left and right to turn, Drift for more power",
-    land_first: "Land and stop first",
-    crash: "Crash landing",
-    crash_sub: "The plane is back at the airport"
-  },
-  es: {
-    fuel: "gasolina",
-    fuel_notes: "{n} notas",
-    view: "C\xE1mara",
-    map: "Mapa",
-    done: "Salir",
-    sky_live: "Cielo real",
-    sky_sunset: "Atardecer",
-    sky_night: "Noche",
-    view_near: "C\xE1mara cercana",
-    view_far: "C\xE1mara lejana",
-    view_bonnet: "C\xE1mara de cap\xF3",
-    view_cockpit: "Dentro del coche",
-    view_foot: "A pie",
-    view_shoulder: "Sobre el hombro",
-    view_first: "Primera persona",
-    left: "Girar a la izquierda",
-    right: "Girar a la derecha",
-    gas: "Acelerar",
-    brake: "Frenar o marcha atr\xE1s",
-    drift: "Derrapar",
-    map_hint: "Toca para cerrar",
-    home: "Casa",
-    hint_keys: "WASD para conducir, Espacio para derrapar, F para bajar, V c\xE1mara, M mapa",
-    hint_touch: "Mant\xE9n las flechas para conducir, toca Derrapar para deslizar",
-    splash: "Al agua",
-    back_on_road: "De vuelta a la carretera",
-    stunt: "Salto",
-    air: "{s} s en el aire",
-    note: "P\xF3sit",
-    crate: "Caja de semillas",
-    crate_sub: "Una semilla gratis para tu huerto",
-    visit: "Hola, {n}",
-    visit_sub: "La visita cuenta al terminar",
-    trial_go: "\xA1Ya! Sigue los aros",
-    medal_gold: "Medalla de oro",
-    medal_silver: "Medalla de plata",
-    medal_bronze: "Medalla de bronce",
-    no_medal: "El oro es {t}",
-    out_of_fuel: "Sin gasolina",
-    drive_over: "Fin del paseo",
-    study_more: "Estudia un poco m\xE1s para llenar el dep\xF3sito.",
-    fuel_waits: "La gasolina que no usaste te espera para la pr\xF3xima.",
-    time_driven: "Tiempo en la ciudad",
-    notes: "P\xF3sits",
-    crates: "Cajas de semillas",
-    jumps: "Saltos",
-    visits: "Amigos visitados",
-    best_trial: "Mejor contrarreloj",
-    back: "Volver al huerto",
-    loading: "Cargando la ciudad",
-    loading_tex: "Cargando texturas",
-    loading_city: "Construyendo la ciudad",
-    loading_trees: "Plantando \xE1rboles",
-    loading_props: "Colocando el mobiliario",
-    loading_cars: "Llenando las calles",
-    loading_light: "Encendiendo luces",
-    get_out: "Bajar",
-    get_in: "Subir",
-    talk: "Hablar",
-    enter: "Entrar",
-    settings: "Ajustes",
-    quality: "Calidad",
-    language: "Idioma",
-    voices: "Voces",
-    subtitles: "Subt\xEDtulos",
-    q_next: "Cambia en tu pr\xF3ximo paseo",
-    q_auto: "Auto",
-    q_low: "Baja",
-    q_medium: "Media",
-    q_high: "Alta",
-    q_ultra: "Ultra",
-    on: "S\xED",
-    off: "No",
-    close: "Cerrar",
-    radio_off: "Radio apagada",
-    wanted: "Buscado",
-    busted: "Detenido",
-    wasted: "K.O.",
-    cash: "monedas",
-    back_on_land: "De vuelta en tierra",
-    slow_down: "Para el coche primero",
-    too_far: "Tu coche est\xE1 lejos",
-    find_car: "Ac\xE9rcate y pulsa F",
-    place_cafe: "Cafeter\xEDa",
-    place_shop: "Tienda de ropa",
-    place_garage: "Taller",
-    place_gym: "Gimnasio",
-    place_flat: "Tu piso",
-    p_leave: "Salir",
-    p_coffee: "Pedir un caf\xE9",
-    p_shop: "Ver ropa",
-    p_garage: "Coches y pintura",
-    p_bag: "Golpear el saco (clic o J)",
-    p_desk: "Tu escritorio",
-    p_bed: "Tumbarte",
-    p_mirror: "Espejo",
-    p_ring: "El ring",
-    do_coffee: "Caf\xE9 con leche",
-    do_coffee_sub: "Hoy invita la casa",
-    do_desk: "Tu escritorio",
-    do_desk_sub: "Cada minuto que estudias en Bloc llena 12 s de gasolina",
-    do_bed: "Cinco minutos m\xE1s",
-    do_bed_sub: "La ciudad te espera",
-    do_mirror: "Qu\xE9 bien te queda",
-    do_mirror_sub: "C\xE1mbiate de ropa en el mostrador",
-    do_ring: "El ring abre pronto",
-    do_ring_sub: "Los combates llegan con la actualizaci\xF3n de peleas",
-    do_bag: "Directo",
-    do_bag_sub: "Clic o J para golpear",
-    slot_top: "Arriba",
-    slot_bottom: "Abajo",
-    slot_shoes: "Zapatos",
-    slot_hat: "Gorras",
-    slot_body: "Cuerpo y pelo",
-    skin: "Piel",
-    hair: "Pelo",
-    hair_colour: "Color de pelo",
-    body_free: "Cambiar cuerpo y pelo es gratis.",
-    hair_short: "Corto",
-    hair_buzz: "Rapado",
-    hair_curly: "Rizado",
-    hair_long: "Largo",
-    hair_bun: "Mo\xF1o",
-    hair_none: "Calvo",
-    wearing: "Puesto",
-    owned: "Tuyo",
-    bought: "Comprado: {n}",
-    no_coins: "A\xFAn no tienes monedas suficientes",
-    need_house: "Necesitas una casa m\xE1s grande",
-    try_again: "No ha funcionado. Int\xE9ntalo otra vez.",
-    cars: "Coches",
-    paint: "Pintura",
-    driving: "En uso",
-    staff_barista: "Camarera",
-    staff_clerk: "Dependiente",
-    staff_mechanic: "Mec\xE1nico",
-    staff_coach: "Entrenador",
-    job_courier: "Reparto",
-    job_taxi: "Taxi",
-    job_errand: "Recado a pie",
-    job_go: "Ve al marcador rojo",
-    job_done: "Hecho: +{n} monedas al terminar",
-    job_late: "Demasiado lento, se cancela",
-    need_car: "Este necesita coche",
-    need_foot: "Este es a pie",
-    passenger: "Pasajera",
-    customer: "Cliente",
-    jobs: "Trabajos",
-    repair: "Reparar el coche",
-    repair_sub: "Gratis, sin abolladuras ni humo",
-    repaired: "Como nuevo",
-    plane: "Avioneta de la escuela",
-    fly: "Pilotar la avioneta",
-    plane_keys: "W y S potencia, flechas para subir y bajar, A y D para girar, F para bajar al aterrizar",
-    plane_touch: "Arriba y abajo para subir y bajar, izquierda y derecha para girar, Derrapar para m\xE1s potencia",
-    land_first: "Aterriza y para primero",
-    crash: "Aterrizaje forzoso",
-    crash_sub: "La avioneta vuelve al aeropuerto"
-  }
-};
-var LANG = { v: "en" };
-function initLang(fromApp) {
-  let l = null;
-  try {
-    l = localStorage.getItem("bloc:city:lang");
-  } catch (e) {
-  }
-  LANG.v = l === "es" || l === "en" ? l : fromApp === "es" || /^es\b/i.test(navigator.language || "") ? "es" : "en";
-}
-function T3(k, vars) {
-  let s = S3[LANG.v] && S3[LANG.v][k] || S3.en[k] || k;
-  if (vars) for (const v in vars) s = s.replace("{" + v + "}", vars[v]);
-  return s;
-}
 
 // game/foot.js
 var FOOT_VIEWS = ["foot", "shoulder", "first"];
@@ -84696,7 +84981,7 @@ var Sheets = class {
     this.close();
     const el = document.createElement("div");
     el.className = "bc-sheet";
-    el.innerHTML = `<div class="bc-sheet-in" role="dialog" aria-label="${esc(title)}"><div class="bc-sheet-h"><b>${esc(title)}</b><span class="bc-coins"></span><button type="button" class="bc-btn" data-x>${T3("close")}</button></div><div class="bc-sheet-b">${body}</div><p class="bc-sheet-msg" aria-live="polite"></p></div>`;
+    el.innerHTML = `<div class="bc-sheet-in" role="dialog" aria-label="${esc(title)}"><div class="bc-sheet-h"><b>${esc(title)}</b><span class="bc-coins"></span><button type="button" class="bc-btn" data-x>${T2("close")}</button></div><div class="bc-sheet-b">${body}</div><p class="bc-sheet-msg" aria-live="polite"></p></div>`;
     el.addEventListener("click", (e) => {
       if (e.target === el || e.target.closest("[data-x]")) this.close();
     });
@@ -84706,35 +84991,35 @@ var Sheets = class {
     return el;
   }
   coins() {
-    if (this.el && this.farm) this.el.querySelector(".bc-coins").textContent = this.farm.coins + " " + T3("cash");
+    if (this.el && this.farm) this.el.querySelector(".bc-coins").textContent = this.farm.coins + " " + T2("cash");
   }
   say(t2) {
     if (this.el) this.el.querySelector(".bc-sheet-msg").textContent = t2;
   }
   err(e) {
-    this.say(e.message === "coins" ? T3("no_coins") : e.message === "house" ? T3("need_house") : T3("try_again"));
+    this.say(e.message === "coins" ? T2("no_coins") : e.message === "house" ? T2("need_house") : T2("try_again"));
   }
   /* ---- the clothing shop ---- */
   async shop(tab = "top") {
-    const el = this.frame(T3("place_shop"), `<div class="bc-tabs" role="tablist"></div><div class="bc-grid"></div>`);
+    const el = this.frame(T2("place_shop"), `<div class="bc-tabs" role="tablist"></div><div class="bc-grid"></div>`);
     try {
       await this.load();
     } catch (e) {
       this._err = String(e);
-      this.say(T3("try_again"));
+      this.say(T2("try_again"));
       return;
     }
     const tabs = ["top", "bottom", "shoes", "hat", "body"];
     const draw = () => {
       this.coins();
-      el.querySelector(".bc-tabs").innerHTML = tabs.map((t2) => `<button type="button" role="tab" aria-selected="${t2 === tab}" data-tab="${t2}">${T3("slot_" + t2)}</button>`).join("");
+      el.querySelector(".bc-tabs").innerHTML = tabs.map((t2) => `<button type="button" role="tab" aria-selected="${t2 === tab}" data-tab="${t2}">${T2("slot_" + t2)}</button>`).join("");
       const f = this.farm, cat = this.cat, grid = el.querySelector(".bc-grid");
       if (tab === "body") {
-        grid.innerHTML = `<h4>${T3("skin")}</h4><div class="bc-sw">${cat.skins.map((c) => `<button type="button" aria-label="${c}" aria-pressed="${f.avatar.skin === c}" data-skin="${c}" style="background:${c}"></button>`).join("")}</div><h4>${T3("hair")}</h4><div class="bc-chips">${cat.hairs.map((h) => `<button type="button" aria-pressed="${f.avatar.hair === h}" data-hair="${h}">${T3("hair_" + h)}</button>`).join("")}</div><h4>${T3("hair_colour")}</h4><div class="bc-sw">${cat.hairColors.map((c) => `<button type="button" aria-label="${c}" aria-pressed="${f.avatar.hairC === c}" data-hairc="${c}" style="background:${c}"></button>`).join("")}</div><p class="bc-free">${T3("body_free")}</p>`;
+        grid.innerHTML = `<h4>${T2("skin")}</h4><div class="bc-sw">${cat.skins.map((c) => `<button type="button" aria-label="${c}" aria-pressed="${f.avatar.skin === c}" data-skin="${c}" style="background:${c}"></button>`).join("")}</div><h4>${T2("hair")}</h4><div class="bc-chips">${cat.hairs.map((h) => `<button type="button" aria-pressed="${f.avatar.hair === h}" data-hair="${h}">${T2("hair_" + h)}</button>`).join("")}</div><h4>${T2("hair_colour")}</h4><div class="bc-sw">${cat.hairColors.map((c) => `<button type="button" aria-label="${c}" aria-pressed="${f.avatar.hairC === c}" data-hairc="${c}" style="background:${c}"></button>`).join("")}</div><p class="bc-free">${T2("body_free")}</p>`;
       } else {
         grid.innerHTML = cat.outfits.filter((x) => x.slot === tab).map((x) => {
           const own = f.wardrobe.includes(x.id), wearing = f.outfit[x.slot] === x.id;
-          return `<button type="button" class="bc-item${wearing ? " on" : ""}" data-id="${x.id}"><i style="background:${x.kind === "none" ? "transparent" : x.c}"></i><span>${esc(x.name)}</span><small>${wearing ? T3("wearing") : own ? T3("owned") : x.price + " " + T3("cash")}</small></button>`;
+          return `<button type="button" class="bc-item${wearing ? " on" : ""}" data-id="${x.id}"><i style="background:${x.kind === "none" ? "transparent" : x.c}"></i><span>${esc(x.name)}</span><small>${wearing ? T2("wearing") : own ? T2("owned") : x.price + " " + T2("cash")}</small></button>`;
         }).join("");
       }
     };
@@ -84753,7 +85038,7 @@ var Sheets = class {
       try {
         await this.act(body);
         this.g.setLook(this.farm.look || this.lookOf(this.farm));
-        this.say(it2 && !it2.price ? "" : it2 ? T3("bought", { n: it2.name }) : "");
+        this.say(it2 && !it2.price ? "" : it2 ? T2("bought", { n: it2.name }) : "");
         draw();
       } catch (x) {
         this.err(x);
@@ -84762,11 +85047,11 @@ var Sheets = class {
   }
   /* ---- the garage ---- */
   async garage() {
-    const el = this.frame(T3("place_garage"), `<button type="button" class="bc-item" data-fix><span>${T3("repair")}</span><small>${T3("repair_sub")}</small></button><h4>${T3("cars")}</h4><div class="bc-grid cars"></div><h4>${T3("paint")}</h4><div class="bc-sw paint"></div>`);
+    const el = this.frame(T2("place_garage"), `<button type="button" class="bc-item" data-fix><span>${T2("repair")}</span><small>${T2("repair_sub")}</small></button><h4>${T2("cars")}</h4><div class="bc-grid cars"></div><h4>${T2("paint")}</h4><div class="bc-sw paint"></div>`);
     try {
       await this.load();
     } catch (e) {
-      this.say(T3("try_again"));
+      this.say(T2("try_again"));
       return;
     }
     const draw = () => {
@@ -84774,7 +85059,7 @@ var Sheets = class {
       const f = this.farm, cat = this.cat;
       el.querySelector(".cars").innerHTML = cat.cars.map((c) => {
         const own = f.cars.includes(c.id), on2 = f.car === c.id, locked = !own && f.house < c.house;
-        return `<button type="button" class="bc-item${on2 ? " on" : ""}" data-car="${c.id}"${locked ? " disabled" : ""}><span>${esc(c.name)}</span><small>${on2 ? T3("driving") : own ? T3("owned") : locked ? T3("need_house") : c.cost + " " + T3("cash")}</small></button>`;
+        return `<button type="button" class="bc-item${on2 ? " on" : ""}" data-car="${c.id}"${locked ? " disabled" : ""}><span>${esc(c.name)}</span><small>${on2 ? T2("driving") : own ? T2("owned") : locked ? T2("need_house") : c.cost + " " + T2("cash")}</small></button>`;
       }).join("");
       el.querySelector(".paint").innerHTML = cat.colors.map((c) => `<button type="button" aria-label="${c}" aria-pressed="${f.color === c}" data-c="${c}" style="background:${c}"></button>`).join("");
     };
@@ -84782,7 +85067,7 @@ var Sheets = class {
     el.addEventListener("click", async (e) => {
       if (e.target.closest("[data-fix]")) {
         this.g.car.repair();
-        this.say(T3("repaired"));
+        this.say(T2("repaired"));
         return;
       }
       const car = e.target.closest("[data-car]"), col = e.target.closest("[data-c]");
@@ -85368,7 +85653,7 @@ var Game = class {
   }
   /* ---------- HUD ---------- */
   buildHud() {
-    const r = this.root, t2 = T3, coarse = matchMedia("(pointer: coarse)").matches;
+    const r = this.root, t2 = T2, coarse = matchMedia("(pointer: coarse)").matches;
     const el = document.createElement("div");
     el.className = "bc-hud";
     el.innerHTML = `<div class="bc-top"><div class="bc-panel bc-fuel"><b class="bc-f">0:00</b><span class="bc-sub">${t2("fuel")}</span><div class="bc-bar"><i></i></div></div><div class="bc-btns"><button type="button" class="bc-btn" data-k="view">${t2("view")}</button><button type="button" class="bc-btn" data-k="sky">${t2("sky_live")}</button><button type="button" class="bc-btn" data-k="q">${t2("quality")}: ${t2("q_" + qNow())}</button><button type="button" class="bc-btn" data-k="map">${t2("map")}</button><button type="button" class="bc-btn x" data-k="exit">${t2("done")}</button></div></div><canvas class="bc-mini" width="320" height="320" aria-hidden="true"></canvas><div class="bc-place"></div><div class="bc-trial" hidden></div><div class="bc-msg"></div><button type="button" class="bc-act" data-k="act" hidden></button><div class="bc-speed"><b>0</b><span>km/h</span></div><div class="bc-touch${coarse ? " on" : ""}"><div class="bc-pad"><button type="button" class="bc-key" data-in="left" aria-label="${t2("left")}">\u25C0</button><button type="button" class="bc-key" data-in="right" aria-label="${t2("right")}">\u25B6</button></div><div class="bc-pad"><button type="button" class="bc-key small" data-in="hand">${t2("drift")}</button><button type="button" class="bc-key" data-in="down" aria-label="${t2("brake")}">\u25BC</button><button type="button" class="bc-key" data-in="up" aria-label="${t2("gas")}">\u25B2</button></div></div><div class="bc-map"><canvas></canvas><p>${t2("map_hint")}</p></div><div class="bc-fade"></div>`;
@@ -85411,8 +85696,8 @@ var Game = class {
       if (next === "auto") localStorage.removeItem("bloc:city:autocap");
     } catch (e) {
     }
-    b.textContent = T3("quality") + ": " + T3("q_" + next);
-    this.say(T3("quality") + ": " + T3("q_" + next), T3("q_next"));
+    b.textContent = T2("quality") + ": " + T2("q_" + next);
+    this.say(T2("quality") + ": " + T2("q_" + next), T2("q_next"));
   }
   cycleSky() {
     const modes = ["live", "sunset", "night"], i = (modes.indexOf(this.sky.mode) + 1) % 3;
@@ -85422,7 +85707,7 @@ var Game = class {
       localStorage.setItem("bloc:city:sky", modes[i]);
     } catch (e) {
     }
-    this.ui.sky.textContent = T3("sky_" + modes[i]);
+    this.ui.sky.textContent = T2("sky_" + modes[i]);
   }
   say(big, small) {
     const m = this.ui.msg;
@@ -85459,6 +85744,7 @@ var Game = class {
     else if (this.mode === "plane") this.updatePlane(dt2);
     else this.updateFoot(dt2);
     this.updateCrowd(dt2);
+    if (this.police && !this.rooms.inside) this.police.update(dt2);
     this.pickups();
     this.prompt();
     this.hud(dt2);
@@ -85485,6 +85771,7 @@ var Game = class {
       hit: (p, sp) => {
         this.cam.shake = Math.min(0.3, sp / 40);
         if (this.audio) this.audio.hit(sp * 0.5);
+        if (this.police) this.police.crime("hit", p.x, p.z);
       },
       up: (p) => T22.say(p, T22.pick("up", p.voice))
     });
@@ -85539,7 +85826,8 @@ var Game = class {
                 this.audio.hit(-vn);
                 this.audio.honk();
               }
-              this.talk.remark({ x: o.x, z: o.z, voice: Math.random() < 0.5 ? "f" : "m", i: null }, "rage");
+              this.talk.remark({ x: o.x, z: o.z, voice: Math.random() < 0.5 ? "f" : "m", i: null }, o.type === "police" ? "cop_chase" : "rage");
+              if (o.type === "police" && this.police) this.police.crime("ram", car.x, car.z);
             }
           }
           o.v = 0;
@@ -85560,7 +85848,7 @@ var Game = class {
     if (!car.air && this.world.inWater(car.x, car.z, car.y)) {
       this.ui.fade.classList.add("on");
       car.place(this.safe.x, this.safe.z, this.safe.h, sampleHeight(this.plan.height, this.safe.x, this.safe.z));
-      this.say(T3("splash"), T3("back_on_road"));
+      this.say(T2("splash"), T2("back_on_road"));
       setTimeout(() => this.ui.fade.classList.remove("on"), 380);
     } else if (!car.air && Math.abs(car.vf || 0) > 2 && this.world.surface(car.x, car.z, car.y).road) this.safe = { x: car.x, z: car.z, h: car.h };
     car.sync();
@@ -85587,7 +85875,7 @@ var Game = class {
       this.ui.fade.classList.add("on");
       const sf = f.safe || { x: car.x + 2, z: car.z, a: car.h };
       f.place(sf.x, sf.z, sf.a);
-      this.say(T3("splash"), T3("back_on_land"));
+      this.say(T2("splash"), T2("back_on_land"));
       setTimeout(() => this.ui.fade.classList.remove("on"), 380);
     }
     f.sync(dt2);
@@ -85640,7 +85928,7 @@ var Game = class {
     const res = P3.step(dt2, keys, pitchIn, touch);
     if (res === "crash") {
       this.ui.fade.classList.add("on");
-      this.say(T3("crash"), T3("crash_sub"));
+      this.say(T2("crash"), T2("crash_sub"));
       if (this.audio) this.audio.hit(25);
       const h = this.planeHome;
       P3.place(h.x, h.z, h.yaw, sampleHeight(this.plan.height, h.x, h.z));
@@ -85657,7 +85945,7 @@ var Game = class {
     this.foot.group.visible = false;
     this.fcam.active = false;
     this.pcam.init = false;
-    this.say(T3("plane"), T3(this.ui.el.querySelector(".bc-touch.on") ? "plane_touch" : "plane_keys"));
+    this.say(T2("plane"), T2(this.ui.el.querySelector(".bc-touch.on") ? "plane_touch" : "plane_keys"));
     if (this.audio) this.audio.duck(false);
   }
   leavePlane(crashed) {
@@ -85673,21 +85961,21 @@ var Game = class {
     if (!crashed && this.audio) this.audio.duck(true);
   }
   nextView() {
-    if (this.mode === "car") this.say(T3("view_" + this.cam.next()));
-    else this.say(T3("view_" + this.fcam.next()));
+    if (this.mode === "car") this.say(T2("view_" + this.cam.next()));
+    else this.say(T2("view_" + this.fcam.next()));
   }
   /* F: get out of the car or back in */
   toggleCar() {
     if (this.sheets.el || this.rooms.inside) return;
     if (this.mode === "plane") {
       if (this.plane.ground && this.plane.v < 3) this.leavePlane();
-      else this.say(T3("land_first"));
+      else this.say(T2("land_first"));
       return;
     }
     const car = this.car, f = this.foot;
     if (this.mode === "car") {
       if (car.speed > 5) {
-        this.say(T3("slow_down"));
+        this.say(T2("slow_down"));
         return;
       }
       const lx = Math.cos(car.h), lz = -Math.sin(car.h);
@@ -85707,7 +85995,7 @@ var Game = class {
       if (this.audio) this.audio.duck(true);
     } else {
       if (Math.hypot(f.x - car.x, f.z - car.z) > 3.6) {
-        this.say(T3("too_far"), T3("find_car"));
+        this.say(T2("too_far"), T2("find_car"));
         return;
       }
       this.mode = "car";
@@ -85740,9 +86028,9 @@ var Game = class {
         this.fade();
       } else if (s.act === "shop") this.sheets.shop();
       else if (s.act === "garage") this.sheets.garage();
-      else if (s.act === "coffee") this.talk.say(null, this.talk.pick("barista"), { name: T3("staff_barista") });
-      else if (s.act === "bag") this.talk.say(null, this.talk.pick("coach"), { name: T3("staff_coach") });
-      else this.say(T3("do_" + s.act), T3("do_" + s.act + "_sub"));
+      else if (s.act === "coffee") this.talk.say(null, this.talk.pick("barista"), { name: T2("staff_barista") });
+      else if (s.act === "bag") this.talk.say(null, this.talk.pick("coach"), { name: T2("staff_coach") });
+      else this.say(T2("do_" + s.act), T2("do_" + s.act + "_sub"));
       return;
     }
     const d = this.rooms.near(f.x, f.z);
@@ -85762,14 +86050,14 @@ var Game = class {
       f.indoor = r;
       const staff = { cafe: "barista", shop: "clerk", garage: "mechanic", gym: "coach" }[d.id];
       if (staff) setTimeout(() => {
-        if (this.rooms.inside) this.talk.say(null, this.talk.pick(staff), { name: T3("staff_" + staff) });
+        if (this.rooms.inside) this.talk.say(null, this.talk.pick(staff), { name: T2("staff_" + staff) });
       }, 900);
       f.place(r.o.x, r.o.z - r.D / 2 + 1.2, 0, r.o.y);
       this.fcam.init = false;
       this.fcam.placed = false;
       this.fcam.yaw = 0;
       this.fade();
-      this.say(T3("place_" + d.id));
+      this.say(T2("place_" + d.id));
     }
   }
   contextAct() {
@@ -85795,34 +86083,34 @@ var Game = class {
     const keys = !this.ui.el.querySelector(".bc-touch.on");
     if (this.mode === "car") {
       if (this.car.speed < 5) {
-        label2 = T3("get_out");
+        label2 = T2("get_out");
         a = "car";
       }
     } else if (this.mode === "plane") {
       if (this.plane.ground && this.plane.v < 3) {
-        label2 = T3("get_out");
+        label2 = T2("get_out");
         a = "car";
       }
     } else if (this.rooms.inside) {
       const s = this.rooms.spotAt(this.foot.x, this.foot.z);
       if (s) {
-        label2 = T3("p_" + s.act);
+        label2 = T2("p_" + s.act);
         a = "use";
       }
     } else {
       const d = this.rooms.near(this.foot.x, this.foot.z);
       if (d) {
-        label2 = T3("enter") + ": " + T3("place_" + d.id);
+        label2 = T2("enter") + ": " + T2("place_" + d.id);
         a = "use";
       } else if (this.plane.ground && Math.hypot(this.plane.x - this.foot.x, this.plane.z - this.foot.z) < 7) {
-        label2 = T3("fly");
+        label2 = T2("fly");
         a = "use";
       } else if (this.crowd && !this.talk.convo && this.crowd.nearest(this.foot.x, this.foot.z)) {
         const p = this.crowd.nearest(this.foot.x, this.foot.z);
-        label2 = T3("talk") + ": " + this.talk.nameOf(p);
+        label2 = T2("talk") + ": " + this.talk.nameOf(p);
         a = "use";
       } else if (Math.hypot(this.foot.x - this.car.x, this.foot.z - this.car.z) < 3.6) {
-        label2 = T3("get_in");
+        label2 = T2("get_in");
         a = "car";
       }
     }
@@ -85853,7 +86141,7 @@ var Game = class {
     const id = this.car.jumpId;
     if (this.result.jumps.indexOf(id) < 0) this.result.jumps.push(id);
     const first = (this.data.jumps || []).indexOf(id) < 0;
-    this.say(T3("stunt"), T3("air", { s: airT.toFixed(1) }) + (first ? ", +100" : ""));
+    this.say(T2("stunt"), T2("air", { s: airT.toFixed(1) }) + (first ? ", +100" : ""));
     if (this.audio) this.audio.chime(1320);
   }
   pickups() {
@@ -85868,7 +86156,7 @@ var Game = class {
         this.result.notes.push(i);
         this.coinsRun += 3;
         if (A2) A2.chime(1046);
-        this.say(T3("note"), "+3");
+        this.say(T2("note"), "+3");
       }
     }
     for (let i = 0; i < this.crates.length; i++) {
@@ -85882,7 +86170,7 @@ var Game = class {
           A2.chime(784);
           setTimeout(() => A2.chime(1175), 120);
         }
-        this.say(T3("crate"), T3("crate_sub"));
+        this.say(T2("crate"), T2("crate_sub"));
       }
     }
     for (const h of this.homes) {
@@ -85891,13 +86179,13 @@ var Game = class {
         this.visited.add(h.id);
         this.result.visits.push(h.id);
         if (A2) A2.chime(988);
-        this.say(T3("visit", { n: String(h.name).split(" ")[0] }), T3("visit_sub"));
+        this.say(T2("visit", { n: String(h.name).split(" ")[0] }), T2("visit_sub"));
       }
     }
     if (!this.trial) {
       for (const t2 of this.trials) if (this.driven - this.trialEnd > 4 && Math.hypot(t2.pts[0][0] - car.x, t2.pts[0][1] - car.z) < 7.5) {
         this.trial = { t: t2, i: 1, at: this.driven };
-        this.say(t2.name, T3("trial_go"));
+        this.say(t2.name, T2("trial_go"));
         if (A2) A2.chime(660);
         this.placeCp();
         break;
@@ -85911,7 +86199,7 @@ var Game = class {
           const ms = Math.round((this.driven - this.trial.at) * 1e3), t2 = this.trial.t;
           const medal = ms <= t2.gold ? "gold" : ms <= t2.silver ? "silver" : ms <= t2.bronze ? "bronze" : null;
           if (!this.result.trial || (this.result.trial.id === t2.id ? ms < this.result.trial.ms : true)) this.result.trial = { id: t2.id, ms };
-          this.say(t2.name + ": " + fmtMs(ms), medal ? T3("medal_" + medal) : T3("no_medal", { t: fmtMs(t2.gold) }));
+          this.say(t2.name + ": " + fmtMs(ms), medal ? T2("medal_" + medal) : T2("no_medal", { t: fmtMs(t2.gold) }));
           this.trial = null;
           this.trialEnd = this.driven;
           this.cp.visible = false;
@@ -85938,17 +86226,17 @@ var Game = class {
         if (foot === inCar) {
           if (!this.jobHint || this.driven - this.jobHint > 6) {
             this.jobHint = this.driven;
-            this.say(T3("job_" + j2.type), T3(foot ? "need_foot" : "need_car"));
+            this.say(T2("job_" + j2.type), T2(foot ? "need_foot" : "need_car"));
           }
           continue;
         }
         const limit = foot ? j2.d / 2.6 + 25 : j2.d / 11 + 35;
         this.job = { j: j2, at: this.driven, limit };
         this.placeJobs();
-        this.say(T3("job_" + j2.type) + ", " + j2.pay + " " + T3("cash"), T3("job_go"));
+        this.say(T2("job_" + j2.type) + ", " + j2.pay + " " + T2("cash"), T2("job_go"));
         if (j2.type === "taxi") {
           this.job.voice = Math.random() < 0.5 ? "f" : "m";
-          setTimeout(() => this.talk.say(null, this.talk.pick("taxi_in", this.job && this.job.voice), { name: T3("passenger") }), 700);
+          setTimeout(() => this.talk.say(null, this.talk.pick("taxi_in", this.job && this.job.voice), { name: T2("passenger") }), 700);
         }
         if (this.audio) this.audio.chime(740);
         break;
@@ -85958,19 +86246,19 @@ var Game = class {
     const J = this.job, j = J.j, left = J.limit - (this.driven - J.at);
     if (!this.trial) {
       this.ui.trial.hidden = false;
-      this.ui.trial.textContent = T3("job_" + j.type) + "  " + fmt(left) + "  " + Math.round(Math.hypot(j.b[0] - pos.x, j.b[1] - pos.z)) + " m";
+      this.ui.trial.textContent = T2("job_" + j.type) + "  " + fmt(left) + "  " + Math.round(Math.hypot(j.b[0] - pos.x, j.b[1] - pos.z)) + " m";
     }
     if (left <= 0) {
       this.job = null;
       this.placeJobs();
       this.ui.trial.hidden = true;
-      this.say(T3("job_late"));
+      this.say(T2("job_late"));
       return;
     }
     if (Math.hypot(j.b[0] - pos.x, j.b[1] - pos.z) < 6 && j.type === "errand" !== inCar) {
       this.result.jobs.push({ id: j.id, ms: Math.round((this.driven - J.at) * 1e3) });
-      this.say(T3("job_done", { n: j.pay }));
-      this.talk.say(null, this.talk.pick(j.type === "taxi" ? "taxi_out" : "job_done", J.voice), { name: T3(j.type === "taxi" ? "passenger" : "customer") });
+      this.say(T2("job_done", { n: j.pay }));
+      this.talk.say(null, this.talk.pick(j.type === "taxi" ? "taxi_out" : "job_done", J.voice), { name: T2(j.type === "taxi" ? "passenger" : "customer") });
       if (this.audio) {
         this.audio.chime(988);
         setTimeout(() => this.audio.chime(1319), 140);
@@ -85995,7 +86283,7 @@ var Game = class {
     return fo ? { x: fo.x, z: fo.z, h: fo.a, speed: 0 } : { x: this.foot.x, z: this.foot.z, h: this.foot.a, speed: this.foot.speed };
   }
   hud(dt2) {
-    const U2 = this.ui, car = this.me(), t2 = T3;
+    const U2 = this.ui, car = this.me(), t2 = T2;
     U2.speedBox.style.display = this.mode === "foot" ? "none" : "";
     U2.mini.style.display = U2.place.style.display = this.rooms.inside ? "none" : "";
     U2.speed.textContent = Math.round(car.speed * 3.6);
@@ -86130,13 +86418,13 @@ var Game = class {
       if (!this.crateTaken.has(i)) pin(p.x, p.z, "#C98A50");
     });
     this.trials.forEach((t2) => pin(t2.pts[0][0], t2.pts[0][1], "#FFE14D", t2.name));
-    this.rooms.doors.forEach((d) => pin(d.x, d.z, "#FFFFFF", T3("place_" + d.id)));
-    pin(this.plane.x, this.plane.z, "#C9A0FF", T3("plane"));
-    if (this.job) pin(this.job.j.b[0], this.job.j.b[1], "#FF5A5F", T3("job_" + this.job.j.type));
+    this.rooms.doors.forEach((d) => pin(d.x, d.z, "#FFFFFF", T2("place_" + d.id)));
+    pin(this.plane.x, this.plane.z, "#C9A0FF", T2("plane"));
+    if (this.job) pin(this.job.j.b[0], this.job.j.b[1], "#FF5A5F", T2("job_" + this.job.j.type));
     else this.jobs.forEach((j) => {
-      if (!this.result.jobs.some((r) => r.id === j.id)) pin(j.a[0], j.a[1], "#7CE3FF", T3("job_" + j.type) + " " + j.pay);
+      if (!this.result.jobs.some((r) => r.id === j.id)) pin(j.a[0], j.a[1], "#7CE3FF", T2("job_" + j.type) + " " + j.pay);
     });
-    this.homes.forEach((h) => pin(h.x, h.z, h.me ? "#FFE14D" : "#9ADAFF", h.me ? T3("home") : String(h.name).split(" ")[0]));
+    this.homes.forEach((h) => pin(h.x, h.z, h.me ? "#FFE14D" : "#9ADAFF", h.me ? T2("home") : String(h.name).split(" ")[0]));
     const me = this.me(), [a, b] = P3(me.x, me.z);
     g2.save();
     g2.translate(a, b);
@@ -86162,7 +86450,7 @@ var Game = class {
     this.showEnd(reason);
   }
   showEnd(reason) {
-    const t2 = T3, r = this.result, card2 = document.createElement("div");
+    const t2 = T2, r = this.result, card2 = document.createElement("div");
     card2.className = "bc-end";
     card2.innerHTML = `<div class="bc-card"><h2>${reason === "fuel" ? t2("out_of_fuel") : t2("drive_over")}</h2><p>${reason === "fuel" ? t2("study_more") : t2("fuel_waits")}</p><ul><li><span>${t2("time_driven")}</span><b>${fmt(this.driven)}</b></li><li><span>${t2("notes")}</span><b>${r.notes.length}</b></li><li><span>${t2("crates")}</span><b>${r.crates.length}</b></li>` + (r.jumps.length ? `<li><span>${t2("jumps")}</span><b>${r.jumps.length}</b></li>` : "") + (r.visits.length ? `<li><span>${t2("visits")}</span><b>${r.visits.length}</b></li>` : "") + (r.jobs.length ? `<li><span>${t2("jobs")}</span><b>${r.jobs.length}</b></li>` : "") + (r.trial ? `<li><span>${t2("best_trial")}</span><b>${fmtMs(r.trial.ms)}</b></li>` : "") + `</ul><button type="button">${t2("back")}</button></div>`;
     this.ui.el.appendChild(card2);
@@ -86364,6 +86652,25 @@ var Audio2 = class {
       o.stop(t2 + 0.32);
     }
   }
+  /* a two-tone wail that gets louder as the patrol gets closer */
+  siren(dist2) {
+    if (!this.ctx) return;
+    const c = this.ctx, t2 = c.currentTime;
+    if (!this.sir) {
+      const o = c.createOscillator(), g2 = c.createGain(), f = c.createBiquadFilter();
+      o.type = "sawtooth";
+      f.type = "bandpass";
+      f.frequency.value = 1100;
+      f.Q.value = 1.4;
+      g2.gain.value = 0;
+      o.connect(f).connect(g2).connect(this.sfx);
+      o.start();
+      this.sir = { o, g: g2 };
+    }
+    const vol = dist2 > 260 ? 0 : Math.min(0.11, 0.11 * (1 - dist2 / 260) + 0.01);
+    this.sir.g.gain.setTargetAtTime(vol, t2, 0.2);
+    if (vol > 0) this.sir.o.frequency.setTargetAtTime(Math.floor(t2 / 0.55) % 2 ? 960 : 720, t2, 0.06);
+  }
   honk() {
     if (!this.ctx || performance.now() - (this.lastHonk || 0) < 900) return;
     this.lastHonk = performance.now();
@@ -86550,7 +86857,7 @@ async function boot() {
   RAW.on = Q4.get("ktx") === "raw" || /swiftshader|llvmpipe/i.test(gpu) || localStorage.getItem("bloc:city:safe") === "1";
   const start = await startP;
   initLang(start.lang);
-  progress(0.05, T3("loading"));
+  progress(0.05, T2("loading"));
   const saved = localStorage.getItem("bloc:city:q");
   const preset = Q4.get("preset") || (saved && saved !== "auto" && PRESETS[saved] ? saved : detectPreset({ webgpu, gpu }));
   const P3 = PRESETS[preset];
@@ -86560,11 +86867,11 @@ async function boot() {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   const scene = new Scene();
   const camera = new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.25, P3.far + 4e3);
-  progress(0.08, T3("loading_tex"));
+  progress(0.08, T2("loading_tex"));
   await loadIndex();
   const tiers = tiersFor(preset);
   if (Q4.get("notex") !== "1") await Promise.all(["ground", "wall", "roof"].map((g2) => loadSet(renderer, g2, tiers[0])));
-  progress(0.3, T3("loading_city"));
+  progress(0.3, T2("loading_city"));
   const plan = await planP || makePlan();
   await tick();
   const sky = new SkySystem(renderer, scene, preset);
@@ -86594,7 +86901,7 @@ async function boot() {
     game.safe = { x: a[0], z: a[1], h: a[2] || 0 };
   }
   game.car.sync();
-  progress(0.4, T3("loading_city"));
+  progress(0.4, T2("loading_city"));
   const warmAt = new Vector3(game.car.x, game.car.y, game.car.z);
   if (freeCam) {
     const c = freeCam.split(",").map(Number);
@@ -86604,17 +86911,17 @@ async function boot() {
   await tick();
   const inst = new Instancer(scene);
   if (Q4.get("trees") !== "0") {
-    progress(0.55, T3("loading_trees"));
+    progress(0.55, T2("loading_trees"));
     await Promise.all(["bark", "leaf"].map((g2) => loadSet(renderer, g2, tiers[0])));
     setupTrees(renderer, inst, plan, P3);
     await tick();
   }
   if (Q4.get("props") !== "0") {
-    progress(0.65, T3("loading_props"));
+    progress(0.65, T2("loading_props"));
     const propsP = setupProps(renderer, inst, plan, P3, TEST ? (f) => progress(0.65 + f * 0.15) : null).catch((e) => console.warn("props", e));
     if (TEST) await propsP;
   }
-  progress(0.82, T3("loading_cars"));
+  progress(0.82, T2("loading_cars"));
   if (Q4.get("parked") !== "0") {
     setupParked(inst, plan, P3);
     for (const t2 of inst.types) if (t2.id.startsWith("parked-")) for (const cells of t2.grid.values()) for (const it2 of cells) game.world.collide.addBox(it2.x, it2.z, 0.95, 2.15, -it2.r, it2.y + 1.6);
@@ -86624,6 +86931,7 @@ async function boot() {
     game.traffic = new Traffic(scene, plan, P3.cars);
     game.traffic.init(game.car.x, game.car.z);
     game.traffic.buildLights(scene);
+    game.police = new Police(game, game.traffic, scene);
   }
   if (Q4.get("view")) game.cam.mode = Q4.get("view");
   if (Q4.get("plane")) {
@@ -86646,7 +86954,7 @@ async function boot() {
       game.interact();
     }
   }
-  progress(0.92, T3("loading_light"));
+  progress(0.92, T2("loading_light"));
   sky.update(Date.now(), camera.position, rain);
   fogCol.value.copy(sky.fogColor);
   if (Q4.get("notex") !== "1") for (const t2 of tiers.slice(1)) for (const g2 of ["ground", "wall", "roof", "bark", "leaf"]) loadSet(renderer, g2, t2).catch(() => {
