@@ -186,11 +186,17 @@ export class Crowd {
         if (p.punchT > 0) p.punchT -= dt;
       } else if (p.state === 'flee') {
         const sp = 4.6; p.x += Math.sin(p.fleeH) * sp * dt; p.z += Math.cos(p.fleeH) * sp * dt; p.h += angDiff(p.fleeH, p.h) * Math.min(1, dt * 8);
+        /* run around buildings, not through them */
+        if (this.collide) { const q = { x: p.x, z: p.z }; if (this.collide.resolve(q, 0.3, p.y + 0.9, { x: 0, z: 0 }) > 0.02) { p.x = q.x; p.z = q.z; p.fleeH += (p.i % 2 ? 1 : -1) * dt * 3; } }
         p.y = sampleHeight(this.plan.height, p.x, p.z) + 0.12;
         if (p.t > (p.fleeFor || 1.6)) { p.state = 'walk'; p.fleeFor = 0; this.snap(p); }
       } else if (p.state === 'down') {
         p.fall = Math.min(1, p.fall + dt * 3);
-        if (p.t > 3.2) { p.state = 'walk'; p.fall = 0; this.snap(p); if (hooks.up) hooks.up(p); }
+        if (p.t > (p.downFor || 3.2)) {
+          /* shot with blood on: they're taken away (a new person walks in somewhere else); otherwise they get up */
+          if (p.gone) { p.alive = false; p.gone = false; p.downFor = 0; }
+          else { p.state = p.downFor ? 'flee' : 'walk'; p.fleeFor = p.downFor ? 5 : 0; p.t = 0; p.downFor = 0; p.fall = 0; if (p.state === 'walk') this.snap(p); if (hooks.up) hooks.up(p); }
+        }
       }
       /* step around the player on foot */
       if (me && p.state !== 'down') { const dx = p.x - me.x, dz = p.z - me.z, dd = Math.hypot(dx, dz); if (dd < 0.75 && dd > 1e-3) { p.x = me.x + dx / dd * 0.75; p.z = me.z + dz / dd * 0.75; if (hooks.bump && p.state === 'walk' && this.R() < dt * 3) hooks.bump(p); } }
@@ -216,6 +222,28 @@ export class Crowd {
     if (p.hp <= 0) { p.state = 'down'; p.t = 0; p.fall = 0; p.fallDir = Math.atan2(fx, fz) + Math.PI; p.hp = 3; p.anger = 0; return 'down'; }
     if (p.state === 'fight') { p.x += fx * 0.35; p.z += fz * 0.35; return 'hit'; }
     p.state = 'stagger'; p.t = 0; return 'hit';
+  }
+  /* a bullet hit p for dmg from direction (fx, fz). blood: whether the player has blood on (they stay down) */
+  shoot(p, dmg, fx, fz, blood) {
+    if (p.state === 'down') { if (blood) p.downFor = Math.max(p.downFor || 0, p.t + 10); return 'down'; }
+    p.life = (p.life == null ? 100 : p.life) - dmg; p.kx = fx; p.kz = fz;
+    if (p.life <= 0) {
+      p.state = 'down'; p.t = 0; p.fall = 0; p.fallDir = Math.atan2(fx, fz) + Math.PI; p.life = 100; p.anger = 0;
+      p.downFor = blood ? 18 : 6; p.gone = !!blood; p.fleeH = Math.atan2(fx, fz);
+      return 'down';
+    }
+    p.state = 'flee'; p.t = 0; p.fleeH = Math.atan2(fx, fz) + (this.R() - 0.5); p.fleeFor = 6;
+    return 'hit';
+  }
+  /* gunfire at (x, z): everyone within r runs away from it */
+  panic(x, z, r, each) {
+    for (const p of this.people) {
+      if (!p.alive || p.state === 'down') continue;
+      const dx = p.x - x, dz = p.z - z, d = Math.hypot(dx, dz); if (d > r) continue;
+      if (p.state !== 'flee' && each) each(p);
+      if (p.partner) { p.partner.partner = null; p.partner = null; }
+      p.state = 'flee'; p.t = 0; p.fleeH = Math.atan2(dx, dz) + (this.R() - 0.5) * 0.8; p.fleeFor = 4 + this.R() * 4;
+    }
   }
   /* someone in front of you, close enough to hit */
   inReach(x, z, a, r = 1.15) {

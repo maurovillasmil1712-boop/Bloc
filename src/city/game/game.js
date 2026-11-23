@@ -12,6 +12,7 @@ import { T as TEXT } from './i18n.js';
 import { OnFoot, FootCam } from './foot.js';
 import { Interiors } from './interiors.js';
 import { Sheets } from './sheets.js';
+import { Arms } from './arms.js';
 import { Talk } from './talk.js';
 import { Plane, PlaneCam } from '../actors/plane.js';
 import { Human } from '../actors/human.js';
@@ -55,8 +56,9 @@ export class Game {
     this.foot = new OnFoot(this.world, d.look);
     this.foot.group.visible = false; this.scene.add(this.foot.group);
     this.fcam = new FootCam(this.camera, this.root);
-    this.rooms = new Interiors(this.scene, this.plan, this.homes);
+    this.rooms = new Interiors(this.scene, this.plan, this.homes, this.native);
     this.sheets = new Sheets(this, !!ctx.test);
+    this.arms = new Arms(this);
     this.talk = new Talk(this); this.remarkT = 4; this.timeScale = 1;
     if (!ctx.test) this.friends = new Friends(this);
     /* the radio and its wheel: hold Q (or tap Radio), pick a station, let go */
@@ -190,6 +192,7 @@ export class Game {
     this.world.wet = U.wet.value;
     if (this.radio && this.audio.ctx) { const v = this.mode !== 'foot' && !this.rooms.inside; if (v !== this.radio.inVehicle || !this.radio.bus) this.radio.setVehicle(v); }
     if (this.mode === 'car') this.updateCar(dt); else if (this.mode === 'plane') this.updatePlane(dt); else this.updateFoot(dt);
+    if (this.arms) this.arms.update(dt);
     this.updateCrowd(dt);
     if (this.police && !this.rooms.inside) this.police.update(dt);
     if (this.friends) this.friends.update(dt);
@@ -288,6 +291,7 @@ export class Game {
     if (this.hp != null && this.hp < 100 && !this.bout && this.koT <= 0) this.hp = Math.min(100, this.hp + dt * 4);
     f.guard = !!this.bout || (this.crowd && this.crowd.people.some((p) => p.state === 'fight' && Math.hypot(p.x - f.x, p.z - f.z) < 4));
     f.sync(dt);
+    if (this.arms) this.arms.pose();
     this.fcam.update(dt, f, (x, z, y) => {
       if (this.rooms.inside) { const r = this.rooms.inside.room; return Math.abs(x - r.o.x) > r.W / 2 - 0.2 || Math.abs(z - r.o.z) > r.D / 2 - 0.2 || y > r.o.y + r.h - 0.2; }
       const p = { x, z }; return this.world.collide.resolve(p, 0.2, y, { x: 0, z: 0 }) > 0;
@@ -384,6 +388,8 @@ export class Game {
         this.fade();
       } else if (s.act === 'shop') this.sheets.shop();
       else if (s.act === 'garage') this.sheets.garage();
+      else if (s.act === 'arms') this.sheets.arms();
+      else if (s.act === 'lane') this.say(TEXT('p_lane'), this.arms.own.length ? TEXT('aim_hint') : TEXT('no_arms_sub'));
       else if (s.act === 'coffee') this.talk.say(null, this.talk.pick('barista'), { name: TEXT('staff_barista') });
       else if (s.act === 'bag') this.talk.say(null, this.talk.pick('coach'), { name: TEXT('staff_coach') });
       else if (s.act === 'ring') { if (this.native) this.say(TEXT('do_ring'), TEXT('web_only')); else this.startBout(); }
@@ -397,6 +403,7 @@ export class Game {
       const r = this.rooms.enter(d); f.indoor = r;
       const staff = { cafe: 'barista', shop: 'clerk', garage: 'mechanic', gym: 'coach' }[d.id];
       if (staff) setTimeout(() => { if (this.rooms.inside) this.talk.say(null, this.talk.pick(staff), { name: TEXT('staff_' + staff) }); }, 900);
+      if (d.id === 'arms') setTimeout(() => { if (this.rooms.inside) this.say(TEXT('place_arms'), TEXT('p_arms') + ', ' + TEXT('p_lane').toLowerCase()); }, 900);
       f.place(r.o.x, r.o.z - r.D / 2 + 1.2, 0, r.o.y);
       this.fcam.init = false; this.fcam.placed = false; this.fcam.yaw = 0;
       this.fade(); this.say(TEXT('place_' + d.id));
@@ -465,16 +472,18 @@ export class Game {
   /* you got hit: lose health; at zero you're knocked out (no coins lost) */
   hurt(n, by) {
     if (this.mode !== 'foot' || this.koT > 0) return;
+    if (this.arms) n = this.arms.absorb(n);
     this.hp = Math.max(0, (this.hp == null ? 100 : this.hp) - n); this.hpShow = 4;
     this.cam.shake = 0.2; this.fcam.lastLook = -10; if (this.audio) this.audio.hit(6);
     if (this.hp <= 0) {
       this.koT = 3; this.ui.fade.classList.add('on'); this.say(TEXT('ko'), TEXT('ko_sub'));
       if (by && this.talk) this.talk.say(by, this.talk.pick('fight_win', by.voice));
+      if (this.police && this.police.stars > 0) setTimeout(() => this.police.busted(), 1200);
       setTimeout(() => { this.hp = 100; this.ui.fade.classList.remove('on'); if (this.crowd) for (const p of this.crowd.people) if (p.state === 'fight') { p.state = 'walk'; this.crowd.snap(p); } if (this.bout) this.endBout(false); }, 1600);
     }
   }
   punch() {
-    if (this.mode !== 'foot' || this.sheets.el) return;
+    if (this.mode !== 'foot' || this.sheets.el || (this.arms && this.arms.cur)) return;
     if (!this.foot.human.punch()) return;
     const f = this.foot;
     /* combat is website only (off in the iPhone app) */
@@ -510,7 +519,7 @@ export class Game {
     if (b.textContent !== text) b.textContent = text;
     b.dataset.a = a; if (b.hidden) b.hidden = false;
   }
-  setLook(look) { this.foot.human.setLook(look); this.data.look = look; }
+  setLook(look) { this.foot.human.setLook(look); this.data.look = look; if (this.arms) this.arms.rehand(); }
   setCar(id, color) {
     const old = this.car, type = { hatch: 'hatch', buggy: 'buggy', van: 'van', gt: 'gt' }[id] || 'hatch';
     const c = new Vehicle(type, color, this.world);

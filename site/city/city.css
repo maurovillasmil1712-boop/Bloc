@@ -93,3 +93,20 @@ html,body{margin:0;height:100%;background:#0B0E14;overflow:hidden;overscroll-beh
 .bc-wheel-mid{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;max-width:160px}
 .bc-wheel-mid b{display:block;font-size:18px}.bc-wheel-mid small{display:block;font-size:12px;opacity:.75;margin-top:4px}
 .bc-label.friend{background:#FFE14D;color:#191D29}
+/* v7.3 weapons: crosshair, ammo, armour, the fire button, the range panel */
+.bc-cross{position:absolute;left:50%;top:50%;width:26px;height:26px;transform:translate(-50%,-50%);pointer-events:none;transition:width .12s ease-out,height .12s ease-out}
+.bc-cross i{position:absolute;background:#fff;box-shadow:0 0 2px rgba(0,0,0,.8)}
+.bc-cross i:nth-child(1),.bc-cross i:nth-child(2){left:50%;width:2px;height:7px;margin-left:-1px}.bc-cross i:nth-child(1){top:0}.bc-cross i:nth-child(2){bottom:0}
+.bc-cross i:nth-child(3),.bc-cross i:nth-child(4){top:50%;height:2px;width:7px;margin-top:-1px}.bc-cross i:nth-child(3){left:0}.bc-cross i:nth-child(4){right:0}
+.bc-cross.aim{width:14px;height:14px}.bc-cross.aim i{background:#FFE14D}
+.bc-ammo{position:absolute;right:max(14px,env(safe-area-inset-right));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 70px);background:rgba(14,16,22,.62);color:#fff;border-radius:12px;padding:8px 12px;display:flex;flex-direction:column;align-items:flex-end;pointer-events:none}
+.bc-ammo b{font-size:13px}.bc-ammo span{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
+.bc-hud:has(.bc-touch.on) .bc-ammo{bottom:auto;top:calc(max(12px,env(safe-area-inset-top)) + 96px)}
+.bc-ap{height:4px;background:rgba(255,255,255,.16);border-radius:2px;margin-top:4px;overflow:hidden}
+.bc-ap i{display:block;height:100%;width:100%;background:#7CC4FF}
+.bc-fire-pad{display:none;position:absolute;right:max(14px,env(safe-area-inset-right));bottom:84px;flex-direction:column;align-items:center}
+.bc-fire-pad.on{display:flex}
+.bc-arm .bc-stats{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;align-items:center;width:100%;margin-top:4px}
+.bc-item .bc-stat{display:block;height:4px;border-radius:2px;background:#E6E8ED;overflow:hidden;font-style:normal}
+.bc-item .bc-stat i{display:block;height:100%;width:auto;border:0;border-radius:0;background:#191D29}
+.bc-blood p{margin:0 0 8px;font-size:13px;color:#3A3F4B}

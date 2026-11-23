@@ -3,6 +3,7 @@
 import * as THREE from 'three/webgpu';
 import { positionWorld, floor, mod, mix, vec3, float, step, fract } from 'three/tsl';
 import { Human } from '../actors/human.js';
+import { gunMesh } from '../actors/guns.js';
 import { homeLot, sampleHeight } from '../world/plan.js';
 
 export const PLACES = [
@@ -10,6 +11,7 @@ export const PLACES = [
   { id: 'shop', w: 15, d: 12, near: [-455, -40] },
   { id: 'garage', w: 16, d: 14, near: [-610, 330] },
   { id: 'gym', w: 18, d: 14, near: [-210, 240] },
+  { id: 'arms', w: 14, d: 22, near: [-60, -260], web: true },
   { id: 'flat', w: 13, d: 10, near: null }
 ];
 const M = new Map();
@@ -183,14 +185,50 @@ function buildFlat(r) {
   r.spots.push({ x: 3.6, z: 3.4, r: 1.2, act: 'desk' });
   r.spots.push({ x: 4.9, z: -1.2, r: 1.2, act: 'bed' });
 }
-const BUILD = { cafe: buildCafe, shop: buildShop, garage: buildGarage, gym: buildGym, flat: buildFlat };
+/* Bullseye Range: a counter with the weapons on the wall, and three lanes with paper targets at the back */
+function buildArms(r) {
+  r.shell('concrete', '#3B3F45', '#2A2D32', 3.6);
+  const W = r.W, D = r.D, steel = mat('#2E3238', 0.4, 0.7), wood = mat('#5A4030', 0.6), black = mat('#141518', 0.5), yellow = mat('#FFE14D', 0.6);
+  const peg = mat('#B9A27A', 0.9), paper = mat('#F1ECE0', 0.9), ink = mat('#191D29', 0.8), red = mat('#C8383C', 0.8);
+  /* the counter on the left, a pegboard with guns behind it */
+  r.box(4.6, 1.0, 0.8, wood, -3.6, 0, -4.2); r.box(4.7, 0.05, 0.9, mat('#2B2D31', 0.3, 0.2), -3.6, 1.0, -4.2, false);
+  r.box(0.05, 1.8, 5.2, peg, -W / 2 + 0.04, 1.0, -4.2, false);
+  for (const [i, k] of ['pistol', 'smg', 'shotgun', 'rifle'].entries()) {
+    const gm = gunMesh(k); gm.scale.setScalar(1.35); gm.rotation.set(0, Math.PI / 2, 0); gm.position.set(-W / 2 + 0.12, 2.45 - i * 0.42, -4.6 + (k === 'pistol' ? 0.3 : 0)); r.group.add(gm);
+  }
+  /* glass case under the counter top */
+  r.box(4.4, 0.02, 0.6, mat('#9FC6D8', 0.05, 0.1, { transparent: true, opacity: 0.35 }), -3.6, 0.96, -4.2, false);
+  /* the firing line: booths with a yellow line, lanes behind */
+  const line = 1.2;
+  r.box(W, 0.01, 0.12, yellow, 0, 0.005, line, false);
+  for (const x of [-W / 2 + 0.1, -2.35, 2.35, W / 2 - 0.1]) r.box(0.1, 2.2, 1.4, black, x, 0, line - 0.6, false);
+  r.box(W, 0.95, 0.35, wood, 0, 0, line + 0.2);
+  for (const x of [-4.7, 0, 4.7]) { r.box(0.04, 0.01, D / 2 - 2.5, mat('#55585E', 0.8), x - 1.6, 0.005, line + (D / 2 - line) / 2 + 0.6, false); }
+  /* targets on hanging frames, they swing when hit */
+  r.targets = [];
+  for (const [i, x] of [-4.7, 0, 4.7].entries()) {
+    const z = D / 2 - 1.6 - i * 1.6, pivot = new THREE.Group(); pivot.position.set(x, 2.9, z); r.group.add(pivot);
+    const rod = new THREE.Mesh(new THREE.BoxGeometry(0.02, 1.0, 0.02), steel); rod.position.y = -0.5; pivot.add(rod);
+    const sheet = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.2, 0.02), paper); sheet.position.y = -1.6; sheet.castShadow = true; pivot.add(sheet);
+    for (const [rr, m] of [[0.4, ink], [0.31, paper], [0.22, ink], [0.13, paper], [0.06, red]]) { const ring = new THREE.Mesh(new THREE.CircleGeometry(rr, 28), m); ring.position.set(0, -1.6, -0.012 - (0.45 - rr) * 0.006); ring.rotation.y = Math.PI; pivot.add(ring); }
+    r.targets.push({ x, y: 1.3, z, w: 0.9, h: 1.2, pivot, a: 0, v: 0 });
+  }
+  /* the back wall: rubber baffles */
+  for (let i = 0; i < 7; i++) r.box(W, 0.3, 0.25, mat('#1B1C1F', 0.95), 0, 0.4 + i * 0.45, D / 2 - 0.2, false);
+  for (const z of [-6, -2]) for (const x of [-3, 3]) r.light(x, 3.4, z, '#F6F3EA', 10, 9);
+  for (const x of [-4.7, 0, 4.7]) r.light(x, 3.3, D / 2 - 3, '#FFFFFF', 12, 9);
+  r.spots.push({ x: -3.6, z: -3.2, r: 1.3, act: 'arms' });
+  r.spots.push({ x: 0, z: line - 0.7, r: 1.2, act: 'lane' });
+}
+const BUILD = { cafe: buildCafe, shop: buildShop, garage: buildGarage, gym: buildGym, flat: buildFlat, arms: buildArms };
 
 export class Interiors {
-  constructor(scene, plan, homes) {
+  constructor(scene, plan, homes, native) {
     this.scene = scene; this.plan = plan; this.rooms = new Map(); this.inside = null;
     this.doors = [];
     const used = new Set();
     for (const [i, p] of PLACES.entries()) {
+      if (p.web && native) continue;
       let lot = null;
       if (p.id === 'flat') { const me = homes.find((h) => h.me); if (me) lot = me.lot || homeLot(plan, me.id, me.loc); }
       else {
@@ -232,6 +270,7 @@ export class Interiors {
     if (!this.inside) return;
     const r = this.inside.room;
     for (const h of r.extra) h.animate(dt, { speed: 0 });
+    if (r.targets) for (const t of r.targets) { t.v += (-t.a * 18 - t.v * 2.2) * dt; t.a += t.v * dt; t.pivot.rotation.x = t.a; }
     if (r.bags) for (const b of r.bags) { b.vx += (-b.ax * 14 - b.vx * 1.2) * dt; b.vz += (-b.az * 14 - b.vz * 1.2) * dt; b.ax += b.vx * dt; b.az += b.vz * dt; b.pivot.rotation.set(b.az, 0, -b.ax); }
   }
   hitBag(x, z, dirx, dirz) {

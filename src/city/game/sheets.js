@@ -1,6 +1,7 @@
 /* The panels inside places: the clothing shop (clothes, body, hair) and the garage (cars and paint).
    Purchases go to POST /api/farm/act; the server checks coins and ownership. ?test=1 works offline. */
 import { T } from './i18n.js';
+import { FAKE_ARMS } from './arms.js';
 
 const FAKE = {
   outfits: [
@@ -36,6 +37,12 @@ export class Sheets {
       if (body.a === 'avatar') Object.assign(f.avatar, Object.fromEntries(Object.entries(body).filter(([k]) => k !== 'a')));
       if (body.a === 'car') { const c = cat.cars.find((x) => x.id === body.id); if (!f.cars.includes(c.id)) { if (f.coins < c.cost) throw new Error('coins'); f.coins -= c.cost; f.cars.push(c.id); } f.car = c.id; }
       if (body.a === 'color') f.color = body.c;
+      if (body.a === 'arm' || body.a === 'armour' || body.a === 'gore') {
+        const A = f.arms = f.arms || { own: this.g.arms.own.slice(), armour: this.g.arms.armour, blood: false, asked: false };
+        if (body.a === 'arm') { const w = FAKE_ARMS.find((x) => x.id === body.id); if (!A.own.includes(w.id)) { if (f.coins < w.price) throw new Error('coins'); f.coins -= w.price; A.own.push(w.id); } }
+        if (body.a === 'armour' && !A.armour) { if (f.coins < 1200) throw new Error('coins'); f.coins -= 1200; A.armour = true; }
+        if (body.a === 'gore') { A.asked = !!body.on; A.blood = false; }
+      }
       f.look = this.lookOf(f); return f;
     }
     const r = await fetch('/api/farm/act', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-MyIB': '1' }, body: JSON.stringify(body) });
@@ -88,6 +95,53 @@ export class Sheets {
       const it = b.dataset.id && this.cat.outfits.find((x) => x.id === b.dataset.id);
       try { await this.act(body); this.g.setLook(this.farm.look || this.lookOf(this.farm)); this.say(it && !it.price ? '' : it ? T('bought', { n: it.name }) : ''); draw(); }
       catch (x) { this.err(x); }
+    });
+  }
+  /* ---- Bullseye Range: weapons, armour and the blood setting (website only) ---- */
+  async arms() {
+    const A = this.g.arms;
+    if (A.off) { this.g.say(T('web_arms')); return; }
+    const el = this.frame(T('arms_title'), `<h4>${T('arms_weapons')}</h4><div class="bc-grid arms"></div><h4>${T('arms_armour')}</h4><div class="bc-grid armour"></div><h4>${T('arms_blood')}</h4><div class="bc-blood"></div>`);
+    try { await this.load(); } catch (e) { this.say(T('try_again')); return; }
+    const cat = (this.g.data.cat && this.g.data.cat.arms) || FAKE_ARMS, price = (this.g.data.cat && this.g.data.cat.armour) || 1200;
+    const bar = (v) => `<em class="bc-stat"><i style="width:${Math.round(Math.max(0.08, Math.min(1, v)) * 100)}%"></i></em>`;
+    const draw = () => {
+      this.coins();
+      const f = this.farm, fa = f.arms || { own: A.own, armour: A.armour, blood: A.blood, asked: false }, own = fa.own || [], gore = { asked: fa.asked, ok: fa.blood };
+      el.querySelector('.arms').innerHTML = cat.map((w) => {
+        const have = own.includes(w.id), dps = w.dmg * (w.pellets || 1) / w.rate;
+        return `<button type="button" class="bc-item bc-arm${have ? ' on' : ''}" data-arm="${w.id}"><span>${esc(w.name)}</span>` +
+          `<small>${have ? T('arms_owned_draw') : T('arms_buy', { p: w.price })}</small>` +
+          `<span class="bc-stats"><small>${T('arms_dmg')}</small>${bar(w.dmg * (w.pellets || 1) / 110)}<small>${T('arms_rate')}</small>${bar(dps / 320)}<small>${T('arms_range')}</small>${bar(w.range / 120)}</span></button>`;
+      }).join('');
+      const armour = !!fa.armour;
+      el.querySelector('.armour').innerHTML = `<button type="button" class="bc-item${armour ? ' on' : ''}" data-armour><span>${T('arms_armour')}</span><small>${armour ? T('arms_owned') : T('arms_buy', { p: price })}</small><small>${T('arms_armour_sub')}</small></button>`;
+      const b = el.querySelector('.bc-blood');
+      if (gore.ok && gore.asked) b.innerHTML = `<p>${T('arms_blood_on')}</p><button type="button" class="bc-btn" data-gore="0">${T('arms_blood_stop')}</button>`;
+      else if (gore.asked) b.innerHTML = `<p>${T('arms_blood_wait')}</p><button type="button" class="bc-btn" data-gore="0">${T('arms_blood_stop')}</button>`;
+      else b.innerHTML = `<p>${T('arms_blood_off')}</p><button type="button" class="bc-btn" data-gore="1">${T('arms_blood_ask')}</button>`;
+    };
+    draw();
+    el.addEventListener('click', async (e) => {
+      const w = e.target.closest('[data-arm]'), ar = e.target.closest('[data-armour]'), go = e.target.closest('[data-gore]');
+      if (!w && !ar && !go) return;
+      if (go && go.dataset.gore === '1' && !go.dataset.armed) { go.dataset.armed = '1'; go.textContent = T('arms_confirm'); return; }
+      try {
+        if (w) {
+          const it = cat.find((x) => x.id === w.dataset.arm), had = A.own.includes(it.id);
+          await this.act({ a: 'arm', id: it.id });
+          if (!A.own.includes(it.id)) A.own.push(it.id);
+          A.mag[it.id] = it.mag;
+          this.say(had ? T('arms_equip') : T('bought', { n: it.name }));
+        } else if (ar) {
+          await this.act({ a: 'armour' }); if (!A.armour) { A.armour = true; A.refill(); this.say(T('bought', { n: T('arms_armour') })); }
+        } else {
+          await this.act({ a: 'gore', on: go.dataset.gore === '1' });
+          /* turning it off takes effect now; turning it on waits for the admin (and the next drive) */
+          if (go.dataset.gore !== '1') A.blood = false;
+        }
+        draw();
+      } catch (x) { this.err(x); }
     });
   }
   /* ---- the garage ---- */

@@ -93,6 +93,41 @@ export class Audio {
     const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1800; f.connect(g); g.connect(this.sfx);
     for (const fr of [392, 494]) { const o = c.createOscillator(); o.type = 'square'; o.frequency.value = fr; o.connect(f); o.start(t); o.stop(t + 0.42); }
   }
+  /* a gunshot made from noise: a sharp crack, a body thump and a tail that rings off the buildings.
+     kind changes the colour (pistol, smg, shotgun, rifle); dist (m) makes far shots duller and quieter. */
+  shot(kind = 'pistol', dist = 0) {
+    if (!this.ctx) return;
+    const c = this.ctx, t = c.currentTime, P = { pistol: [2600, 0.45, 0.5], smg: [3400, 0.32, 0.32], shotgun: [1400, 0.75, 0.9], rifle: [3000, 0.6, 0.7] }[kind] || [2600, 0.45, 0.5];
+    const far = Math.max(0.05, 1 - dist / 320), cut = P[0] * (0.35 + 0.65 * far);
+    const crack = c.createBufferSource(), cf = c.createBiquadFilter(), cg = c.createGain();
+    crack.buffer = this.noise; cf.type = 'highpass'; cf.frequency.value = Math.min(cut, 1800) * 0.6;
+    cg.gain.setValueAtTime(0.9 * P[1] * far, t); cg.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    crack.connect(cf).connect(cg).connect(this.sfx); crack.start(t, Math.random()); crack.stop(t + 0.1);
+    const body = c.createBufferSource(), bf = c.createBiquadFilter(), bg = c.createGain();
+    body.buffer = this.noise; bf.type = 'lowpass'; bf.frequency.value = cut * 0.35;
+    bg.gain.setValueAtTime(1.1 * P[1] * far, t); bg.gain.exponentialRampToValueAtTime(0.0001, t + P[2]);
+    body.connect(bf).connect(bg).connect(this.sfx); body.start(t, Math.random()); body.stop(t + P[2] + 0.05);
+    const o = c.createOscillator(), og = c.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
+    og.gain.setValueAtTime(0.5 * P[1] * far, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.16); o.connect(og).connect(this.sfx); o.start(t); o.stop(t + 0.18);
+    /* a slap back from the street a moment later */
+    const echo = c.createBufferSource(), ef = c.createBiquadFilter(), eg = c.createGain();
+    echo.buffer = this.noise; ef.type = 'bandpass'; ef.frequency.value = 700; ef.Q.value = 0.8;
+    eg.gain.setValueAtTime(0.0001, t); eg.gain.exponentialRampToValueAtTime(0.18 * P[1] * far, t + 0.09); eg.gain.exponentialRampToValueAtTime(0.0001, t + 0.09 + P[2] * 1.4);
+    echo.connect(ef).connect(eg).connect(this.sfx); echo.start(t, Math.random()); echo.stop(t + 0.15 + P[2] * 1.4);
+  }
+  /* small mechanical sounds: reload, empty click, a bullet hitting metal */
+  click(kind = 'empty') {
+    if (!this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    const parts = kind === 'reload' ? [[0, 1400, 0.12], [0.35, 900, 0.16], [0.62, 2200, 0.14]] : kind === 'metal' ? [[0, 3200, 0.1]] : [[0, 2600, 0.08]];
+    for (const [d, f, a] of parts) {
+      const s = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain();
+      s.buffer = this.noise; bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 6;
+      g.gain.setValueAtTime(a, t + d); g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.05);
+      s.connect(bp).connect(g).connect(this.sfx); s.start(t + d, Math.random()); s.stop(t + d + 0.07);
+      if (kind === 'metal') { const o = c.createOscillator(), og = c.createGain(); o.type = 'triangle'; o.frequency.value = 1700 + Math.random() * 900; og.gain.setValueAtTime(0.05, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.25); o.connect(og).connect(this.sfx); o.start(t); o.stop(t + 0.26); }
+    }
+  }
   /* the engine fades while a menu or the map is open */
   duck(on) { if (this.eng) this.eng.gain.setTargetAtTime(on ? 0 : 0.05, this.ctx.currentTime, 0.1); }
 }

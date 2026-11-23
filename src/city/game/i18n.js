@@ -52,6 +52,31 @@ const S = {
   }
 };
 export const LANG = { v: 'en' };
+/* v7.3: weapons, the range and the blood setting */
+Object.assign(S.en, {
+  place_arms: 'Bullseye Range', p_arms: 'Weapons and armour', p_lane: 'Shooting lanes', staff_gunsmith: 'Range officer',
+  arms_title: 'Bullseye Range', arms_weapons: 'Weapons', arms_armour: 'Armour', arms_armour_sub: 'Takes most of the damage until it wears out. Refills every drive.',
+  arms_buy: '{p} coins', arms_owned: 'Yours', arms_owned_draw: 'Yours. Press G to draw it', arms_equip: 'Press G to draw it', arms_dmg: 'Damage', arms_rate: 'Fire rate', arms_range: 'Range',
+  arms_blood: 'Blood and gore', arms_blood_off: 'Off. People fall over and get back up later.', arms_blood_ask: 'I’m 16 or older: turn blood on',
+  arms_blood_wait: 'Waiting for the Bloc admin to approve it. Until then blood stays off.', arms_blood_on: 'On. You see blood in fights and shootouts.', arms_blood_stop: 'Turn blood off',
+  arms_confirm: 'Press again to confirm you are 16 or older',
+  holster: 'Fists', reload: 'Reloading', no_arms: 'No weapons yet', no_arms_sub: 'Buy one at Bullseye Range (the yellow door)', web_arms: 'Weapons are on the website only',
+  not_here: 'Not in here', not_here_sub: 'Put it away inside shops', aim_hint: 'Right mouse to aim, click to shoot, R to reload, G to switch',
+  aim_touch: 'Tap Fire to shoot', fire: 'Fire', arm: 'Weapon', down: 'Down', down_sub: 'You come round a moment later. No coins lost.', armour_hud: 'Armour',
+  target_hit: 'Hit', bullseye: 'Bullseye'
+});
+Object.assign(S.es, {
+  place_arms: 'Galería Bullseye', p_arms: 'Armas y chaleco', p_lane: 'Calles de tiro', staff_gunsmith: 'Encargado de la galería',
+  arms_title: 'Galería Bullseye', arms_weapons: 'Armas', arms_armour: 'Chaleco', arms_armour_sub: 'Aguanta casi todo el daño hasta que se gasta. Se recarga cada vez que conduces.',
+  arms_buy: '{p} monedas', arms_owned: 'Tuya', arms_owned_draw: 'Tuya. Pulsa G para sacarla', arms_equip: 'Pulsa G para sacarla', arms_dmg: 'Daño', arms_rate: 'Cadencia', arms_range: 'Alcance',
+  arms_blood: 'Sangre', arms_blood_off: 'Desactivada. La gente cae al suelo y luego se levanta.', arms_blood_ask: 'Tengo 16 años o más: activar la sangre',
+  arms_blood_wait: 'Esperando a que el admin de Bloc lo apruebe. Mientras tanto no hay sangre.', arms_blood_on: 'Activada. Verás sangre en peleas y tiroteos.', arms_blood_stop: 'Quitar la sangre',
+  arms_confirm: 'Pulsa otra vez para confirmar que tienes 16 años o más',
+  holster: 'Puños', reload: 'Recargando', no_arms: 'Aún no tienes armas', no_arms_sub: 'Compra una en la Galería Bullseye (la puerta amarilla)', web_arms: 'Las armas solo están en la web',
+  not_here: 'Aquí no', not_here_sub: 'Guárdala dentro de las tiendas', aim_hint: 'Botón derecho para apuntar, clic para disparar, R recarga, G cambia',
+  aim_touch: 'Toca Disparar', fire: 'Disparar', arm: 'Arma', down: 'Al suelo', down_sub: 'Te recuperas enseguida. No pierdes monedas.', armour_hud: 'Chaleco',
+  target_hit: 'Tocado', bullseye: 'En el centro'
+});
 export function setLang(l) { LANG.v = l === 'es' ? 'es' : 'en'; try { localStorage.setItem('bloc:city:lang', LANG.v); } catch (e) { /* private mode */ } }
 export function initLang(fromApp) {
   let l = null; try { l = localStorage.getItem('bloc:city:lang'); } catch (e) { /* private mode */ }

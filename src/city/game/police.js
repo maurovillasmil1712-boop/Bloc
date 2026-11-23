@@ -17,10 +17,13 @@ export class Police {
   get cops() { return this.tr.cars.filter((c) => c.alive && c.type === 'police'); }
   /* a crime at (x, z): only counts if a patrol is close enough to see it */
   crime(kind, x, z) {
-    const seen = kind === 'ram' || this.cops.some((c) => Math.hypot(c.x - x, c.z - z) < 95);
+    /* gunfire is heard much further away than a fight is seen; shooting someone down is worth two stars */
+    const reach = kind === 'shoot' || kind === 'kill' ? 220 : 95;
+    const seen = kind === 'ram' || this.cops.some((c) => Math.hypot(c.x - x, c.z - z) < reach);
     if (!seen) return;
     const before = this.stars;
-    this.stars = Math.min(3, this.stars + (kind === 'ram' ? 1 : 1)); this.calm = 0;
+    if (kind === 'shoot' && this.stars >= 1) { this.calm = 0; return; }
+    this.stars = Math.min(3, this.stars + (kind === 'kill' ? 2 : 1)); this.calm = 0;
     if (this.stars !== before) { this.g.say(T('wanted'), '★'.repeat(this.stars)); this.pursue(); }
   }
   pursue() {
@@ -61,6 +64,11 @@ export class Police {
       if (pen > 0.05) { c.x = p.x; c.z = p.z; c.v *= 0.92; c.h += dh > 0 ? 0.04 : -0.04; }
       c.y = W.surface(c.x, c.z, c.y + 1).y + 0.02;
       if (d < 7) closeCop = true;
+      /* at two stars or more, officers shoot at you when you're on foot and they can see you */
+      if (this.stars >= 2 && g.mode === 'foot' && g.arms && !g.arms.off && d < 34 && d > 3) {
+        c.gunT = (c.gunT == null ? 0.8 + Math.random() : c.gunT) - dt;
+        if (c.gunT <= 0) { c.gunT = 1.1 + Math.random() * 0.9; if (this.sees(c, me)) g.arms.copShot(c); }
+      }
       /* contact with your car: a nudge */
       if (g.mode === 'car' && d < 3.4 && d > 0.01) { const nx = -dx / d, nz = -dz / d; g.car.x -= nx * (3.4 - d) * 0.5; g.car.z -= nz * (3.4 - d) * 0.5; }
     }
@@ -76,6 +84,12 @@ export class Police {
     this.draw();
     const txt = this.stars ? '★'.repeat(this.stars) + '☆'.repeat(3 - this.stars) : '';
     if (this.el.textContent !== txt) { this.el.textContent = txt; this.el.classList.toggle('on', !!txt); }
+  }
+  /* a clear line from the patrol car to you (no building in between) */
+  sees(c, me) {
+    const W = this.g.world, d = Math.hypot(me.x - c.x, me.z - c.z), P = { x: 0, z: 0 };
+    for (let t = 2; t < d - 1; t += 1.5) { P.x = c.x + (me.x - c.x) * t / d; P.z = c.z + (me.z - c.z) * t / d; if (W.collide.resolve(P, 0.05, c.y + 1.3, { x: 0, z: 0 }) > 0) return false; }
+    return true;
   }
   busted() {
     const g = this.g; this.stars = 0; this.close = 0; this.calm = 0;

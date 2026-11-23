@@ -97,7 +97,8 @@ export class FootCam {
   update(dt, f, blocked) {
     const h = f.human, now = performance.now() / 1000;
     /* drift back behind you while walking, unless you looked around a moment ago */
-    if (f.speed > 0.5 && now - this.lastLook > 1.6 && this.mode !== 'first') {
+    const aim = this.aim || 0;
+    if (f.speed > 0.5 && now - this.lastLook > 1.6 && this.mode !== 'first' && aim < 0.1) {
       let d = f.a - this.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
       this.yaw += d * Math.min(1, dt * 1.6);
     }
@@ -114,8 +115,10 @@ export class FootCam {
       return;
     }
     const shoulder = this.mode === 'shoulder';
-    let dist = shoulder ? 1.7 : this.dist + Math.min(1.2, f.speed * 0.12);
-    const side = shoulder ? 0.55 : 0;
+    /* aiming: in tight over the right shoulder, narrower view */
+    let dist = (shoulder ? 1.7 : this.dist + Math.min(1.2, f.speed * 0.12)) * (1 - aim) + 1.35 * aim;
+    /* with a weapon out the camera sits over the right shoulder, so the gun hand is in view */
+    const side = this.armed ? -0.55 * (1 - aim) - 0.62 * aim : (shoulder ? 0.55 : 0) * (1 - aim) - 0.62 * aim;
     const rx = -Math.cos(this.yaw), rz = Math.sin(this.yaw);
     /* pull in when a wall is between you and the camera */
     for (let t = 0.6; t <= dist; t += 0.3) {
@@ -128,7 +131,7 @@ export class FootCam {
     this.pos.x += (tx - this.pos.x) * k; this.pos.y += (ty - this.pos.y) * k; this.pos.z += (tz - this.pos.z) * k;
     this.cam.position.copy(this.pos);
     this.cam.lookAt(head.x - rx * side * 0.9 + fx * 2, head.y - 0.05 + (shoulder ? 0.02 : 0) - Math.sin(this.pitch) * 0.6, head.z - rz * side * 0.9 + fz * 2);
-    this.setFov(dt, shoulder ? 62 : 58 + Math.min(6, f.speed));
+    this.setFov(dt, (shoulder ? 62 : 58 + Math.min(6, f.speed)) * (1 - aim) + 50 * aim);
   }
   setFov(dt, fov) { if (Math.abs(this.cam.fov - fov) > 0.05) { this.cam.fov += (fov - this.cam.fov) * Math.min(1, dt * 5); this.cam.updateProjectionMatrix(); } }
 }

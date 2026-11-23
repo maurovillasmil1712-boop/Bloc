@@ -190,7 +190,8 @@ const ROUTES = {
   'POST /api/tasks': addTask,
   'GET /api/assist': assistGet,
   'POST /api/assist': assistPost,
-  'POST /api/admin/assist': adminAssist
+  'POST /api/admin/assist': adminAssist,
+  'POST /api/admin/gore': adminGore
 };
 
 async function route(req, env, url) {
@@ -2840,6 +2841,16 @@ async function adminAssist(c) {
 }
 /* (assistant end) */
 
+/* POST /api/admin/gore {"user": id, "ok": true|false}: allow or stop blood in Bloc City for someone who
+   confirmed they are 16 or older. Approving someone who never asked does nothing until they ask. */
+async function adminGore(c) {
+  await needAdmin(c);
+  const b = await readBody(c);
+  const acct = await needAccount(c, b.user);
+  const res = await farmTx(c, acct.id, (f) => { cleanArms(f); if (b.ok === true && !f.gore.asked) return { noWrite: true, asked: false }; f.gore.ok = b.ok === true; return { asked: !!f.gore.asked }; });
+  return json({ ok: true, gore: res.farm.gore.ok, asked: res.asked });
+}
+
 /* POST /api/siri/lang {"lang": "en" | "es"}: the language Siri starts in (it follows what the student speaks after that) */
 async function siriLang(c) {
   const s = await needUser(c);
@@ -3307,7 +3318,8 @@ async function adminUsers(c) {
     c.db.prepare('SELECT user FROM chat_bans'),
     c.db.prepare('SELECT user, used_at FROM api_keys'),
     c.db.prepare('SELECT user, count, images FROM assist_usage WHERE day = ?1').bind(siriToday(c.now)),
-    c.db.prepare('SELECT user FROM assist_extra')
+    c.db.prepare('SELECT user FROM assist_extra'),
+    c.db.prepare("SELECT user, json_extract(data, '$.gore.asked') AS asked, json_extract(data, '$.gore.ok') AS ok FROM farms WHERE json_extract(data, '$.gore.asked') > 0")
   ]);
   const rows = res[0].results || [];
   const U = new Map(rows.map((r) => [r.id, r]));
@@ -3317,12 +3329,13 @@ async function adminUsers(c) {
   const K = new Map((res[4].results || []).map((r) => [r.user, r.used_at || 0]));
   const AU = new Map((res[5].results || []).map((r) => [r.user, r]));
   const AX = new Set((res[6].results || []).map((r) => r.user));
+  const GO = new Map((res[7].results || []).map((r) => [r.user, r.ok === 1 || r.ok === true ? 'ok' : 'asked']));
   function info(id, name, kind) {
     const a = U.get(id) || {}, p = P.get(id) || {};
     return {
       id, name, kind, admin: id === ADMIN, claimed: !!a.claimed, reset: !a.claimed && !!a.locked,
       created_at: a.created_at || null, last_login: a.last_login || null, plus: plusOf(id, a.plus),
-      rev: p.rev || 0, updated_at: p.updated_at || null, size: p.size || 0, avatar: A.get(id) || null, chat_off: B.has(id),
+      rev: p.rev || 0, updated_at: p.updated_at || null, size: p.size || 0, avatar: A.get(id) || null, chat_off: B.has(id), gore: GO.get(id) || null,
       /* null: no Siri key; 0: a key Siri hasn't used yet; else when Siri last used it */
       siri: K.has(id) ? K.get(id) : null,
       /* the assistant: messages today, and whether you gave them extra messages */
@@ -4415,6 +4428,24 @@ function lookOf(f) {
   for (const slot of OUTFIT_SLOTS) { const it = OUTFIT_BY.get(f.outfit[slot]); out[slot] = { kind: it.kind, c: it.c }; }
   return out;
 }
+/* Bloc City v7.3: weapons and armour, bought with coins in the city's gun shop (website only: the city hides
+   the shop inside the iPhone app). Nobody loses coins for getting shot or wasted. Blood stays off unless the
+   player confirmed they are 16 or older AND the admin approved it (f.gore = { asked, ok }). */
+const ARMS = [
+  { id: 'pistol', name: 'Pistol', price: 400, dmg: 34, rate: 0.32, mag: 12, range: 70, spread: 0.012 },
+  { id: 'smg', name: 'SMG', price: 1800, dmg: 18, rate: 0.085, mag: 30, range: 55, spread: 0.035 },
+  { id: 'shotgun', name: 'Shotgun', price: 2600, dmg: 14, rate: 0.9, mag: 6, range: 28, spread: 0.09, pellets: 8 },
+  { id: 'rifle', name: 'Rifle', price: 4500, dmg: 40, rate: 0.14, mag: 25, range: 120, spread: 0.008 }
+];
+const ARM_BY = new Map(ARMS.map((x) => [x.id, x]));
+const ARMOUR_PRICE = 1200;
+function cleanArms(f) {
+  f.arms = (Array.isArray(f.arms) ? f.arms : []).filter((id, i, a) => ARM_BY.has(id) && a.indexOf(id) === i);
+  f.armour = f.armour === true;
+  const g = f.gore && typeof f.gore === 'object' ? f.gore : {};
+  f.gore = { asked: Number(g.asked) > 0 ? Number(g.asked) : 0, ok: g.ok === true };
+}
+function armsOf(f) { cleanArms(f); return { own: f.arms.slice(), armour: f.armour, blood: !!(f.gore.asked && f.gore.ok), asked: !!f.gore.asked }; }
 /* side jobs (v7.2): same routes as placeJobs() in src/city/world/plan.js. Six are offered each day. */
 const JOBS = [
   {"id": "j0", "type": "courier", "a": [-610, 838.5], "b": [160, 948.5], "d": 778, "pay": 46},
@@ -4478,7 +4509,7 @@ function trialTimes(t) {
 function farmCatalog() {
   return {
     rarity: RARITY, species: SPECIES, houses: HOUSES, locs: LOCS, decos: DECOS, cars: CARS, colors: CAR_COLORS,
-    outfits: OUTFITS, skins: SKINS, hairs: HAIRS, hairColors: HAIR_COLORS, jobs: JOBS,
+    outfits: OUTFITS, arms: ARMS, armour: ARMOUR_PRICE, skins: SKINS, hairs: HAIRS, hairColors: HAIR_COLORS, jobs: JOBS,
     trials: TRIALS.map((t) => Object.assign({ id: t.id, name: t.name, pts: t.pts }, trialTimes(t))),
     rules: { fuelPerMin: FARM.FUEL_PER_MIN, fuelMax: FARM.FUEL_MAX, sunMax: FARM.SUN_MAX, dayCap: FARM.DAY_CAP, noteN: FARM.NOTE_N, noteCoins: FARM.NOTE_COINS, crateN: FARM.CRATE_N, jumpN: FARM.JUMP_N, starStep: FARM.STAR_STEP, starBase: FARM.STAR_BASE }
   };
@@ -4730,7 +4761,7 @@ function publicFarm(f, extra) {
   return Object.assign({
     coins: f.coins, sun: f.sun, fuel: f.fuel, seeds: f.seeds, basket: f.basket, house: f.house, locs: f.locs, deco: f.deco,
     index: f.index, stars: f.stars, cars: f.cars, car: f.car, color: f.color, best: f.best, golds: f.golds, jumps: f.jumps,
-    drive: f.drive, log: f.log.slice(0, 12), seen: f.seen || 0, look: lookOf(f),
+    drive: f.drive, log: f.log.slice(0, 12), seen: f.seen || 0, look: lookOf(f), arms: armsOf(f),
     avatar: f.avatar, wardrobe: f.wardrobe, outfit: f.outfit
   }, extra || {});
 }
@@ -4901,6 +4932,26 @@ async function farmAct(c) {
         f.coins -= it.price; f.wardrobe.push(it.id); msg = it.name;
       }
       f.outfit[it.slot] = it.id;
+    } else if (a === 'arm') {
+      /* buy a weapon (once; ammo is free) */
+      cleanArms(f);
+      const it = ARM_BY.get(b.id);
+      if (!it) throw new HttpError(400, 'arm');
+      if (!f.arms.includes(it.id)) {
+        if (f.coins < it.price) throw new HttpError(400, 'coins');
+        f.coins -= it.price; f.arms.push(it.id); msg = it.name;
+      }
+    } else if (a === 'armour') {
+      cleanArms(f);
+      if (!f.armour) {
+        if (f.coins < ARMOUR_PRICE) throw new HttpError(400, 'coins');
+        f.coins -= ARMOUR_PRICE; f.armour = true; msg = 'Armour';
+      }
+    } else if (a === 'gore') {
+      /* the player confirms they are 16+ and asks for blood; the admin still has to approve it */
+      cleanArms(f);
+      if (b.on === true) { if (!f.gore.asked) f.gore.asked = c.now; }
+      else f.gore = { asked: 0, ok: false };
     } else if (a === 'star') {
       if (f.stars >= stars.avail) throw new HttpError(400, 'no_star');
       f.stars += 1;
@@ -5086,7 +5137,7 @@ async function farmDrive(c) {
       loc: locOf.get(id) || 'oldtown', house: (hmap.get(id) || {}).house || 0, visited: f.drive.visits.includes(id) }));
     /* it rains in Bloc City when it rains on your garden */
     const weather = weatherAt(locOf.get(s.user) || 'oldtown', c.now).rain ? 1 : 0;
-    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather, look: lookOf(f), coins: f.coins, jobs: jobsToday(today).filter((id) => !(f.drive.jobs || []).includes(id)) });
+    return json({ now: c.now, run: f.run, fuel: f.fuel, car: CAR_BY.get(f.car), color: f.color, homes, drive: f.drive, jumps: f.jumps, best: f.best, golds: f.golds, cat: farmCatalog(), seed: today, weather, look: lookOf(f), arms: armsOf(f), coins: f.coins, jobs: jobsToday(today).filter((id) => !(f.drive.jobs || []).includes(id)) });
   }
   if (b.a !== 'end') throw new HttpError(400, 'action');
   const friends = await friendsOf(c, s);

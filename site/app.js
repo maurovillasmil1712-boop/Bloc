@@ -3469,6 +3469,7 @@
   }
   function adminRow(u) {
     var st = u.admin ? 'You' : u.reset ? (u.last_login ? 'Waiting for reset code' : 'Waiting for setup code') : !u.claimed ? 'No password yet' : 'Last login ' + ago(u.last_login);
+    if (u.gore === 'asked') st += ', asked for blood in Bloc City';
     var free = u.kind === 'free';
     return '<button type="button" class="row row-btn acct-row" data-act="admin-user" data-id="' + esc(u.id) + '"' + (free ? ' data-find="' + esc(norm(u.name + ' ' + u.id)) + '"' : '') + '>' + avatar(u.id, u.name, '', u.avatar) +
       '<span class="two-line"><b>' + esc(u.name) + '</b><span>' + esc((free ? '@' + u.id + ' · ' : '') + st) + '</span></span>' +
@@ -3528,6 +3529,8 @@
           u.assist.extra ? esc(u.name) + ' gets the higher daily limit for the assistant.' : 'Only after they’ve paid: the assistant’s higher daily limit (set it in Settings → AI Assistant). Bloc Plus alone doesn’t change it.') : '') +
         (u.claimed ? grp(rButton(icon('chat') + (u.chat_off ? 'Turn On Chat' : 'Turn Off Chat'), 'admin-chat', d + ' data-off="' + (u.chat_off ? '0' : '1') + '"', u.chat_off ? '' : 'danger-text'), '',
           u.chat_off ? 'Chat is off: ' + esc(u.name) + ' can read chats but can’t send messages or start chats.' : 'Stops ' + esc(u.name) + ' from sending messages or starting chats. They can still read them.') : '') +
+        (u.gore ? grp(rButton(icon('shield') + (u.gore === 'ok' ? 'Stop Blood in Bloc City' : 'Allow Blood in Bloc City'), 'admin-gore', d + ' data-on="' + (u.gore === 'ok' ? '0' : '1') + '"', u.gore === 'ok' ? 'danger-text' : ''), 'Bloc City',
+          u.gore === 'ok' ? esc(u.name) + ' sees blood in fights and shootouts on the website.' : esc(u.name) + ' confirmed they are 16 or older and asked for blood in fights and shootouts. It stays off until you allow it.') : '') +
         (u.claimed || u.reset ?
           grp((u.claimed ? rButton('Reset Password', 'admin-reset', d, 'danger') : rButton('Make a New Code', 'admin-reset', d, 'danger')) +
               (u.updated_at ? rButton('Erase Planner', 'admin-erase', d, 'danger') : ''), '',
@@ -7903,6 +7906,12 @@
       chatPost('/api/admin/chat', { user: id, off: off }, (off ? 'Chat off for ' : 'Chat on for ') + (u ? u.name : id), function () { reloadAdmin(id); })
         .then(function () { if (el.isConnected) el.disabled = false; });
     },
+    'admin-gore': function (el) {
+      var id = el.dataset.id, on = el.dataset.on === '1', u = adminUser(id);
+      el.disabled = true;
+      chatPost('/api/admin/gore', { user: id, ok: on }, (on ? 'Blood on for ' : 'Blood off for ') + (u ? u.name : id), function () { reloadAdmin(id); })
+        .then(function () { if (el.isConnected) el.disabled = false; });
+    },
     undo: function () {
       if (!undoSnap) return;
       var fromAssist = undoSnap === AS.lastSnap;
@@ -8456,7 +8465,7 @@
           '<p class="pet-note">Drive into a yellow ring to start. A medal pays coins once a day; your first gold on each route gives a rare seed.</p></section>' +
         '<section class="card farm-card" aria-labelledby="h-garage"><header class="card-head"><h2 id="h-garage">Garage</h2></header>' + grp(cars) + '<div class="car-sws" role="group" aria-label="Car colour">' + swatches + '</div></section>' +
         '<section class="card farm-card" aria-labelledby="h-keys"><header class="card-head"><h2 id="h-keys">Controls</h2></header><ul class="farm-list">' +
-          '<li><span>Drive</span><span class="hint">W A S D or the arrows</span></li><li><span>Handbrake and drift</span><span class="hint">Space</span></li><li><span>Get out, get in</span><span class="hint">F</span></li><li><span>Go in, use</span><span class="hint">E</span></li><li><span>Camera</span><span class="hint">V</span></li><li><span>Map</span><span class="hint">M</span></li><li><span>Leave</span><span class="hint">Esc</span></li></ul>' +
+          '<li><span>Drive</span><span class="hint">W A S D or the arrows</span></li><li><span>Handbrake and drift</span><span class="hint">Space</span></li><li><span>Get out, get in</span><span class="hint">F</span></li><li><span>Go in, use</span><span class="hint">E</span></li><li><span>Camera</span><span class="hint">V</span></li><li><span>Radio</span><span class="hint">Hold Q</span></li><li><span>Punch</span><span class="hint">Click or J</span></li>' + (NATIVE ? '' : '<li><span>Draw or switch weapon</span><span class="hint">G</span></li><li><span>Aim, shoot, reload</span><span class="hint">Right mouse, click, R</span></li>') + '<li><span>Map</span><span class="hint">M</span></li><li><span>Leave</span><span class="hint">Esc</span></li></ul>' +
           '<div class="row"><span>Language in the city</span><span class="seg" role="group" aria-label="Language in the city"><button type="button" data-act="city-lang" data-l="en" aria-pressed="' + (cityLang() === 'en') + '">English</button><button type="button" data-act="city-lang" data-l="es" aria-pressed="' + (cityLang() === 'es') + '">Español</button></span></div>' +
           '<p class="pet-note">On a phone: steer with the left buttons, gas and brake on the right.</p></section>' +
       '</div>';
@@ -8477,7 +8486,7 @@
   function cityLang() { var l = sget('bloc:city:lang'); return l === 'es' || l === 'en' ? l : (/^es\b/i.test(navigator.language || '') ? 'es' : 'en'); }
   function cityOpen(data) {
     var f = document.createElement('iframe'), ended = false, opener = document.activeElement;
-    f.className = 'city-frame'; f.title = 'Bloc City'; f.src = '/city/?v=7.2.0';
+    f.className = 'city-frame'; f.title = 'Bloc City'; f.src = '/city/?v=7.3.0';
     f.setAttribute('allow', 'fullscreen; gamepad; autoplay');
     function onMsg(e) {
       if (e.origin !== location.origin || e.source !== f.contentWindow || !e.data) return;

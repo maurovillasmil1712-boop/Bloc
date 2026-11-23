@@ -21,7 +21,7 @@ Made in code, no outside source: every building, road, bridge, tree, car, the sk
 
 ## Sound
 
-Stage 1 makes every sound in code with the Web Audio API (engine, tyres, wind, impacts, chimes). No recordings from anyone else.
+Stage 1 makes every sound in code with the Web Audio API (engine, tyres, wind, impacts, chimes, sirens, and since v7.3 gunshots, reloads and ricochets). No recordings from anyone else.
 
 Bloc FM plays songs by Mauro Villasmil, used with his permission on the website only. They are not in this repository.
 
