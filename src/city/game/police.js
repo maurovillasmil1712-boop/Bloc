@@ -149,7 +149,7 @@ export class Police {
           if (Math.hypot(cop.x - me.x, cop.z - me.z) < 40) g.talk.say(cop, g.talk.pick(Math.random() < 0.5 ? 'cop_lost' : 'cop_bust'), { name: T('officer') });
         } else if (!s.yelled && s.t > 2 && Math.hypot(cop.x - me.x, cop.z - me.z) < 45) { s.yelled = true; g.talk.say(cop, g.talk.pick('cop_chase'), { name: T('officer') }); }
       }
-      if (!car.alive || !cop.alive || cop.mode === 'free') { if (car.mode !== 'free') car.mode = 'lane'; s.done = true; }
+      if (!car.alive || !cop.alive || cop.mode === 'free' || car.mode === 'phys' || cop.mode === 'phys' || car.mode === 'hold') { if (car.mode !== 'free') car.mode = 'lane'; s.done = true; }
     }
     this.stops = this.stops.filter((s) => !s.done);
   }

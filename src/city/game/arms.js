@@ -221,7 +221,7 @@ export class Arms {
         const rad = 0.3 * p.scale, ox = o.x - p.x, oz = o.z - p.z, a = d.x * d.x + d.z * d.z;
         if (p.state === 'down') {
           /* lying down: a low box along the fall direction */
-          const cx = p.x - Math.sin(p.fallDir || 0) * 0.85, cz = p.z - Math.cos(p.fallDir || 0) * 0.85;
+          const sg = p.rag ? 1 : -1, cx = p.x + sg * Math.sin(p.fallDir || 0) * 0.85, cz = p.z + sg * Math.cos(p.fallDir || 0) * 0.85;
           const t = slab(o, d, cx - 0.55, p.y - 0.1, cz - 0.55, cx + 0.55, p.y + 0.3, cz + 0.55);
           if (t != null && t > t0 && t < best.t) best = { t, kind: 'person', who: p, head: false };
           continue;
@@ -231,7 +231,10 @@ export class Arms {
         const t = (-b - Math.sqrt(disc)) / a; if (t <= t0 || t >= best.t) continue;
         const y = o.y + d.y * t, top = p.y + 1.78 * p.scale;
         if (y < p.y - 0.15 || y > top) continue;
-        best = { t, kind: 'person', who: p, head: y > top - 0.27 * p.scale };
+        /* v7.9.4 hit zones: head (and neck), arms (out to the side above the hips), legs (below the hips), torso */
+        const hy = (y - p.y) / p.scale, hx = o.x + d.x * t - p.x, hz = o.z + d.z * t - p.z, lat = (hx * Math.cos(p.h) - hz * Math.sin(p.h)) / p.scale;
+        const zone = hy > 1.5 ? 'head' : hy > 0.92 ? (Math.abs(lat) > 0.17 ? 'arm' : 'torso') : 'leg';
+        best = { t, kind: 'person', who: p, head: zone === 'head', zone, side: lat > 0 ? 1 : -1 };
       }
       /* officers on foot */
       if (g.police) for (const cop of g.police.foot.list) {
@@ -283,9 +286,9 @@ export class Arms {
     }
   }
   hitPerson(hit, w, d) {
-    const g = this.g, who = hit.who, dmg = w.dmg * (hit.head ? 2.5 : 1);
+    const g = this.g, who = hit.who, dmg = w.dmg;
     const before = who.state;
-    const res = g.crowd.shoot(who, dmg, d.x, d.z, this.blood);
+    const res = g.crowd.shoot(who, dmg, d.x, d.z, this.blood, hit.zone, hit.side);
     this.bleed(hit.p, d, hit.head ? 14 : 8);
     if (res === 'down' && before !== 'down') {
       this.pool(who); g.deathNear(who);

@@ -75,6 +75,26 @@ export class Audio {
     /* a metallic ring on harder crashes */
     if (strength > 8) { const o = c.createOscillator(), og = c.createGain(); o.type = 'square'; o.frequency.value = 180 + Math.random() * 90; og.gain.setValueAtTime(0.06, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.3); o.connect(og).connect(this.sfx); o.start(t); o.stop(t + 0.32); }
   }
+  /* v7.9.4: someone dying struggles to breathe: a ragged inhale, a weak voiced exhale (made in code) */
+  gasp(vol, last) {
+    if (!this.ctx || vol < 0.02) return;
+    const c = this.ctx, t = c.currentTime;
+    const breath = (t0, dur, f0, f1, g0) => {
+      const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+      s.buffer = this.noise; f.type = 'bandpass'; f.Q.value = 1.4; f.frequency.setValueAtTime(f0, t0); f.frequency.linearRampToValueAtTime(f1, t0 + dur);
+      g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(g0, t0 + dur * 0.2);
+      for (let i = 1; i < 6; i++) g.gain.setValueAtTime(g0 * (0.35 + Math.random() * 0.65), t0 + dur * (0.2 + i * 0.13));
+      g.gain.linearRampToValueAtTime(0.0001, t0 + dur);
+      s.connect(f).connect(g).connect(this.sfx); s.start(t0, Math.random() * 1.5); s.stop(t0 + dur + 0.05);
+    };
+    if (!last) breath(t, 0.3 + Math.random() * 0.15, 1300, 2300, 0.2 * vol);
+    const t1 = t + (last ? 0 : 0.45), d1 = last ? 1.6 : 0.6;
+    breath(t1, d1, 900, 420, 0.12 * vol);
+    const o = c.createOscillator(), lp = c.createBiquadFilter(), og = c.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(105 + Math.random() * 35, t1); o.frequency.linearRampToValueAtTime(80, t1 + d1);
+    lp.type = 'lowpass'; lp.frequency.value = 520; og.gain.setValueAtTime(0.0001, t1); og.gain.linearRampToValueAtTime(0.035 * vol, t1 + 0.08); og.gain.exponentialRampToValueAtTime(0.0001, t1 + d1);
+    o.connect(lp).connect(og).connect(this.sfx); o.start(t1); o.stop(t1 + d1 + 0.05);
+  }
   /* a two-tone wail that gets louder as the patrol gets closer */
   siren(dist) {
     if (!this.ctx) return;

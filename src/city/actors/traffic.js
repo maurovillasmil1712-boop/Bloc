@@ -8,7 +8,7 @@ import { rng } from '../core/rng.js';
 
 const TYPES = ['hatch', 'sedan', 'suv', 'moto', 'hatch', 'police', 'sedan', 'van', 'taxi', 'moto', 'suv', 'hatch', 'police', 'bus'];
 const COLORS = ['#F3F4F6', '#1B1E24', '#8A9099', '#B8BCC2', '#7C1E22', '#1F3B66', '#2E4A3A', '#C9C2B0', '#E9E6DF', '#5B616B', '#A34A28', '#14161A'];
-const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S1 = new THREE.Vector3(1, 1, 1), UP = new THREE.Vector3(0, 1, 0), C = new THREE.Color();
+const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S1 = new THREE.Vector3(1, 1, 1), UP = new THREE.Vector3(0, 1, 0), C = new THREE.Color(), EU = new THREE.Euler(), V3 = new THREE.Vector3();
 
 function frame(e, s) {
   const a = along(e.dense, Math.max(0, Math.min(e.len, s))), i = Math.max(1, a.i);
@@ -32,7 +32,7 @@ export class Traffic {
     this.signalT = 0;
   }
   spawn(c, px, pz, near) {
-    c.mode = 'lane'; c.kerb = 0; c.siren = false; c.target = null; c.chaser = null; c.busStop = false; c.stopAt = undefined;
+    c.mode = 'lane'; c.roll = 0; c.rollV = 0; c.w = 0; c.wreck = false; c.kerb = 0; c.siren = false; c.target = null; c.chaser = null; c.busStop = false; c.stopAt = undefined;
     for (let tries = 0; tries < 60; tries++) {
       const e = this.edges[Math.floor(this.R() * this.edges.length)];
       const s = 10 + this.R() * Math.max(1, e.len - 20), f = frame(e, s), d = Math.hypot(f.x - px, f.z - pz);
@@ -118,7 +118,9 @@ export class Traffic {
     this.updateLights();
     const px = player.x, pz = player.z;
     for (const c of this.cars) {
-      if (c.mode === 'free' || c.mode === 'hold') continue;
+      /* hit cars slide on their own (game.js); stopped wrecks are cleared once you're far away */
+      if (c.mode === 'hold' && !c.rage && Math.hypot(c.x - px, c.z - pz) > 170) { c.roll = 0; c.rollV = 0; this.spawn(c, px, pz, true); if (c.alive) this.pose(c); continue; }
+      if (c.mode === 'free' || c.mode === 'hold' || c.mode === 'phys') continue;
       if (!c.alive || (Math.hypot(c.x - px, c.z - pz) > 430 && c.mode === 'lane')) { this.spawn(c, px, pz, true); if (c.alive) this.pose(c); continue; }
       if (c.mode === 'stop') {
         c.v = 0;
@@ -172,7 +174,13 @@ export class Traffic {
     for (const c of this.cars) {
       if (!c.alive) continue;
       const ms = this.meshes[c.type], i = counts[c.type]++;
-      Q.setFromAxisAngle(UP, c.h); P.set(c.x, c.y, c.z); M4.compose(P, Q, S1);
+      if (c.roll) {
+        /* rolled over: turn about the body's middle, and lift it so the side or roof rests on the road */
+        const T = CAR_T[c.type] || CAR_T.sedan, hc = T.H / 2, sr = Math.abs(Math.sin(c.roll)), cr = Math.abs(Math.cos(c.roll));
+        Q.setFromEuler(EU.set(0, c.h, c.roll, 'YXZ')); V3.set(0, hc, 0).applyQuaternion(Q);
+        P.set(c.x, c.y + hc + (T.W / 2) * sr + hc * cr - hc, c.z).sub(V3);
+      } else { Q.setFromAxisAngle(UP, c.h); P.set(c.x, c.y, c.z); }
+      M4.compose(P, Q, S1);
       for (const im of ms) im.setMatrixAt(i, M4);
       ms[0].setColorAt(i, C.set(c.color));
     }

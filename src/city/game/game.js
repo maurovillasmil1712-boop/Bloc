@@ -2,6 +2,7 @@
    the HUD and maps, and the report the server checks at the end. */
 import * as THREE from 'three/webgpu';
 import { Vehicle } from '../actors/vehicle.js';
+import { TYPES as CT } from '../actors/carmesh.js';
 import { ChaseCam } from './camera.js';
 import { Input } from './input.js';
 import { World } from './world.js';
@@ -239,6 +240,7 @@ export class Game {
     }
     if (this.stunts) this.stunts.update(dt);
     this.rageTick(dt);
+    this.physCars(dt);
     this.routeTick(dt);
     /* a bus at its stop near you: the driver announces it */
     if (this.traffic && !this.rooms.inside) { const me = this.me(); for (const c of this.traffic.cars) if (c.busStop && c.mode === 'stop' && !c.announced && Math.hypot(c.x - me.x, c.z - me.z) < 26) { c.announced = true; setTimeout(() => { c.announced = false; }, 20000); this.talk.say({ x: c.x, z: c.z }, this.talk.pick('bus'), { name: TEXT('bus_driver') }); } }
@@ -255,6 +257,7 @@ export class Game {
     if (this.rooms.inside) { if (!C.hidden) { for (const p of C.parts) p.m.count = 0; C.hidden = true; } return; }
     C.hidden = false;
     const car = this.car, T2 = this.talk;
+    C.gore = !!(this.arms && this.arms.blood);
     const me = this.mode === 'foot' ? { x: this.foot.x, z: this.foot.z } : null;
     const drive = this.mode === 'car' ? { x: car.x, z: car.z, vx: car.vx, vz: car.vz, speed: car.speed } : null;
     C.update(dt, me, drive, {
@@ -264,6 +267,8 @@ export class Game {
       taunt: (p) => T2.say(p, T2.pick('fight_taunt', p.voice)),
       meNow: () => this.me(),
       punchPlayer: (p) => this.hurt(12, p),
+      gasp: (p, k, last) => { if (!this.audio) return; const m = this.me(), dd = Math.hypot(p.x - m.x, p.z - m.z); if (dd < 30) this.audio.gasp(k * (1 - dd / 30), last); },
+      thud: (p) => { if (this.audio) { const m = this.me(); if (Math.hypot(p.x - m.x, p.z - m.z) < 25) this.audio.hit(2); } },
       bang: (p) => { T2.say(p, T2.pick('rage_bang', p.voice)); if (this.mode === 'car') { this.cam.shake = 0.12; if (this.audio) this.audio.hit(3); } }
     });
     C.draw(dt, this.camera);
@@ -302,7 +307,30 @@ export class Game {
       for (const v of this.parked) { const dx = car.x - v.x, dz = car.z - v.z, d = Math.hypot(dx, dz), R = myR + 1.8; if (d < R && d > 0.01) { const nx = dx / d, nz = dz / d; car.x += nx * (R - d); car.z += nz * (R - d); const vn = car.vx * nx + car.vz * nz; if (vn < 0) { car.vx -= 1.1 * vn * nx; car.vz -= 1.1 * vn * nz; car.damage(nx, nz, -vn); } } }
       for (const o of this.traffic.near(car.x, car.z, 10)) for (const [ox, oz, orr] of this.traffic.circles(o)) {
         const dx = car.x - ox, dz = car.z - oz, d = Math.hypot(dx, dz), R = myR + orr;
-        if (d < R && d > 0.01) { const nx = dx / d, nz = dz / d, pen = R - d; car.x += nx * pen; car.z += nz * pen; const vn = car.vx * nx + car.vz * nz; if (vn < 0) { car.damage(nx, nz, -vn); car.vx -= 1.1 * vn * nx; car.vz -= 1.1 * vn * nz; car.vx *= 0.9; car.vz *= 0.9; if (-vn > 4) { this.cam.shake = Math.min(0.3, -vn / 45); if (this.audio) { this.audio.hit(-vn); this.audio.honk(); } this.talk.remark({ x: o.x, z: o.z, voice: Math.random() < 0.5 ? 'f' : 'm', i: null }, o.type === 'police' ? 'cop_chase' : o.type === 'moto' ? 'biker' : o.type === 'bus' ? 'bus' : 'rage'); if (o.type === 'police' && this.police) this.police.crime('ram', car.x, car.z); if (-vn > 5) this.roadRage(o, -vn); } } o.v = 0; }
+        if (d < R && d > 0.01) {
+          const nx = dx / d, nz = dz / d, pen = R - d;
+          /* v7.9.4: a real impulse. The car you hit takes it where you hit it: pushed away, spun about its middle, and
+             on a hard side hit it can roll. Heavier cars move less (a bus barely moves). */
+          const phys = o.mode !== 'free' && o.type !== 'moto';
+          const ovx = o.mode === 'phys' ? o.pvx : Math.sin(o.h) * (o.v || 0), ovz = o.mode === 'phys' ? o.pvz : Math.cos(o.h) * (o.v || 0);
+          const m1 = car.T.mass || 1300, OT = CT[o.type] || CT.sedan, m2 = OT.mass || 1400, I2 = m2 * (OT.L * OT.L + OT.W * OT.W) / 12;
+          const sh = phys ? m2 / (m1 + m2) : 1; car.x += nx * pen * sh; car.z += nz * pen * sh; if (phys) { o.x -= nx * pen * (1 - sh); o.z -= nz * pen * (1 - sh); }
+          const vn = (car.vx - ovx) * nx + (car.vz - ovz) * nz;
+          if (vn < 0) {
+            const rx = ox + nx * orr - o.x, rz = oz + nz * orr - o.z, rn = rz * nx - rx * nz;
+            const J = -(1 + 0.25) * vn / (1 / m1 + (phys ? 1 / m2 + rn * rn / I2 : 0));
+            car.damage(nx, nz, -vn); car.vx += J * nx / m1; car.vz += J * nz / m1; car.vx *= 0.97; car.vz *= 0.97;
+            if (phys) {
+              if (o.mode !== 'phys') { o.mode = 'phys'; o.pvx = ovx; o.pvz = ovz; o.w = 0; o.roll = o.roll || 0; o.rollV = 0; if (o.target) { o.target.mode = 'lane'; o.target = null; } }
+              const Fx = -J * nx, Fz = -J * nz; o.pvx += Fx / m2; o.pvz += Fz / m2; o.w += (rz * Fx - rx * Fz) / I2; o.v = 0;
+              /* sideways shove at speed: it tips and rolls */
+              const lat = (Fx * Math.cos(o.h) - Fz * Math.sin(o.h)) / m2;
+              if (Math.abs(lat) > 7.5 && o.type !== 'bus' && !o.rollV && Math.random() < (Math.abs(lat) - 7) / 7) o.rollV = Math.sign(lat) * (3 + Math.abs(lat) * 0.3);
+            }
+          }
+          if (vn < -4) { this.cam.shake = Math.min(0.3, -vn / 45); if (this.audio) { this.audio.hit(-vn); this.audio.honk(); } this.talk.remark({ x: o.x, z: o.z, voice: Math.random() < 0.5 ? 'f' : 'm', i: null }, o.type === 'police' ? 'cop_chase' : o.type === 'moto' ? 'biker' : o.type === 'bus' ? 'bus' : 'rage'); if (o.type === 'police' && this.police) this.police.crime('ram', car.x, car.z); if (-vn > 5) this.roadRage(o, -vn); }
+          if (o.mode !== 'phys') o.v = 0;
+        }
       }
       this.traffic.update(dt, { x: car.x, z: car.z, forwardSpeed: car.vf });
     }
@@ -444,11 +472,36 @@ export class Game {
       if (this.audio) this.audio.duck(false);
     }
   }
+  /* cars that were hit: they slide (tyres grip sideways harder than they roll), spin down, bounce off walls,
+     roll over and settle on their wheels, side or roof */
+  physCars(dt) {
+    if (!this.traffic) return;
+    const W = this.world;
+    for (const o of this.traffic.cars) {
+      if (!o.alive || o.mode !== 'phys') continue;
+      const fx = Math.sin(o.h), fz = Math.cos(o.h), rx = Math.cos(o.h), rz = -Math.sin(o.h);
+      let vf = o.pvx * fx + o.pvz * fz, vl = o.pvx * rx + o.pvz * rz;
+      const rolling = !!o.rollV || Math.abs(Math.sin(o.roll || 0)) > 0.3 || Math.cos(o.roll || 0) < 0;
+      const lat = rolling ? 7 : 10, lon = rolling ? 7 : 4;
+      vl -= Math.sign(vl) * Math.min(Math.abs(vl), lat * dt); vf -= Math.sign(vf) * Math.min(Math.abs(vf), lon * dt);
+      o.pvx = fx * vf + rx * vl; o.pvz = fz * vf + rz * vl;
+      o.w *= Math.exp(-dt * (rolling ? 2.5 : 1.6)); o.h += o.w * dt;
+      o.x += o.pvx * dt; o.z += o.pvz * dt;
+      const q = { x: o.x, z: o.z }, n = { x: 0, z: 0 };
+      if (W.collide.resolve(q, 1.1, o.y + 0.8, n) > 0.01) { o.x = q.x; o.z = q.z; const vn = o.pvx * n.x + o.pvz * n.z; if (vn < 0) { o.pvx -= 1.3 * vn * n.x; o.pvz -= 1.3 * vn * n.z; o.w += vn * 0.06; } }
+      if (o.rollV) {
+        o.roll += o.rollV * dt; o.rollV *= Math.exp(-dt * 0.8);
+        if (Math.abs(o.rollV) < 2.4) { const tg = Math.round(o.roll / (Math.PI / 2)) * (Math.PI / 2); o.roll += (tg - o.roll) * Math.min(1, dt * 7); if (Math.abs(tg - o.roll) < 0.02) { o.roll = tg; o.rollV = 0; if (this.audio && Math.hypot(o.x - this.car.x, o.z - this.car.z) < 40) this.audio.hit(6); } }
+      }
+      o.y = W.surface(o.x, o.z, o.y + 1).y + 0.02;
+      if (Math.hypot(o.pvx, o.pvz) < 0.25 && Math.abs(o.w) < 0.06 && !o.rollV) { o.mode = 'hold'; o.pvx = o.pvz = 0; o.wreck = Math.abs(Math.sin(o.roll || 0)) > 0.5 || Math.cos(o.roll || 0) < 0; }
+    }
+  }
   /* ---------- road rage (v7.9.3): hit someone's car hard and they might get out and come for you ---------- */
   roadRage(o, hit) {
     if (this.rage || (this.rageCool || 0) > 0 || !this.crowd || o.rage || o.mode === 'free' || o.mode === 'hold' || /police|bus|moto/.test(o.type)) return;
     if (Math.random() > Math.min(0.75, 0.25 + hit / 25)) return;
-    o.mode = 'stop'; o.v = 0; o.rage = true;
+    if (o.mode !== 'phys') { o.mode = 'stop'; o.v = 0; } o.rage = true;
     this.rage = { o, t: 0, phase: 'stop', p: null };
   }
   rageTick(dt) {
@@ -459,11 +512,14 @@ export class Game {
     const dMe = Math.hypot(o.x - me.x, o.z - me.z);
     const release = () => {
       if (R.p) { R.p.rager = false; if (R.p.state === 'storm' || R.p.state === 'back') R.p.alive = false; }
-      if (o.mode === 'stop') o.mode = 'lane'; else if (o.mode === 'free' || o.mode === 'hold') this.traffic.spawn(o, me.x, me.z, true);
+      /* a car still on its lane drives on; a car that slid off it stays where it is and is cleared when you're far away */
+      if (o.mode === 'stop') o.mode = 'lane'; else if (o.mode === 'free') this.traffic.spawn(o, me.x, me.z, true);
       o.rage = false; this.rage = null; this.rageCool = 25;
     };
     if (!o.alive) { R.o.rage = false; this.rage = null; return; }
     if (R.phase === 'stop') {
+      if (o.mode === 'phys') { R.t = 0; return; }
+      if (o.wreck) { release(); return; }
       if (R.t < 1.1) return;
       /* the driver: someone from the crowd who's far away, moved to the driver's door */
       let p = null, bd = -1;
