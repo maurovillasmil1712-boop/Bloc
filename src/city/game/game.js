@@ -15,6 +15,7 @@ import { Sheets } from './sheets.js';
 import { Arms } from './arms.js';
 import { Missions } from './missions.js';
 import { Phone } from './phone.js';
+import { route as findRoute, progress as routeProgress } from './route.js';
 import { Talk } from './talk.js';
 import { Plane, PlaneCam } from '../actors/plane.js';
 import { Human } from '../actors/human.js';
@@ -63,8 +64,14 @@ export class Game {
     this.rooms.pool();
     this.rooms.setFurn(ctx.test ? ['rug', 'neon', 'console', 'plants'] : d.furn);
     { const ds = this.rooms.doors.filter((x) => x.id !== 'flat'); if (ds.length) { const cx = ds.reduce((a, x) => a + x.x, 0) / ds.length, cz = ds.reduce((a, x) => a + x.z, 0) / ds.length; const near = ds.reduce((b, x) => (Math.hypot(x.x - cx, x.z - cz) < Math.hypot(b.x - cx, b.z - cz) ? x : b)); this.startPos(near.x, near.z); this.safe = { x: this.car.x, z: this.car.z, h: this.car.h }; } }
+    let mz0 = 3; try { mz0 = +localStorage.getItem('bloc:city:mz') || 3; } catch (e) { /* private mode */ }
+    this.mz = mz0; this.wp = null; this.route = null; this.routeT = 0;
+    let mh = ''; try { mh = localStorage.getItem('bloc:city:maphide') || ''; } catch (e) { /* private mode */ }
+    this.mapHide = new Set(mh ? mh.split(',') : []);
+    this.coins = typeof d.coins === 'number' ? d.coins : (ctx.test ? 5000 : 0);
     this.car.own = true; this.parked = []; this.mods = d.mods || (ctx.test ? { spoiler: true, glow: '#7CE3FF', rims: 'gold', tint: true } : {}); this.car.setMods(this.mods);
     this.missions = new Missions(this);
+    if (this.crowd) this.crowd.native = this.native;
     this.phone = new Phone(this);
     this.sheets = new Sheets(this, !!ctx.test);
     this.arms = new Arms(this);
@@ -89,6 +96,20 @@ export class Game {
     this.input.on('Escape', () => { if (this.phone && this.phone.photo) this.phone.photoEnd(); else if (this.phone && this.phone.el) this.phone.close(); else if (this.talk.convo) this.talk.cancel(); else if (this.sheets.el) this.sheets.close(); else if (this.mapOpen) this.toggleMap(); else this.finish('exit'); });
     this.root.addEventListener('pointerup', () => setTimeout(() => { if (this.fcam.clicked && this.mode === 'foot') { this.fcam.clicked = false; this.punch(); } }, 0));
     this.input.on('KeyN', () => this.cycleSky());
+    /* minimap zoom: + and - (and the two buttons on the map), remembered */
+    const zoomBy = (k) => { this.mz = Math.max(1, Math.min(9, this.mz * (k > 0 ? 1.3 : 1 / 1.3))); try { localStorage.setItem('bloc:city:mz', String(this.mz)); } catch (e) { /* private mode */ } };
+    for (const c of ['Equal', 'NumpadAdd']) this.input.on(c, () => zoomBy(1));
+    for (const c of ['Minus', 'NumpadSubtract']) this.input.on(c, () => zoomBy(-1));
+    this.ui.el.querySelector('.bc-mz').addEventListener('click', (e) => { const b = e.target.closest('[data-z]'); if (b) { e.stopPropagation(); zoomBy(+b.dataset.z); } });
+    /* the big map: tap or click to set a waypoint, tap it again to clear it; the legend switches pins on and off */
+    const mc = this.ui.map.querySelector('canvas');
+    mc.addEventListener('click', (e) => {
+      const r = mc.getBoundingClientRect(), img = this.mapImg, cx = (e.clientX - r.left) / r.width * mc.width, cy = (e.clientY - r.top) / r.height * mc.height;
+      const x = cx / img.s + MAP.x0, z = cy / img.s + MAP.z0;
+      if (this.wp && Math.hypot(this.wp.x - x, this.wp.z - z) < 60) this.setWaypoint(null); else this.setWaypoint({ x, z });
+      this.drawBigMap();
+    });
+    this.ui.map.querySelector('.bc-legend').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; e.stopPropagation(); const f = b.dataset.f; this.mapHide.has(f) ? this.mapHide.delete(f) : this.mapHide.add(f); try { localStorage.setItem('bloc:city:maphide', [...this.mapHide].join(',')); } catch (err) { /* private mode */ } this.drawBigMap(); });
   }
   startPos(tx, tz) {
     /* v7.4: start in the middle of the shops (café, clothes, range, gym, garage), not at home */
@@ -153,15 +174,15 @@ export class Game {
     el.innerHTML =
       `<div class="bc-top"><div class="bc-panel bc-fuel"><b class="bc-f">0:00</b><span class="bc-sub">${t('fuel')}</span><div class="bc-bar"><i></i></div></div>` +
       `<div class="bc-btns"><button type="button" class="bc-btn" data-k="view">${t('view')}</button><button type="button" class="bc-btn" data-k="sky">${t('sky_live')}</button><button type="button" class="bc-btn" data-k="q">${t('quality')}: ${t('q_' + qNow())}</button><button type="button" class="bc-btn" data-k="radio">${t('radio')}</button><button type="button" class="bc-btn" data-k="map">${t('map')}</button><button type="button" class="bc-btn x" data-k="exit">${t('done')}</button></div></div>` +
-      `<canvas class="bc-mini" width="320" height="320" aria-hidden="true"></canvas><div class="bc-place"></div>` +
+      `<canvas class="bc-mini" width="320" height="320" aria-hidden="true"></canvas><div class="bc-mz"><button type="button" data-z="1" aria-label="${t('zoom_in')}">+</button><button type="button" data-z="-1" aria-label="${t('zoom_out')}">−</button></div><div class="bc-place"></div><div class="bc-coins"></div><div class="bc-wp" hidden></div><div class="bc-edge" hidden></div>` +
       `<div class="bc-trial" hidden></div><div class="bc-msg"></div><button type="button" class="bc-act" data-k="act" hidden></button>` +
       `<div class="bc-speed"><b>0</b><span>km/h</span></div>` +
       `<div class="bc-touch${coarse ? ' on' : ''}"><div class="bc-pad"><button type="button" class="bc-key" data-in="left" aria-label="${t('left')}">◀</button><button type="button" class="bc-key" data-in="right" aria-label="${t('right')}">▶</button></div>` +
       `<div class="bc-pad"><button type="button" class="bc-key small" data-in="hand">${t('drift')}</button><button type="button" class="bc-key" data-in="down" aria-label="${t('brake')}">▼</button><button type="button" class="bc-key" data-in="up" aria-label="${t('gas')}">▲</button></div></div>` +
-      `<div class="bc-map"><canvas></canvas><p>${t('map_hint')}</p></div><div class="bc-fade"></div>`;
+      `<div class="bc-map"><canvas></canvas><div class="bc-legend"></div><p>${t('map_hint2')}</p></div><div class="bc-fade"></div>`;
     r.appendChild(el);
     const $ = (s) => el.querySelector(s);
-    this.ui = { el, fuel: $('.bc-f'), sub: $('.bc-sub'), bar: $('.bc-bar i'), speed: $('.bc-speed b'), msg: $('.bc-msg'), trial: $('.bc-trial'), mini: $('.bc-mini'), map: $('.bc-map'), fade: $('.bc-fade'), place: $('.bc-place'), sky: $('[data-k="sky"]'), act: $('.bc-act'), speedBox: $('.bc-speed') };
+    this.ui = { wp: $('.bc-wp'), edge: $('.bc-edge'), el, fuel: $('.bc-f'), sub: $('.bc-sub'), bar: $('.bc-bar i'), speed: $('.bc-speed b'), msg: $('.bc-msg'), trial: $('.bc-trial'), mini: $('.bc-mini'), map: $('.bc-map'), fade: $('.bc-fade'), place: $('.bc-place'), sky: $('[data-k="sky"]'), act: $('.bc-act'), speedBox: $('.bc-speed') };
     el.addEventListener('click', (e) => {
       const b = e.target.closest('[data-k]'); if (!b) return;
       const k = b.dataset.k;
@@ -203,6 +224,7 @@ export class Game {
     if (this.mode === 'car') this.updateCar(dt); else if (this.mode === 'plane') this.updatePlane(dt); else this.updateFoot(dt);
     if (this.arms) this.arms.update(dt);
     if (this.missions) this.missions.update(dt);
+    this.routeTick(dt);
     /* a bus at its stop near you: the driver announces it */
     if (this.traffic && !this.rooms.inside) { const me = this.me(); for (const c of this.traffic.cars) if (c.busStop && c.mode === 'stop' && !c.announced && Math.hypot(c.x - me.x, c.z - me.z) < 26) { c.announced = true; setTimeout(() => { c.announced = false; }, 20000); this.talk.say({ x: c.x, z: c.z }, this.talk.pick('bus'), { name: TEXT('bus_driver') }); } }
     this.updateCrowd(dt);
@@ -222,7 +244,7 @@ export class Game {
     const drive = this.mode === 'car' ? { x: car.x, z: car.z, vx: car.vx, vz: car.vz, speed: car.speed } : null;
     C.update(dt, me, drive, {
       scared: (p) => T2.remark(p, 'dodge'), bump: (p) => T2.remark(p, 'bump'), pair: (a, b) => T2.pair(a, b),
-      hit: (p, sp) => { this.cam.shake = Math.min(0.3, sp / 40); if (this.audio) this.audio.hit(sp * 0.5); if (this.police) this.police.crime('hit', p.x, p.z); },
+      hit: (p, sp) => { this.cam.shake = Math.min(0.3, sp / 40); if (this.audio) this.audio.hit(sp * 0.5); if (this.police) this.police.crime(p.dead ? 'kill' : 'hit', p.x, p.z); if (p.dead) { this.deathNear(p); if (this.arms) this.arms.pool(p); } },
       up: (p) => T2.say(p, T2.pick('up', p.voice)),
       taunt: (p) => T2.say(p, T2.pick('fight_taunt', p.voice)),
       meNow: () => this.me(),
@@ -406,6 +428,61 @@ export class Game {
       if (this.audio) this.audio.duck(false);
     }
   }
+  /* ---------- Drive to: a waypoint and a route along the roads ---------- */
+  setWaypoint(p, quiet) {
+    this.wp = p ? { x: p.x, z: p.z, auto: !!p.auto } : null; this.route = null; this.routeT = 0;
+    if (!this.wpBeam) {
+      const geo = new THREE.CylinderGeometry(0.9, 0.9, 80, 14, 1, true).translate(0, 40, 0);
+      this.wpBeam = new THREE.Mesh(geo, new THREE.MeshBasicNodeMaterial({ color: '#FFE14D', transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide })); this.wpBeam.frustumCulled = false; this.scene.add(this.wpBeam);
+    }
+    this.wpBeam.visible = !!p;
+    if (p) { this.wpBeam.position.set(p.x, sampleHeight(this.plan.height, p.x, p.z), p.z); if (!quiet && !p.auto) this.say(TEXT('wp_set'), TEXT('wp_sub')); }
+  }
+  routeTick(dt) {
+    /* a mission objective gets a route by itself when you haven't set your own waypoint */
+    const mt = this.missions && this.missions.cur ? this.missions.target() : null;
+    if ((!this.wp || this.wp.auto) && mt) { if (!this.wp || Math.hypot(this.wp.x - mt[0], this.wp.z - mt[1]) > 5) this.setWaypoint({ x: mt[0], z: mt[1], auto: true }); }
+    else if (this.wp && this.wp.auto && !mt) this.setWaypoint(null);
+    const U2 = this.ui;
+    if (!this.wp || this.rooms.inside) { U2.wp.hidden = true; U2.edge.hidden = true; if (this.wpBeam) this.wpBeam.visible = !!this.wp && !this.rooms.inside; return; }
+    this.wpBeam.visible = true;
+    const me = this.me();
+    this.routeT -= dt;
+    let pr = this.route ? routeProgress(this.route, me.x, me.z) : null;
+    if (!this.route || (this.routeT <= 0 && pr.off > 30)) { this.route = this.mode === 'plane' ? { pts: [[me.x, me.z], [this.wp.x, this.wp.z]], total: Math.hypot(this.wp.x - me.x, this.wp.z - me.z) } : findRoute(this.plan, me.x, me.z, this.wp.x, this.wp.z); this.routeT = 1.5; pr = this.route ? routeProgress(this.route, me.x, me.z) : null; }
+    const left = pr ? pr.left : Math.hypot(this.wp.x - me.x, this.wp.z - me.z);
+    if (Math.hypot(this.wp.x - me.x, this.wp.z - me.z) < 16 && !this.wp.auto) { if (this.audio) this.audio.chime(988); this.say(TEXT('wp_here')); this.setWaypoint(null); return; }
+    const txt = left > 950 ? (left / 1000).toFixed(1) + ' km' : Math.round(left / 10) * 10 + ' m';
+    U2.wp.hidden = false; if (U2.wp.textContent !== txt) U2.wp.textContent = txt;
+    /* an arrow at the edge of the screen when the waypoint is off screen */
+    const v = (this._wpv || (this._wpv = new THREE.Vector3())).set(this.wp.x, sampleHeight(this.plan.height, this.wp.x, this.wp.z) + 3, this.wp.z).project(this.camera);
+    const behind = v.z > 1, on = !behind && Math.abs(v.x) < 0.92 && Math.abs(v.y) < 0.88;
+    U2.edge.hidden = on;
+    if (!on) {
+      let ax = behind ? -v.x : v.x, ay = behind ? -v.y : v.y; if (behind && Math.abs(ax) < 0.2 && Math.abs(ay) < 0.2) ay = -1;
+      const m = Math.max(Math.abs(ax) / 0.9, Math.abs(ay) / 0.85) || 1; ax /= m; ay /= m;
+      U2.edge.style.left = (50 + ax * 50) + '%'; U2.edge.style.top = (50 - ay * 50) + '%'; U2.edge.style.transform = `translate(-50%,-50%) rotate(${Math.atan2(ax, ay)}rad)`;
+    }
+  }
+  /* someone was killed: people around scream and run, and someone says something about it */
+  deathNear(p) {
+    if (!this.crowd) return;
+    let said = false;
+    this.crowd.panic(p.x, p.z, 32, (q) => { if (!said && q !== p && Math.random() < 0.6) { said = true; setTimeout(() => this.talk.say(q, this.talk.pick('dead_react', q.voice)), 500); } else if (Math.random() < 0.15) this.talk.remark(q, 'panic'); });
+  }
+  /* staff inside a place: punched or shot down, the police get called and the place shuts until your next drive */
+  hitStaff(n, fx, fz) {
+    const r = this.rooms.inside; if (!r || !r.room.staff) return;
+    const S = r.room.staff; if (S.down) return;
+    S.hp -= n; S.flinch = 0.4;
+    if (this.audio) this.audio.hit(5);
+    if (S.hp <= 0 && !this.native) {
+      S.down = true; S.fall = 0; S.fallDir = Math.atan2(fx || 0, fz || 1) + Math.PI;
+      this.say(TEXT('closed'), TEXT('closed_sub'));
+      if (this.police) this.police.crime('kill', r.door.x, r.door.z);
+    } else if (S.hp <= 0) { S.hp = 100; this.talk.say(null, this.talk.pick('bump', 'm'), { name: TEXT('staff_' + S.role) }); }
+    else this.talk.say(null, this.talk.pick('shot', S.role === 'clerk' || S.role === 'barista' ? 'f' : 'm'), { name: TEXT('staff_' + S.role) });
+  }
   /* ---------- stealing cars ---------- */
   jackable() {
     if (!this.traffic || this.native === 'nojack') return null;
@@ -554,7 +631,8 @@ export class Game {
         f.place(d.x + Math.sin(d.a) * 0.9, d.z + Math.cos(d.a) * 0.9, d.a, d.y);
         this.fcam.init = false; this.fcam.placed = false; this.fcam.yaw = d.a;
         this.fade();
-      } else if (s.act === 'shop') this.sheets.shop();
+      } else if (this.rooms.inside.room.staff && this.rooms.inside.room.staff.down && ['coffee', 'shop', 'garage', 'arms', 'ring'].includes(s.act)) this.say(TEXT('closed'), TEXT('closed_sub'));
+      else if (s.act === 'shop') this.sheets.shop();
       else if (s.act === 'garage') this.sheets.garage();
       else if (s.act === 'arms') this.sheets.arms();
       else if (s.act === 'desk') this.sheets.flat();
@@ -660,7 +738,8 @@ export class Game {
     if (!this.native) setTimeout(() => {
       const fx = Math.sin(f.a), fz = Math.cos(f.a);
       if (this.bout) { const b = this.bout; if (Math.hypot(b.x - f.x, b.z - f.z) < 1.3) this.boutHit(); return; }
-      if (!this.crowd || this.rooms.inside) return;
+      if (this.rooms.inside) { const r = this.rooms.inside.room, S = r.staff; if (S && !S.down && Math.hypot(r.o.x + S.x - (f.x + fx * 0.6), r.o.z + S.z - (f.z + fz * 0.6)) < 1.0) this.hitStaff(34, fx, fz); return; }
+      if (!this.crowd) return;
       if (this.police) { const cop = this.police.foot.nearest(f.x + fx * 0.6, f.z + fz * 0.6, 1.0); if (cop) { const r = this.police.foot.hit(cop, 34, fx, fz, false); if (this.audio) this.audio.hit(r === 'down' ? 9 : 5); this.police.crime('fight', cop.x, cop.z); return; } }
       const p = this.crowd.inReach(f.x, f.z, f.a); if (!p) return;
       const r = this.crowd.hitPerson(p, fx, fz);
@@ -790,6 +869,7 @@ export class Game {
     if (!U2.hp) { U2.hp = document.createElement('div'); U2.hp.className = 'bc-hp'; U2.hp.innerHTML = '<i></i>'; this.ui.el.querySelector('.bc-fuel').appendChild(U2.hp); }
     const hpOn = this.mode === 'foot' && this.hp != null && (this.hp < 100 || this.bout); U2.hp.style.display = hpOn ? 'block' : 'none'; if (hpOn) U2.hp.firstChild.style.width = this.hp + '%';
     U2.mini.style.display = U2.place.style.display = this.rooms.inside ? 'none' : '';
+    { const ct = (this.sheets.farm && typeof this.sheets.farm.coins === 'number' ? this.sheets.farm.coins : this.coins).toLocaleString() + ' ' + TEXT('cash'); if (!U2.coinsEl) U2.coinsEl = U2.el.querySelector('.bc-coins'); if (U2.coinsEl.textContent !== ct) U2.coinsEl.textContent = ct; }
     U2.speed.textContent = Math.round(car.speed * 3.6);
     U2.fuel.textContent = fmt(this.fuel);
     U2.sub.textContent = this.result.notes.length ? t('fuel_notes', { n: this.result.notes.length }) : t('fuel');
@@ -819,7 +899,7 @@ export class Game {
   }
   drawMini() {
     const c = this.ui.mini, g = c.getContext('2d'), W = c.width, half = W / 2, img = this.mapImg, car = this.me();
-    const zoom = 1.6 + Math.min(1.2, car.speed / 30) * -0.5;
+    const zoom = this.mz * (this.mode === 'foot' ? 1.5 : 1) * (1 - Math.min(0.35, (car.speed || 0) / 80));
     g.save(); g.fillStyle = '#1f5f86'; g.fillRect(0, 0, W, W);
     /* the map turns with the camera, like what you see; the arrow shows which way you face within that */
     const cd = this.camera.getWorldDirection(this._v3 || (this._v3 = new THREE.Vector3())), view = Math.atan2(cd.x, cd.z);
@@ -834,7 +914,23 @@ export class Game {
     if (this.mode !== 'plane') dot(this.plane.x, this.plane.z, '#C9A0FF', 7);
     if (this.job) dot(this.job.j.b[0], this.job.j.b[1], '#FF5A5F', 9); else this.jobs.forEach((j) => { if (!this.result.jobs.some((r) => r.id === j.id)) dot(j.a[0], j.a[1], '#7CE3FF', 6); });
     if (this.trial) { const p = this.trial.t.pts[this.trial.i]; dot(p[0], p[1], '#FF5A5F', 8); }
+    /* the route to your waypoint */
+    if (this.route && this.wp) {
+      g.strokeStyle = this.wp.auto ? '#B38CFF' : '#FFE14D'; g.lineWidth = 7 / zoom; g.lineJoin = 'round'; g.lineCap = 'round'; g.beginPath();
+      const pr = routeProgress(this.route, car.x, car.z);
+      g.moveTo((car.x - MAP.x0) * img.s - mx, (car.z - MAP.z0) * img.s - mz);
+      for (let i = pr.i + 1; i < this.route.pts.length; i++) { const p = this.route.pts[i]; g.lineTo((p[0] - MAP.x0) * img.s - mx, (p[1] - MAP.z0) * img.s - mz); }
+      g.stroke();
+    }
+    if (this.wp) dot(this.wp.x, this.wp.z, this.wp.auto ? '#B38CFF' : '#FFE14D', 11);
+    if (this.missions && !this.missions.cur && this.missions.next()) dot(this.missions.rosa.x, this.missions.rosa.z, '#B38CFF', 8);
     g.restore();
+    /* health and armour around the edge */
+    const hp = this.mode === 'foot' ? (this.hp == null ? 100 : this.hp) : 100 - Math.round((this.car.dmg || 0) * 100), ap = this.arms ? this.arms.ap : 0;
+    g.lineWidth = 12; g.lineCap = 'butt';
+    g.strokeStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.arc(half, half, half - 7, Math.PI * 0.55, Math.PI * 1.45); g.stroke(); g.beginPath(); g.arc(half, half, half - 7, Math.PI * 1.55, Math.PI * 2.45); g.stroke();
+    g.strokeStyle = hp > 35 ? '#5CD68A' : '#FF5A5F'; g.beginPath(); g.arc(half, half, half - 7, Math.PI * 1.45 - Math.PI * 0.9 * Math.max(0, hp) / 100, Math.PI * 1.45); g.stroke();
+    if (ap > 0) { g.strokeStyle = '#7CC4FF'; g.beginPath(); g.arc(half, half, half - 7, Math.PI * 1.55, Math.PI * 1.55 + Math.PI * 0.9 * ap / 100); g.stroke(); }
     g.fillStyle = '#FFFFFF'; g.strokeStyle = '#191D29'; g.lineWidth = 3;
     { const th = Math.PI + view, ax = Math.sin(car.h), az = Math.cos(car.h), sx = ax * Math.cos(th) - az * Math.sin(th), sy = ax * Math.sin(th) + az * Math.cos(th);
       g.save(); g.translate(half, half * 1.25); g.rotate(Math.atan2(sx, -sy));
@@ -852,14 +948,21 @@ export class Game {
     const pin = (x, z, col, label) => { const [a, b] = P(x, z); g.fillStyle = col; g.beginPath(); g.arc(a, b, 10, 0, 7); g.fill(); g.strokeStyle = '#191D29'; g.lineWidth = 3; g.stroke(); if (label) { g.lineWidth = 6; g.strokeStyle = 'rgba(17,19,24,.85)'; g.strokeText(label, a, b - 18); g.fillStyle = '#fff'; g.fillText(label, a, b - 18); } };
     for (const dd of DISTRICTS) { const at = DISTRICT_LABELS[dd.id]; if (at) { const [a, b] = P(at[0], at[1]); g.fillStyle = 'rgba(255,255,255,.55)'; g.font = '800 30px "Schibsted Grotesk", system-ui'; g.fillText(dd.name, a, b); } }
     g.font = '700 24px "Schibsted Grotesk", system-ui';
-    this.crates.forEach((p, i) => { if (!this.crateTaken.has(i)) pin(p.x, p.z, '#C98A50'); });
-    this.trials.forEach((t) => pin(t.pts[0][0], t.pts[0][1], '#FFE14D', t.name));
-    this.rooms.doors.forEach((d) => pin(d.x, d.z, '#FFFFFF', TEXT('place_' + d.id)));
-    pin(this.plane.x, this.plane.z, '#C9A0FF', TEXT('plane'));
-    if (this.job) pin(this.job.j.b[0], this.job.j.b[1], '#FF5A5F', TEXT('job_' + this.job.j.type)); else this.jobs.forEach((j) => { if (!this.result.jobs.some((r) => r.id === j.id)) pin(j.a[0], j.a[1], '#7CE3FF', TEXT('job_' + j.type) + ' ' + j.pay); });
-    this.homes.forEach((h) => pin(h.x, h.z, h.me ? '#FFE14D' : '#9ADAFF', h.me ? TEXT('home') : String(h.name).split(' ')[0]));
+    const H = this.mapHide, on = (k) => !H.has(k);
+    if (this.route && this.wp) { g.lineJoin = 'round'; g.lineCap = 'round'; g.beginPath(); this.route.pts.forEach((p, i) => { const [x, y] = P(p[0], p[1]); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.strokeStyle = 'rgba(17,19,24,.7)'; g.lineWidth = 18; g.stroke(); g.strokeStyle = this.wp.auto ? '#B38CFF' : '#FFE14D'; g.lineWidth = 11; g.stroke(); }
+    if (on('crates')) this.crates.forEach((p, i) => { if (!this.crateTaken.has(i)) pin(p.x, p.z, '#C98A50'); });
+    if (on('trials')) this.trials.forEach((t) => pin(t.pts[0][0], t.pts[0][1], '#FFE14D', t.name));
+    if (on('shops')) this.rooms.doors.forEach((d) => pin(d.x, d.z, '#FFFFFF', TEXT('place_' + d.id)));
+    if (on('shops')) pin(this.plane.x, this.plane.z, '#C9A0FF', TEXT('plane'));
+    if (on('jobs')) { if (this.job) pin(this.job.j.b[0], this.job.j.b[1], '#FF5A5F', TEXT('job_' + this.job.j.type)); else this.jobs.forEach((j) => { if (!this.result.jobs.some((r) => r.id === j.id)) pin(j.a[0], j.a[1], '#7CE3FF', TEXT('job_' + j.type) + ' ' + j.pay); }); }
+    if (on('friends')) this.homes.forEach((h) => pin(h.x, h.z, h.me ? '#FFE14D' : '#9ADAFF', h.me ? TEXT('home') : String(h.name).split(' ')[0]));
+    if (on('missions') && this.missions) { const M = this.missions, t = M.cur ? M.target() : null; if (t) pin(t[0], t[1], '#B38CFF', TEXT('mi_' + M.cur.id)); else if (M.next()) pin(M.rosa.x, M.rosa.z, '#B38CFF', 'Rosa'); }
+    if (this.wp) pin(this.wp.x, this.wp.z, this.wp.auto ? '#B38CFF' : '#FFE14D', TEXT('wp'));
+    const lg = this.ui.map.querySelector('.bc-legend'), cats = [['shops', '#FFFFFF'], ['missions', '#B38CFF'], ['jobs', '#7CE3FF'], ['friends', '#9ADAFF'], ['trials', '#FFE14D'], ['crates', '#C98A50']];
+    lg.innerHTML = cats.map(([k, c]) => `<button type="button" data-f="${k}" aria-pressed="${on(k)}"><i style="background:${c}"></i>${TEXT('lg_' + k)}</button>`).join('');
     const me = this.me(), [a, b] = P(me.x, me.z);
-    g.save(); g.translate(a, b); g.rotate(Math.PI + me.h); g.fillStyle = '#FF5A5F'; g.strokeStyle = '#fff'; g.lineWidth = 3;
+    /* north is up here, so the arrow turns by the heading itself (it used to point the mirror way) */
+    g.save(); g.translate(a, b); g.rotate(Math.PI - me.h); g.fillStyle = '#FF5A5F'; g.strokeStyle = '#fff'; g.lineWidth = 3;
     g.beginPath(); g.moveTo(0, -18); g.lineTo(13, 13); g.lineTo(0, 6); g.lineTo(-13, 13); g.closePath(); g.fill(); g.stroke(); g.restore();
   }
   finish(reason) {

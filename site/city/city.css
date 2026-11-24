@@ -136,3 +136,18 @@ html,body{margin:0;height:100%;background:#0B0E14;overflow:hidden;overscroll-beh
 .bc-photo.flash::before{content:'';position:fixed;inset:0;background:#fff;opacity:.7;pointer-events:none}
 .bc-phone .bc-btn{background:#FFE14D;color:#191D29;border:0;padding:10px;border-radius:12px;font-weight:800}
 .bc-modrow{display:flex;flex-direction:column;gap:6px;margin:6px 0 10px}.bc-modrow b{font-size:13px}.bc-chips button[style]{width:30px;height:30px;border-radius:50%}
+/* v7.7: minimap zoom, coins, waypoint distance and edge arrow, map legend */
+.bc-mz{position:absolute;left:calc(max(14px,env(safe-area-inset-left)) + min(26vw,170px) + 6px);bottom:calc(max(14px,env(safe-area-inset-bottom)) + 8px);display:flex;flex-direction:column;gap:4px}
+.bc-mz button{width:28px;height:28px;border-radius:6px;border:0;background:rgba(14,16,22,.72);color:#fff;font-size:17px;font-weight:800;cursor:pointer}
+.bc-hud:has(.bc-touch.on) .bc-mz{left:calc(max(14px,env(safe-area-inset-left)) + 116px);bottom:calc(max(14px,env(safe-area-inset-bottom)) + 98px)}
+.bc-coins{position:absolute;left:max(14px,env(safe-area-inset-left));top:calc(max(12px,env(safe-area-inset-top)) + 112px);background:rgba(14,16,22,.62);color:#FFE14D;border-radius:6px;padding:4px 10px;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;pointer-events:none}
+.bc-wp{position:absolute;left:calc(max(14px,env(safe-area-inset-left)) + min(13vw,85px));transform:translateX(-50%);bottom:calc(max(14px,env(safe-area-inset-bottom)) - 6px);background:#FFE14D;color:#191D29;border-radius:6px;padding:3px 9px;font-weight:800;font-size:12.5px;pointer-events:none}
+.bc-hud:has(.bc-touch.on) .bc-wp{left:calc(max(14px,env(safe-area-inset-left)) + 55px);bottom:calc(max(14px,env(safe-area-inset-bottom)) + 84px)}
+.bc-edge{position:absolute;width:0;height:0;border-left:13px solid transparent;border-right:13px solid transparent;border-bottom:26px solid #FFE14D;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6));pointer-events:none}
+.bc-wanted{top:auto;left:max(14px,env(safe-area-inset-left));transform:none;bottom:calc(max(14px,env(safe-area-inset-bottom)) + min(26vw,170px) + 36px);font-size:22px}
+.bc-hud:has(.bc-touch.on) .bc-wanted{bottom:calc(max(14px,env(safe-area-inset-bottom)) + 232px)}
+.bc-legend{position:absolute;right:16px;top:72px;display:flex;flex-direction:column;gap:6px;background:rgba(14,16,22,.72);padding:10px;border-radius:12px}
+.bc-legend button{display:flex;align-items:center;gap:8px;background:none;border:0;color:#fff;font:inherit;font-size:13px;cursor:pointer;text-align:left}
+.bc-legend button[aria-pressed="false"]{opacity:.45}.bc-legend i{width:12px;height:12px;border-radius:50%;display:inline-block;border:2px solid #191D29}
+.bc-map canvas{cursor:crosshair}
+.bc-gunwheel .bc-wheel-in button small{display:block;font-size:11px;font-weight:600;opacity:.7;margin-top:2px}

@@ -150,7 +150,12 @@ export class Crowd {
         const rx = p.x - car.x, rz = p.z - car.z, dist = Math.hypot(rx, rz);
         if (dist < 14) {
           const cvx = car.vx / car.speed, cvz = car.vz / car.speed, ahead = rx * cvx + rz * cvz, side = rx * cvz - rz * cvx;
-          if (dist < 1.6) { p.state = 'down'; p.t = 0; p.fall = 0; p.fallDir = Math.atan2(cvx, cvz); if (hooks.hit) hooks.hit(p, car.speed); }
+          if (dist < 1.6) {
+            p.state = 'down'; p.t = 0; p.fall = 0; p.fallDir = Math.atan2(cvx, cvz);
+            /* v7.7: hit hard enough (about 30 km/h) and they don't get up; the body is taken away later (website only) */
+            if (car.speed > 8.5 && !this.native) { p.dead = true; p.downFor = 22; p.gone = true; }
+            if (hooks.hit) hooks.hit(p, car.speed);
+          }
           else if (ahead > 0 && ahead < 4 + car.speed * 0.6 && Math.abs(side) < 2.6 && p.state !== 'flee') { p.state = 'flee'; p.t = 0; p.fleeH = Math.atan2(cvz * Math.sign(side || 1), -cvx * Math.sign(side || 1)); if (hooks.scared) hooks.scared(p); }
         }
       }
@@ -194,7 +199,7 @@ export class Crowd {
         p.fall = Math.min(1, p.fall + dt * 3);
         if (p.t > (p.downFor || 3.2)) {
           /* shot with blood on: they're taken away (a new person walks in somewhere else); otherwise they get up */
-          if (p.gone) { p.alive = false; p.gone = false; p.downFor = 0; }
+          if (p.gone) { p.alive = false; p.gone = false; p.dead = false; p.downFor = 0; }
           else { p.state = p.downFor ? 'flee' : 'walk'; p.fleeFor = p.downFor ? 5 : 0; p.t = 0; p.downFor = 0; p.fall = 0; if (p.state === 'walk') this.snap(p); if (hooks.up) hooks.up(p); }
         }
       }
@@ -229,7 +234,9 @@ export class Crowd {
     p.life = (p.life == null ? 100 : p.life) - dmg; p.kx = fx; p.kz = fz;
     if (p.life <= 0) {
       p.state = 'down'; p.t = 0; p.fall = 0; p.fallDir = Math.atan2(fx, fz) + Math.PI; p.life = 100; p.anger = 0;
-      p.downFor = blood ? 18 : 6; p.gone = !!blood; p.fleeH = Math.atan2(fx, fz);
+      /* v7.7: shot down means dead on the website (blood only shows if it's allowed); in the app they get back up */
+      if (this.native) { p.downFor = 6; p.gone = false; } else { p.downFor = 22; p.gone = true; p.dead = true; }
+      p.fleeH = Math.atan2(fx, fz);
       return 'down';
     }
     p.state = 'flee'; p.t = 0; p.fleeH = Math.atan2(fx, fz) + (this.R() - 0.5); p.fleeFor = 6;

@@ -67,6 +67,9 @@ export class Arms {
     /* keys and mouse */
     g.input.on('KeyG', () => this.cycle());
     g.input.on('KeyR', () => this.reload());
+    /* hold Tab for the weapon wheel (time slows down), let go to pick */
+    window.addEventListener('keydown', (e) => { if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat && !this.wheel) this.openWheel(); } }, true);
+    window.addEventListener('keyup', (e) => { if (e.code === 'Tab' && this.wheel) { e.preventDefault(); this.closeWheel(true); } }, true);
     const root = g.root;
     root.addEventListener('contextmenu', (e) => { if (g.mode === 'foot') e.preventDefault(); });
     root.addEventListener('pointerdown', (e) => {
@@ -110,6 +113,33 @@ export class Arms {
     this.set(list[(list.indexOf(this.cur) + 1) % list.length]);
     const w = this.w; g.say(w ? w.name : T('holster'), w ? (matchMedia('(pointer: coarse)').matches ? T('aim_touch') : T('aim_hint')) : '');
     if (g.audio) g.audio.click('reload');
+  }
+  openWheel() {
+    const g = this.g; if (g.mode !== 'foot' || g.sheets.el || g.wheel || g.ended) return;
+    if (this.off) { g.say(T('web_arms')); return; }
+    if (!this.own.length) { g.say(T('no_arms'), T('no_arms_sub')); return; }
+    if (!this.allowedHere()) { g.say(T('not_here'), T('not_here_sub')); return; }
+    const list = [{ id: null, name: T('holster') }, ...this.cat.filter((x) => this.own.includes(x.id))];
+    const el = document.createElement('div'); el.className = 'bc-wheel bc-gunwheel';
+    const R = Math.min(150, Math.min(innerWidth, innerHeight) * 0.3);
+    el.innerHTML = `<div class="bc-wheel-in" style="width:${R * 2 + 140}px;height:${R * 2 + 140}px">` + list.map((w, i) => {
+      const a = -Math.PI / 2 + i / list.length * Math.PI * 2, x = Math.cos(a) * R, y = Math.sin(a) * R, m = w.id ? (this.mag[w.id] == null ? w.mag : this.mag[w.id]) : '';
+      return `<button type="button" data-w="${w.id || ''}" class="${w.id === this.cur ? 'on' : ''}" style="transform:translate(calc(-50% + ${x.toFixed(0)}px), calc(-50% + ${y.toFixed(0)}px))">${w.name}${w.id ? `<small>${m} / ${w.mag}</small>` : ''}</button>`;
+    }).join('') + `<div class="bc-wheel-mid"><b>${this.w ? this.w.name : T('holster')}</b><small>${T('wheel_hint')}</small></div></div>`;
+    g.ui.el.appendChild(el); this.wheel = { el, pick: this.cur }; g.timeScale = 0.25;
+    const mark = (id) => { this.wheel.pick = id || null; el.querySelectorAll('[data-w]').forEach((b) => b.classList.toggle('hi', (b.dataset.w || null) === (id || null))); };
+    el.addEventListener('pointermove', (e) => {
+      const r = el.querySelector('.bc-wheel-in').getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+      if (Math.hypot(dx, dy) < 40) return;
+      let a = Math.atan2(dy, dx) + Math.PI / 2; if (a < 0) a += Math.PI * 2;
+      mark(list[Math.round(a / (Math.PI * 2) * list.length) % list.length].id);
+    });
+    el.addEventListener('click', (e) => { const b = e.target.closest('[data-w]'); if (b) { mark(b.dataset.w); this.closeWheel(true); } else if (e.target === el) this.closeWheel(false); });
+  }
+  closeWheel(apply) {
+    const w = this.wheel; if (!w) return;
+    w.el.classList.add('out'); setTimeout(() => w.el.remove(), 180); this.wheel = null; this.g.timeScale = 1;
+    if (apply && w.pick !== this.cur) { this.set(w.pick); this.g.say(this.w ? this.w.name : T('holster')); if (this.g.audio) this.g.audio.click('reload'); }
   }
   set(id) {
     this.cur = id; this.reloadT = 0; this.cool = 0.25;
@@ -172,6 +202,7 @@ export class Arms {
         const t = (base + Math.sign(dv) * half - o[axis]) / dv; if (t > t0 && t < best.t) best = { t, kind: 'wall' };
       }
       if (d.y < 0) { const t = (lo.y - o.y) / d.y; if (t > t0 && t < best.t) best = { t, kind: 'ground' }; }
+      if (room.staff && !room.staff.down) { const S = room.staff, t = rayCyl(o, d, lo.x + S.x, lo.z + S.z, 0.32, lo.y, lo.y + 1.8); if (t != null && t > t0 && t < best.t) best = { t, kind: 'staff', who: S }; }
       if (room.targets) for (const tg of room.targets) {
         const t = slab(o, d, tg.x + lo.x - tg.w / 2, lo.y + tg.y - tg.h / 2, tg.z + lo.z - 0.06, tg.x + lo.x + tg.w / 2, lo.y + tg.y + tg.h / 2, tg.z + lo.z + 0.06);
         if (t != null && t > t0 && t < best.t) best = { t, kind: 'target', tg };
@@ -228,6 +259,7 @@ export class Arms {
   }
   impact(hit, w, d) {
     const g = this.g, p = hit.p;
+    if (hit.kind === 'staff') { g.hitStaff(w.dmg * 1.5, d.x, d.z); this.bleed(hit.p, d, 8); return; }
     if (hit.kind === 'cop') { g.police.foot.hit(hit.who, w.dmg * (hit.head ? 2.5 : 1), d.x, d.z, this.blood); this.bleed(hit.p, d, 8); return; }
     if (hit.kind === 'person') this.hitPerson(hit, w, d);
     else if (hit.kind === 'car') {
@@ -254,7 +286,7 @@ export class Arms {
     const res = g.crowd.shoot(who, dmg, d.x, d.z, this.blood);
     this.bleed(hit.p, d, hit.head ? 14 : 8);
     if (res === 'down' && before !== 'down') {
-      this.pool(who);
+      this.pool(who); g.deathNear(who);
       if (g.police) g.police.crime('kill', who.x, who.z);
     } else if (res === 'hit' && Math.random() < 0.7) { g.talk.busy = 0; g.talk.remark(who, 'shot'); }
   }

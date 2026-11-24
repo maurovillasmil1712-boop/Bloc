@@ -135,7 +135,7 @@ function buildCafe(r) {
   for (const x of [-3, 0, 3]) { r.cyl(0.18, 0.22, mat('#C9A15A', 0.35, 0.6), x, 2.6, 0); r.light(x, 2.5, 0, '#FFD39A', 14, 9); }
   r.light(1, 2.6, 3.6, '#FFE2B8', 10, 7);
   const barista = new Human({ skin: '#C98E66', hair: 'bun', hairC: '#1B1714', top: { kind: 'shirt', c: '#2B211B' }, bottom: { kind: 'jeans', c: '#1E2026' }, shoes: { kind: 'sneaker', c: '#1A1B1F' }, hat: { kind: 'none', c: '#000' } });
-  barista.group.position.set(1, 0, 4.4); barista.group.rotation.y = Math.PI; r.group.add(barista.group); r.extra.push(barista);
+  barista.group.position.set(1, 0, 4.4); barista.group.rotation.y = Math.PI; r.group.add(barista.group); r.staff = { h: barista, role: 'barista', x: 1, z: 4.4, ry: Math.PI, hp: 100, down: false, fall: 0 };
   r.spots.push({ x: 1, z: 2.9, r: 1.4, act: 'coffee' });
 }
 function buildShop(r) {
@@ -155,6 +155,7 @@ function buildShop(r) {
   }
   for (const x of [-4, 0, 4]) for (const z of [-2, 2]) r.light(x, 3.2, z, '#FFFFFF', 9, 8);
   r.spots.push({ x: 0, z: 3.4, r: 1.5, act: 'shop' });
+  addStaff(r, 'clerk', 1.7, 4.7, Math.PI);
   r.spots.push({ x: -5.2, z: 5.1, r: 1.3, act: 'mirror' });
 }
 function buildGarage(r) {
@@ -168,6 +169,7 @@ function buildGarage(r) {
   for (const [x, z] of [[-7, -4], [-7, -3.2], [7, -4]]) r.cyl(0.32, 0.9, mat('#2B6CB0', 0.5, 0.3), x, 0, z, true);
   for (const x of [-4, 0, 4]) { r.box(1.6, 0.06, 0.2, mat('#FFFFFF', 0.3, 0, { emissive: '#FFFFFF', emissiveIntensity: 2 }), x, 4.1, 1, false); r.light(x, 3.9, 1, '#F2F6FF', 22, 12); }
   r.spots.push({ x: 0, z: 1.2, r: 2.2, act: 'garage' });
+  addStaff(r, 'mechanic', 2.6, 2.8, Math.PI + 0.4);
 }
 function buildGym(r) {
   r.shell('rubber', '#2E3238', '#24272C', 4.0);
@@ -195,6 +197,7 @@ function buildGym(r) {
   for (const x of [-5, 0, 5]) for (const z of [-3, 3]) r.light(x, 3.8, z, '#F5F7FF', 14, 10);
   r.spots.push({ x: -4.7, z: 0.4, r: 2.4, act: 'bag' });
   r.spots.push({ x: 0.2, z: 3.5, r: 1.2, act: 'ring' });
+  addStaff(r, 'coach', 2.4, 1.8, Math.PI);
 }
 function buildFlat(r) {
   r.shell('planks', '#D8D1C5', '#CFC9BF');
@@ -258,6 +261,18 @@ function buildFurniture(r) {
   for (let i = 0; i < 5; i++) put('aquarium', 0.08, 0.04, 0.02, glow(['#F28C28', '#FFE14D', '#FF5A5F'][i % 3], 1), -6.0 + i * 0.2, 0.9 + (i % 3) * 0.12, -3.75);
   grp('arcade'); put('arcade', 0.75, 1.75, 0.7, mat('#1F1A3A', 0.5), 6.05, 0, 1.2, true, -Math.PI / 2); put('arcade', 0.05, 0.5, 0.55, glow('#7CE3FF', 1.4), 5.68, 1.15, 1.2); put('arcade', 0.05, 0.18, 0.6, glow('#FF5A5F', 1.6), 5.68, 1.6, 1.2); put('arcade', 0.3, 0.06, 0.6, mat('#191D29', 0.4), 5.6, 0.95, 1.2);
 }
+/* v7.7: a member of staff for each place (the café has its barista already) */
+const STAFF_LOOK = {
+  clerk: { skin: '#E8B896', hair: 'long', hairC: '#3A2A1E', top: { kind: 'shirt', c: '#191D29' }, bottom: { kind: 'jeans', c: '#24262B' }, shoes: { kind: 'sneaker', c: '#F4F4F2' } },
+  mechanic: { skin: '#9A6440', hair: 'short', hairC: '#151210', top: { kind: 'hoodie', c: '#2E4A6B' }, bottom: { kind: 'cargo', c: '#2E4A6B' }, shoes: { kind: 'boot', c: '#2A201C' } },
+  coach: { skin: '#C98E66', hair: 'buzz', hairC: '#151210', top: { kind: 'tank', c: '#C8383C' }, bottom: { kind: 'shorts', c: '#191D29' }, shoes: { kind: 'sneaker', c: '#191D29' } },
+  gunsmith: { skin: '#F6D7C3', hair: 'short', hairC: '#6B4A30', top: { kind: 'shirt', c: '#3F4A35' }, bottom: { kind: 'cargo', c: '#2B2D31' }, shoes: { kind: 'boot', c: '#1A1B1F' } }
+};
+function addStaff(r, role, x, z, ry) {
+  const L = Object.assign({ hat: { kind: 'none', c: '#000' } }, STAFF_LOOK[role]);
+  const h = new Human(L); h.group.position.set(x, 0, z); h.group.rotation.y = ry; r.group.add(h.group);
+  r.staff = { h, role, x, z, ry, hp: 100, down: false, fall: 0 };
+}
 /* Bullseye Range: a counter with the weapons on the wall, and three lanes with paper targets at the back */
 function buildArms(r) {
   r.shell('concrete', '#3B3F45', '#2A2D32', 3.6);
@@ -291,6 +306,7 @@ function buildArms(r) {
   for (const z of [-6, -2]) for (const x of [-3, 3]) r.light(x, 3.4, z, '#F6F3EA', 10, 9);
   for (const x of [-4.7, 0, 4.7]) r.light(x, 3.3, D / 2 - 3, '#FFFFFF', 12, 9);
   r.spots.push({ x: -3.6, z: -2.9, r: 2.2, act: 'arms' });
+  addStaff(r, 'gunsmith', -3.6, -4.95, 0);
   r.spots.push({ x: 0, z: line - 0.7, r: 1.2, act: 'lane' });
 }
 const BUILD = { cafe: buildCafe, shop: buildShop, garage: buildGarage, gym: buildGym, flat: buildFlat, arms: buildArms };
@@ -381,6 +397,7 @@ export class Interiors {
     if (!this.inside) return;
     const r = this.inside.room;
     for (const h of r.extra) h.animate(dt, { speed: 0 });
+    if (r.staff) { const S = r.staff, g = S.h.group; S.h.animate(dt, { speed: 0 }); if (S.down) { S.fall = Math.min(1, S.fall + dt * 3); g.rotation.set(-1.45 * S.fall, S.fallDir != null ? S.fallDir : S.ry, 0, 'YXZ'); g.position.y = -0.05 * S.fall; } else if (S.flinch > 0) { S.flinch -= dt; g.rotation.x = -0.25; } else g.rotation.x = 0; }
     if (r.targets) for (const t of r.targets) { t.v += (-t.a * 18 - t.v * 2.2) * dt; t.a += t.v * dt; t.pivot.rotation.x = t.a; }
     if (r.bags) for (const b of r.bags) { b.vx += (-b.ax * 14 - b.vx * 1.2) * dt; b.vz += (-b.az * 14 - b.vz * 1.2) * dt; b.ax += b.vx * dt; b.az += b.vz * dt; b.pivot.rotation.set(b.az, 0, -b.ax); }
   }

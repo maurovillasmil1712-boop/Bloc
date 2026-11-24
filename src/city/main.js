@@ -146,7 +146,7 @@ async function boot() {
     for (const t of inst.types) if (t.id.startsWith('parked-')) for (const cells of t.grid.values()) for (const it of cells) game.world.collide.addBox(it.x, it.z, 0.95, 2.15, -it.r, it.y + 1.6);
   }
   game.inst = inst;
-  if (Q.get('peds') !== '0' && P.peds > 0) { game.crowd = new Crowd(scene, plan, Math.round(P.peds * 0.6)); game.crowd.collide = game.world.collide; }
+  if (Q.get('peds') !== '0' && P.peds > 0) { game.crowd = new Crowd(scene, plan, Math.round(P.peds * 0.6)); game.crowd.collide = game.world.collide; game.crowd.native = game.native; }
   if (Q.get('traffic') !== '0' && P.cars > 0) { game.traffic = new Traffic(scene, plan, P.cars); game.traffic.init(game.car.x, game.car.z); game.traffic.buildLights(scene); game.police = new Police(game, game.traffic, scene); }
   if (Q.get('view')) game.cam.mode = Q.get('view');
   if (Q.get('plane')) {

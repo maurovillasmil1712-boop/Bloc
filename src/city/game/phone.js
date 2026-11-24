@@ -40,8 +40,8 @@ export class Phone {
     if (id === 'radio') { this.close(); if (g.radio) g.openWheel(); return; }
     if (id === 'camera') { this.frame(T('app_camera'), `<p>${T('cam_sub')}</p><button type="button" class="bc-btn wide" data-shot>${T('cam_go')}</button>`); return; }
     if (id === 'help') {
-      const keys = [['WASD', 'k_move'], ['Shift', 'k_run'], ['Space', 'k_drift'], ['F', 'k_car'], ['E', 'k_use'], ['J', 'k_punch'], ['G', 'k_gun'], ['Q', 'k_radio'], ['V', 'k_view'], ['M', 'k_map'], ['P', 'k_phone']];
-      this.frame(T('app_help'), `<ul class="bc-keys">${keys.filter(([, k]) => !(g.native && k === 'k_gun')).map(([a, k]) => `<li><kbd>${a}</kbd><span>${T(k)}</span></li>`).join('')}</ul>`); return;
+      const keys = [['WASD', 'k_move'], ['Shift', 'k_run'], ['Space', 'k_drift'], ['F', 'k_car'], ['E', 'k_use'], ['J', 'k_punch'], ['G', 'k_gun'], ['Tab', 'k_wheel'], ['+ −', 'k_zoom'], ['Q', 'k_radio'], ['V', 'k_view'], ['M', 'k_map'], ['P', 'k_phone']];
+      this.frame(T('app_help'), `<ul class="bc-keys">${keys.filter(([, k]) => !(g.native && (k === 'k_gun' || k === 'k_wheel'))).map(([a, k]) => `<li><kbd>${a}</kbd><span>${T(k)}</span></li>`).join('')}</ul>`); return;
     }
     if (id === 'missions') {
       const M = g.missions, list = MISSIONS.filter((m) => !(m.web && g.native));
