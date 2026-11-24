@@ -10,6 +10,8 @@ export class ChaseCam {
     this.mode = localStorage.getItem('bloc:city:view'); if (CAR_VIEWS.indexOf(this.mode) < 0) this.mode = 'near'; this.shake = 0; this.lean = 0; this.fov = 62; this.yaw = 0; this.init = false;
     this.orbit = { yaw: 0, pitch: 0, t: 0 };
   }
+  /* mouse look around the car (pointer locked): it springs back behind the car a second after you stop */
+  mouse(dx, dy) { this.orbit.yaw = Math.max(-Math.PI, Math.min(Math.PI, this.orbit.yaw - dx)); this.orbit.pitch = Math.max(-0.12, Math.min(0.45, this.orbit.pitch + dy)); this.orbit.t = 1.1; }
   next() { this.mode = CAR_VIEWS[(CAR_VIEWS.indexOf(this.mode) + 1) % CAR_VIEWS.length]; try { localStorage.setItem('bloc:city:view', this.mode); } catch (e) { /* private mode */ } this.init = false; return this.mode; }
   update(dt, car, ground) {
     const sp = car.speed, fwd = car.vf || 0;

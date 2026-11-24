@@ -180,6 +180,14 @@ async function boot() {
   /* rooms: built and compiled in the background a moment after the city is up */
   setTimeout(() => game.rooms.prebuild(renderer, camera).catch(() => {}), TEST ? 0 : 2500);
 
+  /* performance readout (I): frame rate, how long the game logic and the draw submit take, the renderer and the quality */
+  const perf = { on: false, el: null, n: 0, acc: 0, js: 0, sub: 0, t: 0 }, focusV = new THREE.Vector3();
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'KeyI' || e.repeat || e.target.closest('input, textarea')) return;
+    perf.on = !perf.on;
+    if (!perf.el) { perf.el = document.createElement('pre'); perf.el.className = 'bc-perf'; document.body.appendChild(perf.el); }
+    perf.el.hidden = !perf.on;
+  });
   renderer.setAnimationLoop(() => {
     const now = performance.now(), dtMs = Math.min(100, now - last); last = now;
     const dt = TEST && Q.get('dt') ? +Q.get('dt') : dtMs / 1000;
@@ -189,14 +197,20 @@ async function boot() {
       const c = freeCam.split(',').map(Number), gy = (x, z) => (Q.get('rel') === '0' ? 0 : groundAt(plan, x, z));
       camera.position.set(c[0], c[1] + gy(c[0], c[2]), c[2]); camera.lookAt(c[3], c[4] + gy(c[3], c[5]), c[5]);
     } else {
-      game.update(Math.min(dt, 0.05) * (game.timeScale || 1));
+      const j0 = performance.now(); game.update(Math.min(dt, 0.05) * (game.timeScale || 1)); perf.js += performance.now() - j0;
       if (audio) audio.car(game.car, game.mode === 'car' ? game.car.input.throttle || 0 : 0, dt);
     }
-    const fo = game.focus(); city.update(freeCam ? camera.position : new THREE.Vector3(fo.x, fo.y, fo.z), 3);
+    const fo = game.focus(); city.update(freeCam ? camera.position : focusV.set(fo.x, fo.y, fo.z), 3);
     inst.update(camera);
     if (game.traffic) game.traffic.draw();
     if (probe && !freeCam) probe.update(dt, game.car, game.mode === 'car' && !game.rooms.inside);
-    pipeline.render();
+    const r0 = performance.now(); pipeline.render(); perf.sub += performance.now() - r0;
+    perf.n++; perf.acc += dtMs;
+    if (perf.on && now - perf.t > 500) {
+      const n = perf.n || 1, ri = renderer.info.render || {};
+      perf.el.textContent = `${Math.round(1000 / (perf.acc / n))} fps  ${(perf.acc / n).toFixed(1)} ms\ngame ${(perf.js / n).toFixed(1)} ms  draw ${(perf.sub / n).toFixed(1)} ms\n${webgpu ? 'WebGPU' : 'WebGL 2'}  ${preset}${auto ? ' (auto)' : ''}  scale ${(dprBase * scale).toFixed(2)}\n${innerWidth}×${innerHeight}  calls ${ri.drawCalls || ri.calls || '?'}  tris ${Math.round((ri.triangles || 0) / 1000)}k\n${(gpu || 'GPU hidden by the browser').slice(0, 60)}`;
+      perf.t = now; perf.n = perf.acc = perf.js = perf.sub = 0;
+    } else if (!perf.on && perf.n > 120) perf.n = perf.acc = perf.js = perf.sub = 0;
     /* photo mode: read back the frame just drawn, in the same task, before the browser presents it */
     if (game.wantShot) { const cb = game.wantShot; game.wantShot = null; try { renderer.domElement.toBlob(cb, 'image/png'); } catch (e) { cb(null); } }
     frames++;

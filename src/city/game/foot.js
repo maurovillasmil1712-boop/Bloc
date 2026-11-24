@@ -86,9 +86,16 @@ export class FootCam {
       drag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0 };
     });
     window.addEventListener('pointermove', (e) => {
-      if (!drag || e.pointerId !== drag.id) return;
+      if (!drag || e.pointerId !== drag.id || this.locked) return;
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY; drag.moved += Math.abs(dx) + Math.abs(dy);
       this.yaw -= dx * 0.006; this.pitch = Math.max(-0.5, Math.min(1.1, this.pitch + dy * 0.004)); this.lastLook = performance.now() / 1000;
+    });
+    /* v7.9: on a computer the mouse is locked to the game (click to start, Esc to free it), like any shooter:
+       moving it turns the camera, and the player's head follows */
+    window.addEventListener('mousemove', (e) => {
+      if (!this.active || !this.locked) return;
+      const s = this.sens || 1;
+      this.yaw -= e.movementX * 0.0024 * s; this.pitch = Math.max(-0.75, Math.min(1.15, this.pitch + e.movementY * 0.002 * s)); this.lastLook = performance.now() / 1000;
     });
     const up = (e) => { if (drag && e.pointerId === drag.id) { this.clicked = drag.moved < 6; drag = null; } };
     window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
@@ -98,7 +105,7 @@ export class FootCam {
     const h = f.human, now = performance.now() / 1000;
     /* drift back behind you while walking, unless you looked around a moment ago */
     const aim = this.aim || 0;
-    if (f.speed > 0.5 && now - this.lastLook > 1.6 && this.mode !== 'first' && aim < 0.1) {
+    if (!this.locked && f.speed > 0.5 && now - this.lastLook > 1.6 && this.mode !== 'first' && aim < 0.1) {
       let d = f.a - this.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
       this.yaw += d * Math.min(1, dt * 1.6);
     }
@@ -109,12 +116,17 @@ export class FootCam {
     if (this.mode === 'first') {
       this.cam.position.set(f.x + Math.sin(f.a) * 0.12, f.y + 1.66 + (h.hips.position.y - 0.94) * 0.6, f.z + Math.cos(f.a) * 0.12);
       if (f.speed > 0.3 || now - this.lastLook > 0.1) { /* look where you walk unless dragging */ }
-      const yaw = now - this.lastLook < 1.2 ? this.yaw : (this.yaw = f.a);
+      /* mouse locked: you face where you look; otherwise the view follows your walk unless you just dragged */
+      if (this.locked) { f.a = this.yaw; h.group.rotation.y = f.a; }
+      const yaw = this.locked || now - this.lastLook < 1.2 ? this.yaw : (this.yaw = f.a);
       this.cam.lookAt(this.cam.position.x + Math.sin(yaw) * Math.cos(this.pitch - 0.1), this.cam.position.y - Math.sin(this.pitch - 0.1), this.cam.position.z + Math.cos(yaw) * Math.cos(this.pitch - 0.1));
       this.setFov(dt, 72);
       return;
     }
     const shoulder = this.mode === 'shoulder';
+    /* the head turns toward where the camera looks (up to about 70° each way) */
+    let hd = this.yaw - f.a; while (hd > Math.PI) hd -= Math.PI * 2; while (hd < -Math.PI) hd += Math.PI * 2;
+    if (Math.abs(hd) < 2.4) { h.head.rotation.y = Math.max(-1.2, Math.min(1.2, hd)) * 0.75; h.neck.rotation.y += Math.max(-1.2, Math.min(1.2, hd)) * 0.25; h.head.rotation.x = Math.max(-0.4, Math.min(0.5, this.pitch - 0.12)) * 0.6; }
     /* aiming: in tight over the right shoulder, narrower view */
     let dist = (shoulder ? 1.7 : this.dist + Math.min(1.2, f.speed * 0.12)) * (1 - aim) + 1.35 * aim;
     /* with a weapon out the camera sits over the right shoulder, so the gun hand is in view */

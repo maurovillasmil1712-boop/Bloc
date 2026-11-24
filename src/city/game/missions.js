@@ -98,7 +98,7 @@ export class Missions {
   fail(why) { this.line('mi_fail_' + why, null); this.g.say(T('mi_failed'), T('mi_fail_' + why)); this.cur = null; this.show(); }
   update(dt) {
     const g = this.g;
-    this.rosaH.animate(dt, { speed: 0 });
+    if (this.rosaH.group.visible) this.rosaH.animate(dt, { speed: 0 });
     const tgt = this.cur ? this.target() : (this.next() ? [this.rosa.x, this.rosa.z] : null);
     const me0 = g.me();
     this.beam.visible = !!tgt && !g.rooms.inside && Math.hypot(me0.x - tgt[0], me0.z - tgt[1]) > 6;

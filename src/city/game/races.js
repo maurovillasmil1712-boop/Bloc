@@ -72,7 +72,8 @@ export class Races {
   update(dt) {
     const g = this.g, car = g.car, plan = g.plan;
     this.cool -= dt;
-    for (let i = 0; i < RACES.length; i++) this.rings[i].visible = !this.cur && !g.rooms.inside;
+    const me = g.me();
+    for (let i = 0; i < RACES.length; i++) this.rings[i].visible = !this.cur && !g.rooms.inside && Math.abs(RACES[i].s[0] - me.x) < 450 && Math.abs(RACES[i].s[1] - me.z) < 450;
     if (!this.cur) {
       if (this.cool > 0 || g.mode !== 'car' || g.trial || (g.missions && g.missions.cur && g.missions.cur.steps[g.missions.step].k !== 'race')) return;
       for (const r of RACES) if (Math.hypot(car.x - r.s[0], car.z - r.s[1]) < 7.5 && car.speed < 6) { this.start(r); break; }

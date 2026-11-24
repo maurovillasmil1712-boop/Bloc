@@ -74,6 +74,8 @@ export class Arms {
     root.addEventListener('contextmenu', (e) => { if (g.mode === 'foot') e.preventDefault(); });
     root.addEventListener('pointerdown', (e) => {
       if (g.mode !== 'foot' || e.target.closest('button, [data-in], .bc-sheet, .bc-map, .bc-wheel')) return;
+      /* the click that locks the mouse doesn't shoot */
+      if (g.lockable && !g.locked) return;
       if (e.button === 2) this.aim = true;
       else if (e.button === 0 && this.cur) { this.trigger = true; this.pull(); }
     });

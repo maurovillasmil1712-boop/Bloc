@@ -96,9 +96,10 @@ export class Game {
     this.input.on('KeyF', () => this.toggleCar());
     this.input.on('KeyE', () => this.interact());
     this.input.on('KeyJ', () => this.punch());
-    this.input.on('Escape', () => { if (this.phone && this.phone.photo) this.phone.photoEnd(); else if (this.phone && this.phone.el) this.phone.close(); else if (this.talk.convo) this.talk.cancel(); else if (this.sheets.el) this.sheets.close(); else if (this.mapOpen) this.toggleMap(); else this.finish('exit'); });
-    this.root.addEventListener('pointerup', () => setTimeout(() => { if (this.fcam.clicked && this.mode === 'foot') { this.fcam.clicked = false; this.punch(); } }, 0));
+    this.input.on('Escape', () => { if (performance.now() - (this.unlockAt || -1e9) < 450) return; if (this.phone && this.phone.photo) this.phone.photoEnd(); else if (this.phone && this.phone.el) this.phone.close(); else if (this.talk.convo) this.talk.cancel(); else if (this.sheets.el) this.sheets.close(); else if (this.mapOpen) this.toggleMap(); else this.finish('exit'); });
+    this.root.addEventListener('pointerup', () => setTimeout(() => { if (this.fcam.clicked && this.mode === 'foot') { this.fcam.clicked = false; if (performance.now() - (this.lockClickAt || -1e9) > 700) this.punch(); } }, 0));
     this.input.on('KeyN', () => this.cycleSky());
+    this.mouseLook();
     /* minimap zoom: + and - (and the two buttons on the map), remembered */
     const zoomBy = (k) => { this.mz = Math.max(1, Math.min(9, this.mz * (k > 0 ? 1.3 : 1 / 1.3))); try { localStorage.setItem('bloc:city:mz', String(this.mz)); } catch (e) { /* private mode */ } };
     for (const c of ['Equal', 'NumpadAdd']) this.input.on(c, () => zoomBy(1));
@@ -228,6 +229,14 @@ export class Game {
     if (this.arms) this.arms.update(dt);
     if (this.missions) this.missions.update(dt);
     if (this.races) this.races.update(dt);
+    /* far-away things off: each is a draw call or fifty (Rosa alone is 54 meshes), which is what slows Safari on older Macs */
+    if ((this.cullT = (this.cullT || 0) - dt) <= 0) {
+      this.cullT = 0.4; const me = this.me(), far = (x, z, r) => Math.abs(x - me.x) > r || Math.abs(z - me.z) > r;
+      this.trialRings.forEach((m, i) => { m.visible = !far(m.position.x, m.position.z, 450); });
+      if (this.plane && this.mode !== 'plane') this.plane.group.visible = !far(this.plane.x, this.plane.z, 700);
+      else if (this.plane) this.plane.group.visible = true;
+      if (this.missions && this.missions.rosaH) this.missions.rosaH.group.visible = !this.rooms.inside && !far(this.missions.rosa.x, this.missions.rosa.z, 90);
+    }
     if (this.stunts) this.stunts.update(dt);
     this.routeTick(dt);
     /* a bus at its stop near you: the driver announces it */
@@ -432,6 +441,29 @@ export class Game {
       this.camera.fov = 60; this.camera.updateProjectionMatrix();
       if (this.audio) this.audio.duck(false);
     }
+  }
+  /* ---------- mouse look (v7.9): pointer lock on computers ---------- */
+  mouseLook() {
+    const root = this.root, coarse = matchMedia('(pointer: coarse)').matches;
+    if (coarse || !root.requestPointerLock) return;
+    let sens = 1; try { sens = +localStorage.getItem('bloc:city:sens') || 1; } catch (e) { /* private mode */ }
+    this.fcam.sens = sens; this.lockable = true;
+    const busy = () => this.ended || this.mapOpen || this.wheel || (this.arms && this.arms.wheel) || this.sheets.el || (this.phone && (this.phone.el || this.phone.photo)) || this.talk.convo;
+    root.addEventListener('mousedown', (e) => {
+      if (document.pointerLockElement || busy() || e.target.closest('button, a, input, [data-in], .bc-sheet, .bc-map, .bc-wheel, .bc-phone, .bc-talk')) return;
+      this.lockClickAt = performance.now();
+      try { const p = root.requestPointerLock({ unadjustedMovement: true }); if (p && p.catch) p.catch(() => { try { root.requestPointerLock(); } catch (x) { /* not allowed */ } }); } catch (x) { /* not allowed */ }
+    });
+    document.addEventListener('pointerlockchange', () => {
+      const on = document.pointerLockElement === root;
+      this.fcam.locked = on; this.locked = on;
+      if (!on) this.unlockAt = performance.now();
+      else if (!this.lockTold) { this.lockTold = true; this.say(TEXT('look_on'), TEXT('look_sub')); }
+    });
+    window.addEventListener('mousemove', (e) => { if (this.locked && this.mode !== 'foot') this.cam.mouse(e.movementX * 0.0026 * sens, e.movementY * 0.0016 * sens); });
+    /* menus, the map and wheels need the cursor back */
+    setInterval(() => { if (this.locked && busy()) document.exitPointerLock(); }, 150);
+    setTimeout(() => { if (!this.locked && !this.ended) this.say(TEXT('look_hint'), ''); }, 4500);
   }
   /* ---------- Drive to: a waypoint and a route along the roads ---------- */
   setWaypoint(p, quiet) {
