@@ -8474,19 +8474,25 @@
     if (FARM.driving || !FARM.d) return;
     FARM.driving = true;
     unlockAudio();
-    api('POST', '/api/farm/drive', { a: 'start' }, { timeout: 20000 }).then(function (r) {
+    /* send study you just logged first, so the server counts it as fuel (saves wait about a second otherwise) */
+    flush();
+    var waited = 0;
+    (function ready() {
+      if ((SYNC.pending || SYNC.inflight) && waited < 6000) { if (SYNC.pending && !SYNC.inflight) push(); waited += 250; return setTimeout(ready, 250); }
+      api('POST', '/api/farm/drive', { a: 'start' }, { timeout: 20000 }).then(function (r) {
       if (r.status !== 200 || !r.data || !r.data.run) { FARM.driving = false; toast(farmErrText(r)); return; }
       var data = r.data;
       farmLearn(data.homes);
       cityOpen(data);
     }).catch(function () { FARM.driving = false; toast('Bloc City couldn’t load. Check your connection.'); });
+    })();
   }
   /* Bloc City v7 lives at /city/ with its own security policy (WebAssembly, workers). It opens full screen in a
      frame and talks to the app by postMessage: ready, data, started, end (the result), close. */
   function cityLang() { var l = sget('bloc:city:lang'); return l === 'es' || l === 'en' ? l : (/^es\b/i.test(navigator.language || '') ? 'es' : 'en'); }
   function cityOpen(data) {
     var f = document.createElement('iframe'), ended = false, opener = document.activeElement;
-    f.className = 'city-frame'; f.title = 'Bloc City'; f.src = '/city/?v=7.9.5';
+    f.className = 'city-frame'; f.title = 'Bloc City'; f.src = '/city/?v=7.9.6';
     f.setAttribute('allow', 'fullscreen; gamepad; autoplay');
     function onMsg(e) {
       if (e.origin !== location.origin || e.source !== f.contentWindow || !e.data) return;

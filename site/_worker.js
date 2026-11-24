@@ -5179,9 +5179,11 @@ async function farmDrive(c) {
   if (b.a === 'start') {
     await hit(c, 'drive:' + s.user, 60, 60 * MIN, 'slow');
     const res = await farmTx(c, s.user, (f) => {
+      /* a drive that never reported back (the tab closed) used some fuel: at most 5 minutes, and taken before new study
+         is added, so study you just logged is never eaten by an old drive */
+      if (f.run) f.fuel = Math.max(0, Math.round(f.fuel - Math.min(f.run.max, 300, Math.max(0, (c.now - f.run.at) / 1000))));
+      f.run = null;
       claimStudy(f, bits, c.now); freshDay(f);
-      /* a drive that never reported back still used its fuel */
-      if (f.run) f.fuel = Math.max(0, Math.round(f.fuel - Math.min(f.run.max, Math.max(0, (c.now - f.run.at) / 1000))));
       if (f.fuel < 20) throw new HttpError(400, 'fuel', { fuel: f.fuel });
       f.run = { id: randomToken(9), at: c.now, max: f.fuel };
       return {};
