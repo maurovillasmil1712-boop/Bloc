@@ -452,15 +452,19 @@ export class Game {
     root.addEventListener('mousedown', (e) => {
       if (document.pointerLockElement || busy() || e.target.closest('button, a, input, [data-in], .bc-sheet, .bc-map, .bc-wheel, .bc-phone, .bc-talk')) return;
       this.lockClickAt = performance.now();
-      try { const p = root.requestPointerLock({ unadjustedMovement: true }); if (p && p.catch) p.catch(() => { try { root.requestPointerLock(); } catch (x) { /* not allowed */ } }); } catch (x) { /* not allowed */ }
+      /* the system's own mouse speed and acceleration are kept (raw input felt far too slow on Mac trackpads) */
+      try { const p = root.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (x) { /* not allowed */ }
     });
     document.addEventListener('pointerlockchange', () => {
       const on = document.pointerLockElement === root;
       this.fcam.locked = on; this.locked = on;
       if (!on) this.unlockAt = performance.now();
-      else if (!this.lockTold) { this.lockTold = true; this.say(TEXT('look_on'), TEXT('look_sub')); }
+      else if (!this.lockTold) { this.lockTold = true; this.say(TEXT('look_on'), TEXT('look_sub2')); }
     });
-    window.addEventListener('mousemove', (e) => { if (this.locked && this.mode !== 'foot') this.cam.mouse(e.movementX * 0.0026 * sens, e.movementY * 0.0016 * sens); });
+    window.addEventListener('mousemove', (e) => { if (this.locked && this.mode !== 'foot') this.cam.mouse(e.movementX * 0.006 * this.fcam.sens, e.movementY * 0.004 * this.fcam.sens); });
+    /* [ and ] change the mouse speed, remembered */
+    const setSens = (k) => { const v = Math.max(0.25, Math.min(5, this.fcam.sens * k)); this.fcam.sens = v; try { localStorage.setItem('bloc:city:sens', v.toFixed(2)); } catch (e) { /* private mode */ } this.say(TEXT('sens'), Math.round(v * 100) + '%'); };
+    this.input.on('BracketRight', () => setSens(1.25)); this.input.on('BracketLeft', () => setSens(0.8));
     /* menus, the map and wheels need the cursor back */
     setInterval(() => { if (this.locked && busy()) document.exitPointerLock(); }, 150);
     setTimeout(() => { if (!this.locked && !this.ended) this.say(TEXT('look_hint'), ''); }, 4500);

@@ -95,7 +95,7 @@ export class FootCam {
     window.addEventListener('mousemove', (e) => {
       if (!this.active || !this.locked) return;
       const s = this.sens || 1;
-      this.yaw -= e.movementX * 0.0024 * s; this.pitch = Math.max(-0.75, Math.min(1.15, this.pitch + e.movementY * 0.002 * s)); this.lastLook = performance.now() / 1000;
+      this.yaw -= e.movementX * 0.006 * s; this.pitch = Math.max(-0.75, Math.min(1.15, this.pitch + e.movementY * 0.005 * s)); this.lastLook = performance.now() / 1000;
     });
     const up = (e) => { if (drag && e.pointerId === drag.id) { this.clicked = drag.moved < 6; drag = null; } };
     window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
