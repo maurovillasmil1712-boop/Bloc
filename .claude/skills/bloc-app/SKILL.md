@@ -7,7 +7,7 @@ description: Use when working on Bloc (myib.app, formerly MyIB), Mauro's study p
 
 Bloc is a study planner used by about 300 students, most of them in Mauro's IB class at Colegio Madrid (2º BI B, "Sociales 2 IB"). It started as "IB Planner", became "MyIB" with accounts, and was renamed Bloc in v5.0. Live at https://myib.app. Mauro (admin account `mauro`) owns it, decides what ships, and deploys by hand. Never deploy, push to the default branch, or touch production data without his explicit OK.
 
-Read this whole file before changing anything. Then read the file you're changing.
+Read this whole file before changing anything. For Bloc City work in progress, read `docs/CITY-NEXT.md` (the current to-do list) and the end of `docs/VERSIONS.md`. Then read the file you're changing.
 
 ## 1. Stack and files
 
