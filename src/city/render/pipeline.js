@@ -14,6 +14,8 @@ import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 
 export const PRESETS = {
+  /* Lite: for old Intel laptops on Safari when Low still stutters. No shadows, no post AA, a short view and fewer people */
+  lite: { scale: [0.6, 0.75], dpr: 1.0, shadow: 0, cascades: 1, shadowFar: 0, ao: false, ssr: false, bloom: false, aa: 'none', far: 1100, detail: 110, trees: 30, peds: 24, cars: 10, lamps: 8, terrainNear: 10, fog: 1.8 },
   low: { scale: [0.7, 0.85], dpr: 1.0, shadow: 1024, cascades: 1, shadowFar: 70, ao: false, ssr: false, bloom: false, aa: 'fxaa', far: 1600, detail: 160, trees: 60, peds: 40, cars: 16, lamps: 16, terrainNear: 8, fog: 1.4 },
   medium: { scale: [0.8, 1.0], dpr: 1.5, shadow: 2048, cascades: 2, shadowFar: 220, ao: false, ssr: false, bloom: true, aa: 'smaa', far: 2600, detail: 260, trees: 120, peds: 80, cars: 24, lamps: 48, terrainNear: 4, fog: 1.0 },
   high: { scale: [0.85, 1.0], dpr: 1.75, shadow: 2048, cascades: 3, shadowFar: 420, ao: true, aoScale: 0.5, ssr: true, ssrScale: 0.5, bloom: true, aa: 'traa', far: 4200, detail: 420, trees: 250, peds: 140, cars: 36, lamps: 128, terrainNear: 4, fog: 0.8 },
@@ -26,12 +28,13 @@ export function detectPreset(info) {
   const mem = navigator.deviceMemory || 8, cores = navigator.hardwareConcurrency || 4;
   /* a drive that ran slow on Auto leaves a lower start for next time */
   let cap = null; try { cap = localStorage.getItem('bloc:city:autocap'); } catch (e) { /* private mode */ }
-  const order = ['low', 'medium', 'high', 'ultra'], capped = (p) => (cap && order.indexOf(cap) >= 0 && order.indexOf(cap) < order.indexOf(p) ? cap : p);
+  const order = ['lite', 'low', 'medium', 'high', 'ultra'], capped = (p) => (cap && order.indexOf(cap) >= 0 && order.indexOf(cap) < order.indexOf(p) ? cap : p);
   if (mobile) return capped(mem >= 6 && cores >= 6 && info.webgpu ? 'medium' : 'low');
+  if (cap === 'lite') return 'lite';
   const gpu = (info.gpu || '').toLowerCase(), mac = /Mac/.test(ua), safari = /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Firefox/.test(ua);
   if (/swiftshader|llvmpipe|software/.test(gpu)) return 'low';
   /* Safari hides the GPU name, and on Intel Macs its WebGPU and WebGL run slower than Chrome: start low, the frame-rate watcher handles the rest */
-  if (mac && safari) return 'low';
+  if (mac && safari) return capped('low');
   /* Intel Macs (Radeon Pro or Intel graphics) and integrated GPUs can't carry the full post stack */
   if (mac && !/apple/.test(gpu)) return capped(/intel|uhd|iris/.test(gpu) ? 'low' : 'medium');
   if (/intel|uhd|iris|adreno|mali/.test(gpu)) return capped('low');
@@ -91,7 +94,8 @@ export function makePipeline(renderer, scene, camera, preset, sunLight) {
   const P = PRESETS[preset];
   /* shadows: hard-edged and cheap on Low */
   if (preset === 'low') renderer.shadowMap.type = THREE.BasicShadowMap;
-  sunLight.shadow.mapSize.set(P.shadow, P.shadow);
+  if (!P.shadow) { renderer.shadowMap.enabled = false; sunLight.castShadow = false; }
+  else sunLight.shadow.mapSize.set(P.shadow, P.shadow);
   sunLight.shadow.bias = -0.0004; sunLight.shadow.normalBias = 0.6;
   if (P.cascades > 1) {
     const cam = sunLight.shadow.camera;

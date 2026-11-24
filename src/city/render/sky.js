@@ -122,7 +122,7 @@ export class SkySystem {
     const day = new THREE.Color(0.66, 0.74, 0.84), gold = new THREE.Color(0.92, 0.64, 0.45), nightC = new THREE.Color(0.035, 0.045, 0.08), grey = new THREE.Color(0.52, 0.55, 0.58);
     this.fogColor.copy(day).lerp(gold, golden * (1 - night)).lerp(nightC, night).lerp(grey.clone().multiplyScalar(1 - night * 0.85), weather * 0.75);
     /* rebuild the environment map when the sun has moved enough */
-    const every = this.preset === 'low' ? 30000 : this.preset === 'medium' ? 8000 : 3000;
+    const every = this.preset === 'low' || this.preset === 'lite' ? 30000 : this.preset === 'medium' ? 8000 : 3000;
     if (this.envSun.distanceTo(this.sunDir) > 0.01 || performance.now() - this.lastEnv > every * 10) {
       if (performance.now() - this.lastEnv > every || !this.env) this.rebuildEnv();
     }

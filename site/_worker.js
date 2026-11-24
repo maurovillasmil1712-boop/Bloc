@@ -4454,8 +4454,13 @@ const FURN_BY = new Map(FURN.map((x) => [x.id, x]));
    took at least min seconds and no longer than the drive itself. Same ids as MISSIONS in src/city/game/missions.js. */
 const MISSIONS = [
   { id: 'm1', pay: 150, min: 25, need: null }, { id: 'm2', pay: 250, min: 40, need: 'm1' }, { id: 'm3', pay: 200, min: 15, need: 'm1' },
-  { id: 'm4', pay: 300, min: 45, need: 'm2' }, { id: 'm5', pay: 400, min: 70, need: 'm4' }
+  { id: 'm4', pay: 300, min: 45, need: 'm2' }, { id: 'm5', pay: 400, min: 70, need: 'm4' },
+  /* v7.8: an airport pick-up, a street race against Dani, Most wanted (4 stars for a minute, then lose them), and a stunt show on the side */
+  { id: 'm6', pay: 350, min: 50, need: 'm5' }, { id: 'm7', pay: 500, min: 45, need: 'm6' }, { id: 'm8', pay: 800, min: 75, need: 'm7' }, { id: 'm9', pay: 250, min: 8, need: 'm1' }
 ];
+/* street races (v7.8): first place pays 300 the first time, then 60 once a day per race; min is a time nobody can beat */
+const RACES = [{ id: 'r1', min: 30 }, { id: 'r2', min: 40 }, { id: 'r3', min: 18 }, { id: 'r4', min: 14 }];
+const RACE_BY = new Map(RACES.map((x) => [x.id, x]));
 const MISSION_BY = new Map(MISSIONS.map((x) => [x.id, x]));
 /* garage mods (v7.6): each bought once, then free to switch; they go on whichever of your cars you drive */
 const MODS = [
@@ -5259,6 +5264,16 @@ async function farmDrive(c) {
       const m = r && MISSION_BY.get(r.id), ms = Math.round(Number(r && r.ms));
       if (!m || f.missions.includes(m.id) || (m.need && !f.missions.includes(m.need)) || !(ms >= m.min * 1000 && ms <= used * 1000 + 1000)) continue;
       f.missions.push(m.id); out.coins += m.pay; out.missions.push({ id: m.id, coins: m.pay });
+    }
+    /* street races: first place only, believable times */
+    if (!Array.isArray(f.races)) f.races = [];
+    if (!Array.isArray(f.drive.races)) f.drive.races = [];
+    out.races = [];
+    for (const r of (Array.isArray(b.races) ? b.races : []).slice(0, 8)) {
+      const rc = r && RACE_BY.get(r.id), ms = Math.round(Number(r && r.ms));
+      if (!rc || Number(r.place) !== 1 || !(ms >= rc.min * 1000 && ms <= used * 1000 + 1000)) continue;
+      if (!f.races.includes(rc.id)) { f.races.push(rc.id); f.drive.races.push(rc.id); out.coins += 300; out.races.push({ id: rc.id, coins: 300, first: true }); }
+      else if (!f.drive.races.includes(rc.id)) { f.drive.races.push(rc.id); out.coins += 60; out.races.push({ id: rc.id, coins: 60 }); }
     }
     /* driving past a friend's house: 10 coins for both of you, once a day */
     const visits = [...new Set((Array.isArray(b.visits) ? b.visits : []).filter((id) => typeof id === 'string' && friendIds.has(id) && !f.drive.visits.includes(id)))].slice(0, 20);

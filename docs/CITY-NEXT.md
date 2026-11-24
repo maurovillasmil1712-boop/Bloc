@@ -8,7 +8,7 @@ Mauro's list for the scheduled sessions tonight. Do them in order, ship a zip af
 4. ✅ (v7.7) **Running over and killing NPCs.** A hard car hit or a gunshot kills: they stay down, the body is taken away after a while, killing is two stars, people nearby scream and run. Blood stays gated (16+ confirmation plus admin approval). Website only: in the iPhone app people just get knocked over.
 5. ✅ (v7.7) **Staff.** Barista, clerk, mechanic, coach and range officer can be punched or shot down; the police get called; that shop is closed until the next drive.
 6. **Voices.** Finish the Kokoro voices (`tools/city/talk/voice.py`, model and voices in `/home/claude/work/tts`; English then Spanish; it resumes), then add reaction lines for deaths ("He's not moving!").
-7. **Speed.** A pass for Mauro's Intel MacBook Pro 2019 on Safari: crowd, traffic, shadows, rooms.
-8. **More to do.** Five more missions from Rosa, street races against traffic, stunt combos, a "most wanted" survival challenge.
+7. ✅ (v7.8) **Speed.** A pass for Mauro's Intel MacBook Pro 2019 on Safari: crowd, traffic, shadows, rooms.
+8. ✅ (v7.8) **More to do.** Five more missions from Rosa, street races against traffic, stunt combos, a "most wanted" survival challenge.
 
 Notes for a fresh session: the repo is the source of truth. Bloc FM songs are not in git (`site/city/radio/blocfm/`, built from `/mnt/user-data/uploads/*.wav` with `/home/claude/work/fm.sh`); if they're missing, ship the zip without them and say so. Test with `wrangler pages dev` on 127.0.0.1:8789 (see the skill) and `tests/smoke.py` (56 checks).

@@ -78,7 +78,7 @@ export async function loadSet(renderer, group, tier, onBytes) {
 }
 export function layerOf(group, id) { const s = SETS[group] || (index && { layers: index.groups[group] }); const i = s ? s.layers.indexOf(id) : -1; return i < 0 ? 0 : i; }
 export function onUpgrade(f) { listeners.add(f); return () => listeners.delete(f); }
-export function tiersFor(preset) { return preset === 'low' ? [512] : [512, 1024]; }
+export function tiersFor(preset) { return preset === 'low' || preset === 'lite' ? [512] : [512, 1024]; }
 
 /* small textures drawn in code: noise for water and puddles, signs */
 export function canvasTexture(w, h, draw, srgb = true) {

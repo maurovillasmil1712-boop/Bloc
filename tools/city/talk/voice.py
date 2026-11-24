@@ -40,7 +40,7 @@ for lang in langs:
             index[lang][i] = [bn, round(pos, 3), round(len(samples) / SR, 3)]
             parts += [samples, GAP]; pos += (len(samples) + len(GAP)) / SR
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as t: sf.write(t.name, np.concatenate(parts), SR)
-        subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', t.name, '-ac', '1', '-ar', '24000', '-c:a', 'libmp3lame', '-b:a', '40k', out], check=True)
+        subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', t.name, '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '24k', out], check=True)
         os.unlink(t.name); meta[key] = sig
         json.dump(index, open(ipath, 'w'), separators=(',', ':')); json.dump(meta, open(meta_path, 'w'))
         print(key, 'done', flush=True)

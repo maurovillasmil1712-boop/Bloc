@@ -1,7 +1,8 @@
 /* Police. Patrol cars live in the traffic. Now and then one pulls a driver over: they talk, and the driver either
    takes the warning or floors it and gets chased. You get wanted stars for crimes a patrol sees (knocking someone
    over, ramming a police car, fighting); patrols then leave the road graph and come after you. Stop near them and
-   you're busted; get 160 m clear for 12 s and you've lost them. Neither costs coins. */
+   you're busted; get 160 m clear for 12 s and you've lost them. Neither costs coins. v7.8: up to five stars; at four and
+   five more patrols come, they drive faster and you need to get further away for longer. */
 import * as THREE from 'three/webgpu';
 import { T } from './i18n.js';
 import { FootCops, Heli } from './cops.js';
@@ -10,6 +11,8 @@ export class Police {
   constructor(game, traffic, scene) {
     this.g = game; this.tr = traffic; this.stars = 0; this.calm = 0; this.close = 0; this.stopT = 25 + Math.random() * 20; this.stops = [];
     /* flashing beacons on cars with sirens on */
+    this.bustAt = -1; this.hotT = 0; try { this.hotBest = +localStorage.getItem('bloc:city:mw') || 0; } catch (e) { this.hotBest = 0; }
+    this.M = new THREE.Matrix4(); this.cR = new THREE.Color(5, 0.3, 0.3); this.cB = new THREE.Color(0.3, 0.6, 6); this.cD = new THREE.Color(0.05, 0.05, 0.06);
     const geo = new THREE.BoxGeometry(0.28, 0.12, 0.22);
     this.beacons = new THREE.InstancedMesh(geo, new THREE.MeshBasicNodeMaterial({ color: '#FFFFFF' }), 64); this.beacons.count = 0; this.beacons.frustumCulled = false;
     scene.add(this.beacons);
@@ -25,7 +28,7 @@ export class Police {
     if (!seen) return;
     const before = this.stars;
     if (kind === 'shoot' && this.stars >= 1) { this.calm = 0; return; }
-    this.stars = Math.min(3, this.stars + (kind === 'kill' ? 2 : 1)); this.calm = 0;
+    this.stars = Math.min(5, this.stars + (kind === 'kill' ? 2 : 1)); this.calm = 0;
     if (this.stars !== before) { this.g.say(T('wanted'), '★'.repeat(this.stars)); this.pursue(); }
   }
   pursue() {
@@ -58,7 +61,7 @@ export class Police {
       nearest = Math.min(nearest, d);
       const want = Math.atan2(dx, dz); let dh = want - c.h; while (dh > Math.PI) dh -= Math.PI * 2; while (dh < -Math.PI) dh += Math.PI * 2;
       c.h += Math.max(-1, Math.min(1, dh)) * dt * (1.2 + Math.min(1, c.v / 20));
-      const vT = d < 6.5 ? 0 : Math.min(33, Math.max(4, (d - 5) * 1.1)) * (Math.abs(dh) > 1.2 ? 0.5 : 1);
+      const vT = d < 6.5 ? 0 : Math.min(33 + Math.max(0, this.stars - 3) * 3, Math.max(4, (d - 5) * 1.1)) * (Math.abs(dh) > 1.2 ? 0.5 : 1);
       c.v += Math.max(-14, Math.min(7, vT - c.v)) * dt;
       if (d < 6.5) c.h -= Math.max(-1, Math.min(1, dh)) * dt * (1.2 + Math.min(1, c.v / 20));
       c.x += Math.sin(c.h) * c.v * dt; c.z += Math.cos(c.h) * c.v * dt;
@@ -81,14 +84,16 @@ export class Police {
       /* on foot it's the officers who arrest you (see cops.js); in a car, boxing you in does it */
       this.close = closeCop && slow && g.mode !== 'foot' ? this.close + dt : Math.max(0, this.close - dt * 2);
       if (this.close > 2.5) this.busted();
-      this.calm = nearest > 160 ? this.calm + dt : 0;
-      if (this.calm > 12) { this.stars = 0; this.calm = 0; g.say(T('lost_them'), T('lost_them_sub')); this.release(); }
+      const hot = Math.max(0, this.stars - 3);
+      this.calm = nearest > 160 + hot * 50 ? this.calm + dt : 0;
+      if (this.stars >= 4) this.hotT += dt;
+      if (this.calm > 12 + hot * 6) { this.stars = 0; this.calm = 0; g.say(T('lost_them'), T('lost_them_sub')); this.release(); this.mostWanted(); }
       if (g.audio) g.audio.siren(nearest);
     } else if (g.audio) g.audio.siren(1e9);
     this.stopsTick(dt);
     this.foot.update(dt); this.heli.update(dt);
     this.draw();
-    const txt = this.stars ? '★'.repeat(this.stars) + '☆'.repeat(3 - this.stars) : '';
+    const txt = this.stars ? '★'.repeat(this.stars) + '☆'.repeat(5 - this.stars) : '';
     if (this.el.textContent !== txt) { this.el.textContent = txt; this.el.classList.toggle('on', !!txt); }
   }
   /* a clear line from the patrol car to you (no building in between) */
@@ -98,12 +103,19 @@ export class Police {
     return true;
   }
   busted() {
-    const g = this.g; this.stars = 0; this.close = 0; this.calm = 0; this.foot.clear();
+    const g = this.g; this.stars = 0; this.close = 0; this.calm = 0; this.foot.clear(); this.bustAt = performance.now() / 1000; this.hotT = 0;
     g.ui.fade.classList.add('on'); g.say(T('busted'), T('busted_sub'));
     g.talk.say(null, g.talk.pick('cop_bust'), { name: T('officer') });
     if (g.mode === 'car') { g.car.vx = g.car.vz = 0; }
     this.release();
     setTimeout(() => g.ui.fade.classList.remove('on'), 700);
+  }
+  /* the Most wanted challenge: how long you stayed at four stars or more before losing them */
+  mostWanted() {
+    const t = this.hotT; this.hotT = 0; if (t < 5) return;
+    if (t > this.hotBest) { this.hotBest = t; try { localStorage.setItem('bloc:city:mw', String(Math.round(t))); } catch (e) { /* private mode */ } }
+    const f = (s) => Math.floor(s / 60) + ':' + String(Math.round(s % 60)).padStart(2, '0');
+    setTimeout(() => this.g.say(T('mw_title'), T('mw_sub', { t: f(t), b: f(this.hotBest) })), 2600);
   }
   /* police pulling over other drivers, near you so you can watch */
   stopsTick(dt) {
@@ -146,7 +158,7 @@ export class Police {
     if (!s.flee) await t.say(cop, t.pick('cop_ok'), { name: T('officer'), range: 34 });
   }
   draw() {
-    const M = new THREE.Matrix4(), on = Math.floor(performance.now() / 160) % 2, R = new THREE.Color(5, 0.3, 0.3), B = new THREE.Color(0.3, 0.6, 6), D = new THREE.Color(0.05, 0.05, 0.06);
+    const M = this.M, on = Math.floor(performance.now() / 160) % 2, R = this.cR, B = this.cB, D = this.cD;
     let i = 0;
     for (const c of this.tr.cars) {
       if (!c.alive || c.type !== 'police' || i > 62) continue;

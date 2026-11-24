@@ -1,8 +1,23 @@
 /* Routes along the real road graph (v7.7), for "Drive to" waypoints and mission objectives: A* over plan.nodes and
    plan.edges, returning the polyline to follow. */
+/* the road graph has small islands (dead-end stubs, lanes that join the grid without a node), so routes only use the
+   biggest connected network; a point off it gets a straight last stretch */
+function mainNet(plan) {
+  if (plan._main) return plan._main;
+  const N = plan.nodes, E = plan.edges, comp = new Int32Array(N.length).fill(-1), sizes = [];
+  for (let i = 0; i < N.length; i++) {
+    if (comp[i] >= 0 || !N[i].edges.length) continue;
+    const k = sizes.length, st = [i]; comp[i] = k; let n = 0;
+    while (st.length) { const c = st.pop(); n++; for (const ei of N[c].edges) { const e = E[ei], o = e.a === c ? e.b : e.a; if (comp[o] < 0) { comp[o] = k; st.push(o); } } }
+    sizes.push(n);
+  }
+  const big = sizes.indexOf(Math.max(...sizes)), main = new Uint8Array(N.length);
+  for (let i = 0; i < N.length; i++) main[i] = comp[i] === big ? 1 : 0;
+  return (plan._main = main);
+}
 export function nearestNode(plan, x, z) {
-  let best = -1, bd = 1e18;
-  for (const n of plan.nodes) { if (!n.edges.length) continue; const d = (n.x - x) * (n.x - x) + (n.z - z) * (n.z - z); if (d < bd) { bd = d; best = n.id; } }
+  let best = -1, bd = 1e18; const main = mainNet(plan);
+  for (const n of plan.nodes) { if (!n.edges.length || !main[n.id]) continue; const d = (n.x - x) * (n.x - x) + (n.z - z) * (n.z - z); if (d < bd) { bd = d; best = n.id; } }
   return best;
 }
 export function route(plan, x0, z0, x1, z1) {

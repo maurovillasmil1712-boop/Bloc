@@ -60,7 +60,7 @@ async function sendEnd(start, result) {
   if (inFrame) { post({ type: 'bloc-city-end', result }); return; }
   const d = start.data;
   await fetch('/api/farm/drive', { method: 'POST', credentials: 'same-origin', keepalive: true, headers: { 'Content-Type': 'application/json', 'X-MyIB': '1' },
-    body: JSON.stringify({ a: 'end', run: d.run.id, secs: result.secs, notes: result.notes, crates: result.crates, jumps: result.jumps, visits: result.visits, trial: result.trial, jobs: result.jobs, missions: result.missions || [] }) }).catch(() => {});
+    body: JSON.stringify({ a: 'end', run: d.run.id, secs: result.secs, notes: result.notes, crates: result.crates, jumps: result.jumps, visits: result.visits, trial: result.trial, jobs: result.jobs, missions: result.missions || [], races: result.races || [] }) }).catch(() => {});
 }
 /* the plan: in a worker when we can, so the bar keeps moving */
 function planInWorker() {
@@ -112,7 +112,7 @@ async function boot() {
 
   const rain = Q.get('rain') ? +Q.get('rain') : +(start.data.weather || 0);
   U.wet.value = rain; U.rain.value = rain;
-  if (rain > 0) makeRain(scene, preset === 'low' ? 2500 : 6000);
+  if (rain > 0) makeRain(scene, preset === 'low' || preset === 'lite' ? 2500 : 6000);
   if (Q.get('time')) sky.override = Date.parse(Q.get('time'));
 
   /* the game: the player's car first, so the city warms up around it */
@@ -205,7 +205,7 @@ async function boot() {
       if (dtMs > target * 1.2) { slow++; fast = 0; } else if (dtMs < target * 0.8) { fast++; slow = 0; } else { slow = Math.max(0, slow - 1); fast = Math.max(0, fast - 1); }
       if (slow > 45 && scale > 0.5) { scale = Math.max(0.5, scale - 0.1); renderer.setPixelRatio(dprBase * scale); slow = 0; }
       /* still slow at the smallest size on Auto: start one preset lower next time */
-      if (auto && scale <= 0.5 && dtMs > target * 1.2) { floorT += dtMs; if (floorT > 6000) { const lower = { ultra: 'high', high: 'medium', medium: 'low' }[preset]; if (lower) { try { localStorage.setItem('bloc:city:autocap', lower); } catch (e) { /* ignore */ } } floorT = -1e12; } }
+      if (auto && scale <= 0.5 && dtMs > target * 1.2) { floorT += dtMs; if (floorT > 6000) { const lower = { ultra: 'high', high: 'medium', medium: 'low', low: 'lite' }[preset]; if (lower) { try { localStorage.setItem('bloc:city:autocap', lower); } catch (e) { /* ignore */ } } floorT = -1e12; } }
       if (fast > 240 && scale < 1) { scale = Math.min(1, scale + 0.1); renderer.setPixelRatio(dprBase * scale); fast = 0; }
     }
   });

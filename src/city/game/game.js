@@ -16,13 +16,15 @@ import { Arms } from './arms.js';
 import { Missions } from './missions.js';
 import { Phone } from './phone.js';
 import { route as findRoute, progress as routeProgress } from './route.js';
+import { Races } from './races.js';
+import { Stunts } from './stunts.js';
 import { Talk } from './talk.js';
 import { Plane, PlaneCam } from '../actors/plane.js';
 import { Human } from '../actors/human.js';
 import { Radio } from '../audio/radio.js';
 import { Friends } from './friends.js';
 
-function qNow() { let q = null; try { q = localStorage.getItem('bloc:city:q'); } catch (e) { /* ignore */ } return ['low', 'medium', 'high', 'ultra'].indexOf(q) >= 0 ? q : 'auto'; }
+function qNow() { let q = null; try { q = localStorage.getItem('bloc:city:q'); } catch (e) { /* ignore */ } return ['lite', 'low', 'medium', 'high', 'ultra'].indexOf(q) >= 0 ? q : 'auto'; }
 const fmt = (s) => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 const fmtMs = (ms) => { const s = ms / 1000, m = Math.floor(s / 60); return m + ':' + (s - m * 60).toFixed(2).padStart(5, '0'); };
 
@@ -71,6 +73,7 @@ export class Game {
     this.coins = typeof d.coins === 'number' ? d.coins : (ctx.test ? 5000 : 0);
     this.car.own = true; this.parked = []; this.mods = d.mods || (ctx.test ? { spoiler: true, glow: '#7CE3FF', rims: 'gold', tint: true } : {}); this.car.setMods(this.mods);
     this.missions = new Missions(this);
+    this.races = new Races(this); this.stunts = new Stunts(this);
     if (this.crowd) this.crowd.native = this.native;
     this.phone = new Phone(this);
     this.sheets = new Sheets(this, !!ctx.test);
@@ -195,7 +198,7 @@ export class Game {
     this.say('Bloc City', coarse ? t('hint_touch') : t('hint_keys'));
   }
   cycleQuality(b) {
-    const order = ['auto', 'low', 'medium', 'high', 'ultra'], next = order[(order.indexOf(qNow()) + 1) % order.length];
+    const order = ['auto', 'lite', 'low', 'medium', 'high', 'ultra'], next = order[(order.indexOf(qNow()) + 1) % order.length];
     try { localStorage.setItem('bloc:city:q', next); if (next === 'auto') localStorage.removeItem('bloc:city:autocap'); } catch (e) { /* ignore */ }
     b.textContent = TEXT('quality') + ': ' + TEXT('q_' + next);
     this.say(TEXT('quality') + ': ' + TEXT('q_' + next), TEXT('q_next'));
@@ -224,6 +227,8 @@ export class Game {
     if (this.mode === 'car') this.updateCar(dt); else if (this.mode === 'plane') this.updatePlane(dt); else this.updateFoot(dt);
     if (this.arms) this.arms.update(dt);
     if (this.missions) this.missions.update(dt);
+    if (this.races) this.races.update(dt);
+    if (this.stunts) this.stunts.update(dt);
     this.routeTick(dt);
     /* a bus at its stop near you: the driver announces it */
     if (this.traffic && !this.rooms.inside) { const me = this.me(); for (const c of this.traffic.cars) if (c.busStop && c.mode === 'stop' && !c.announced && Math.hypot(c.x - me.x, c.z - me.z) < 26) { c.announced = true; setTimeout(() => { c.announced = false; }, 20000); this.talk.say({ x: c.x, z: c.z }, this.talk.pick('bus'), { name: TEXT('bus_driver') }); } }
@@ -806,7 +811,7 @@ export class Game {
       if (Math.hypot(h.x - car.x, h.z - car.z) < 12) { this.visited.add(h.id); this.result.visits.push(h.id); if (A) A.chime(988); this.say(TEXT('visit', { n: String(h.name).split(' ')[0] }), TEXT('visit_sub')); }
     }
     if (!this.trial) {
-      for (const t of this.trials) if (this.driven - this.trialEnd > 4 && Math.hypot(t.pts[0][0] - car.x, t.pts[0][1] - car.z) < 7.5) { this.trial = { t, i: 1, at: this.driven }; this.say(t.name, TEXT('trial_go')); if (A) A.chime(660); this.placeCp(); break; }
+      for (const t of this.trials) if (this.driven - this.trialEnd > 4 && !(this.races && this.races.cur) && Math.hypot(t.pts[0][0] - car.x, t.pts[0][1] - car.z) < 7.5) { this.trial = { t, i: 1, at: this.driven }; this.say(t.name, TEXT('trial_go')); if (A) A.chime(660); this.placeCp(); break; }
     } else {
       const p = this.trial.t.pts[this.trial.i];
       if (Math.hypot(p[0] - car.x, p[1] - car.z) < 10) {
@@ -910,6 +915,7 @@ export class Game {
     this.crates.forEach((p, i) => { if (!this.crateTaken.has(i)) dot(p.x, p.z, '#C98A50', 6); });
     this.homes.forEach((h) => dot(h.x, h.z, h.me ? '#FFE14D' : '#9ADAFF', 7));
     this.trials.forEach((t) => dot(t.pts[0][0], t.pts[0][1], '#FFE14D', 5));
+    if (this.races && !this.races.cur) this.races.pins().forEach((r) => dot(r.x, r.z, '#FF5AD7', 6));
     if (this.rooms) this.rooms.doors.forEach((d) => dot(d.x, d.z, '#FFFFFF', 5));
     if (this.mode !== 'plane') dot(this.plane.x, this.plane.z, '#C9A0FF', 7);
     if (this.job) dot(this.job.j.b[0], this.job.j.b[1], '#FF5A5F', 9); else this.jobs.forEach((j) => { if (!this.result.jobs.some((r) => r.id === j.id)) dot(j.a[0], j.a[1], '#7CE3FF', 6); });
@@ -952,13 +958,14 @@ export class Game {
     if (this.route && this.wp) { g.lineJoin = 'round'; g.lineCap = 'round'; g.beginPath(); this.route.pts.forEach((p, i) => { const [x, y] = P(p[0], p[1]); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.strokeStyle = 'rgba(17,19,24,.7)'; g.lineWidth = 18; g.stroke(); g.strokeStyle = this.wp.auto ? '#B38CFF' : '#FFE14D'; g.lineWidth = 11; g.stroke(); }
     if (on('crates')) this.crates.forEach((p, i) => { if (!this.crateTaken.has(i)) pin(p.x, p.z, '#C98A50'); });
     if (on('trials')) this.trials.forEach((t) => pin(t.pts[0][0], t.pts[0][1], '#FFE14D', t.name));
+    if (on('races') && this.races) this.races.pins().forEach((r) => pin(r.x, r.z, '#FF5AD7', TEXT('race_' + r.id)));
     if (on('shops')) this.rooms.doors.forEach((d) => pin(d.x, d.z, '#FFFFFF', TEXT('place_' + d.id)));
     if (on('shops')) pin(this.plane.x, this.plane.z, '#C9A0FF', TEXT('plane'));
     if (on('jobs')) { if (this.job) pin(this.job.j.b[0], this.job.j.b[1], '#FF5A5F', TEXT('job_' + this.job.j.type)); else this.jobs.forEach((j) => { if (!this.result.jobs.some((r) => r.id === j.id)) pin(j.a[0], j.a[1], '#7CE3FF', TEXT('job_' + j.type) + ' ' + j.pay); }); }
     if (on('friends')) this.homes.forEach((h) => pin(h.x, h.z, h.me ? '#FFE14D' : '#9ADAFF', h.me ? TEXT('home') : String(h.name).split(' ')[0]));
     if (on('missions') && this.missions) { const M = this.missions, t = M.cur ? M.target() : null; if (t) pin(t[0], t[1], '#B38CFF', TEXT('mi_' + M.cur.id)); else if (M.next()) pin(M.rosa.x, M.rosa.z, '#B38CFF', 'Rosa'); }
     if (this.wp) pin(this.wp.x, this.wp.z, this.wp.auto ? '#B38CFF' : '#FFE14D', TEXT('wp'));
-    const lg = this.ui.map.querySelector('.bc-legend'), cats = [['shops', '#FFFFFF'], ['missions', '#B38CFF'], ['jobs', '#7CE3FF'], ['friends', '#9ADAFF'], ['trials', '#FFE14D'], ['crates', '#C98A50']];
+    const lg = this.ui.map.querySelector('.bc-legend'), cats = [['shops', '#FFFFFF'], ['missions', '#B38CFF'], ['jobs', '#7CE3FF'], ['friends', '#9ADAFF'], ['trials', '#FFE14D'], ['races', '#FF5AD7'], ['crates', '#C98A50']];
     lg.innerHTML = cats.map(([k, c]) => `<button type="button" data-f="${k}" aria-pressed="${on(k)}"><i style="background:${c}"></i>${TEXT('lg_' + k)}</button>`).join('');
     const me = this.me(), [a, b] = P(me.x, me.z);
     /* north is up here, so the arrow turns by the heading itself (it used to point the mirror way) */

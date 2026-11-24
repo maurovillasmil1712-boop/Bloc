@@ -8486,7 +8486,7 @@
   function cityLang() { var l = sget('bloc:city:lang'); return l === 'es' || l === 'en' ? l : (/^es\b/i.test(navigator.language || '') ? 'es' : 'en'); }
   function cityOpen(data) {
     var f = document.createElement('iframe'), ended = false, opener = document.activeElement;
-    f.className = 'city-frame'; f.title = 'Bloc City'; f.src = '/city/?v=7.7.0';
+    f.className = 'city-frame'; f.title = 'Bloc City'; f.src = '/city/?v=7.8.0';
     f.setAttribute('allow', 'fullscreen; gamepad; autoplay');
     function onMsg(e) {
       if (e.origin !== location.origin || e.source !== f.contentWindow || !e.data) return;
@@ -8508,7 +8508,7 @@
   }
   function cityEnd(run, res) {
     res = res || {};
-    api('POST', '/api/farm/drive', { a: 'end', run: run, secs: res.secs || 0, notes: res.notes || [], crates: res.crates || [], jumps: res.jumps || [], visits: res.visits || [], trial: res.trial || null, jobs: res.jobs || [], missions: res.missions || [] }, { timeout: 20000, keepalive: false }).then(function (r) {
+    api('POST', '/api/farm/drive', { a: 'end', run: run, secs: res.secs || 0, notes: res.notes || [], crates: res.crates || [], jumps: res.jumps || [], visits: res.visits || [], trial: res.trial || null, jobs: res.jobs || [], missions: res.missions || [], races: res.races || [] }, { timeout: 20000, keepalive: false }).then(function (r) {
       FARM.driving = false;
       if (r.status !== 200 || !r.data) { toast(farmErrText(r)); return; }
       farmTake(r.data);
@@ -8517,6 +8517,7 @@
       if (x.notes) lines.push(x.notes + ' sticky ' + (x.notes === 1 ? 'note' : 'notes'));
       if (x.jobs && x.jobs.length) lines.push(x.jobs.length + (x.jobs.length === 1 ? ' job' : ' jobs'));
       if (x.missions && x.missions.length) lines.push(x.missions.length + (x.missions.length === 1 ? ' mission' : ' missions'));
+      if (x.races && x.races.length) lines.push(x.races.length + (x.races.length === 1 ? ' race won' : ' races won'));
       (x.crates || []).forEach(function (id) { var s = farmSp(id); if (s) lines.push('a ' + s.name + ' seed'); });
       (x.jumps || []).forEach(function (j) { lines.push(j.first ? 'a new stunt jump' : 'a stunt jump'); });
       if (x.trial) lines.push(FARM.cat.trials.filter(function (t) { return t.id === x.trial.id; })[0].name + ' in ' + fmtWatch(x.trial.ms / 1000) + (x.trial.medal ? ' (' + x.trial.medal + ')' : ''));

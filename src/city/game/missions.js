@@ -12,7 +12,12 @@ export const MISSIONS = [
   { id: 'm2', steps: [{ k: 'steal' }, { k: 'clean' }, { k: 'door', place: 'garage', car: true }] },
   { id: 'm3', side: true, web: true, steps: [{ k: 'enter', place: 'arms' }, { k: 'targets', n: 5 }] },
   { id: 'm4', steps: [{ k: 'go', at: [-1990, 2010], r: 10, label: 'port' }, { k: 'go', home: true, r: 8, car: true, limit: 300 }] },
-  { id: 'm5', steps: [{ k: 'plane' }, { k: 'ring', at: [-1380, -620, 60] }, { k: 'ring', at: [-1460, 0, 70] }, { k: 'ring', at: [-1400, 620, 60] }, { k: 'ring', at: [-1150, 1250, 80] }, { k: 'land' }] }
+  { id: 'm5', steps: [{ k: 'plane' }, { k: 'ring', at: [-1380, -620, 60] }, { k: 'ring', at: [-1460, 0, 70] }, { k: 'ring', at: [-1400, 620, 60] }, { k: 'ring', at: [-1150, 1250, 80] }, { k: 'land' }] },
+  /* v7.8 */
+  { id: 'm6', steps: [{ k: 'go', at: [1500, 1250], r: 12, label: 'airport', car: true }, { k: 'go', at: [-380, -60], r: 12, label: 'oldtown', car: true, limit: 240 }] },
+  { id: 'm7', steps: [{ k: 'race', id: 'r2' }] },
+  { id: 'm8', steps: [{ k: 'stars', n: 4 }, { k: 'survive', n: 60 }, { k: 'clean' }] },
+  { id: 'm9', side: true, steps: [{ k: 'combo', n: 1500 }] }
 ];
 
 export class Missions {
@@ -55,7 +60,7 @@ export class Missions {
     this.start(m);
   }
   start(m) {
-    this.cur = m; this.step = 0; this.t = 0; this.stepT = 0; this.targets = 0; this.startStars = this.g.police ? this.g.police.stars : 0; this.carAtStart = this.g.car;
+    this.cur = m; this.step = 0; this.t = 0; this.stepT = 0; this.stepAt = performance.now() / 1000; this.targets = 0; this.startStars = this.g.police ? this.g.police.stars : 0; this.carAtStart = this.g.car;
     this.line('mi_' + m.id + '_go'); this.g.say(T('mi_' + m.id), T('mi_new'));
     this.show();
   }
@@ -63,6 +68,8 @@ export class Missions {
     const st = this.cur.steps[this.step];
     if (st.k === 'enter' || st.k === 'door') return T('mi_o_' + st.k, { p: T('place_' + st.place) });
     if (st.k === 'targets') return T('mi_o_targets', { n: Math.max(0, st.n - this.targets) });
+    if (st.k === 'stars' || st.k === 'combo') return T('mi_o_' + st.k, { n: st.n.toLocaleString() });
+    if (st.k === 'survive') return T('mi_o_survive', { s: Math.max(0, Math.ceil(st.n - this.stepT)) });
     if (st.k === 'go') return T(st.home ? 'mi_o_home' : 'mi_o_' + st.label) + (st.limit ? ' (' + Math.max(0, Math.ceil(st.limit - this.stepT)) + ' s)' : '');
     return T('mi_o_' + st.k);
   }
@@ -74,10 +81,11 @@ export class Missions {
     if (st.k === 'plane') return [g.plane.x, g.plane.z];
     if (st.k === 'ring') return [st.at[0], st.at[1]];
     if (st.k === 'land') return [g.planeHome.x, g.planeHome.z];
+    if (st.k === 'race' && g.races) { const r = g.races.pins().find((x) => x.id === st.id); return r && !g.races.cur ? [r.x, r.z] : null; }
     return null;
   }
   advance() {
-    this.step++; this.stepT = 0;
+    this.step++; this.stepT = 0; this.stepAt = performance.now() / 1000;
     if (this.g.audio) this.g.audio.chime(this.step >= this.cur.steps.length ? 988 : 784);
     if (this.step >= this.cur.steps.length) {
       const m = this.cur; this.done.add(m.id); this.cur = null;
@@ -102,7 +110,11 @@ export class Missions {
     else if (st.k === 'rosa') { if (this.nearRosa()) this.advance(); }
     else if (st.k === 'door') { const d = g.rooms.doors.find((x) => x.id === st.place); if (d && Math.hypot(me.x - d.x, me.z - d.z) < 9 && (!st.car || g.mode === 'car')) this.advance(); }
     else if (st.k === 'steal') { if (g.car !== this.carAtStart && g.car.stolen && g.mode === 'car') this.advance(); }
-    else if (st.k === 'clean') { if (!g.police || g.police.stars === 0) this.advance(); }
+    else if (st.k === 'clean') { if (g.police && g.police.bustAt > this.stepAt) this.fail('busted'); else if (!g.police || g.police.stars === 0) this.advance(); }
+    else if (st.k === 'race') { if (g.races && g.races.won(st.id, this.stepAt)) this.advance(); }
+    else if (st.k === 'stars') { if (g.police && g.police.stars >= st.n) this.advance(); }
+    else if (st.k === 'survive') { if (!g.police || g.police.stars === 0) this.fail(g.police && g.police.bustAt > this.stepAt ? 'busted' : 'early'); else if (this.stepT >= st.n) this.advance(); }
+    else if (st.k === 'combo') { if (g.stunts && g.stunts.banked(st.n, this.stepAt)) this.advance(); }
     else if (st.k === 'targets') { if (this.targets >= st.n) this.advance(); }
     else if (st.k === 'go') {
       const p = this.target(); if (p && Math.hypot(me.x - p[0], me.z - p[1]) < st.r && (!st.car || g.mode !== 'foot')) this.advance();
