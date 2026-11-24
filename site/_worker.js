@@ -4456,7 +4456,8 @@ const MISSIONS = [
   { id: 'm1', pay: 150, min: 25, need: null }, { id: 'm2', pay: 250, min: 40, need: 'm1' }, { id: 'm3', pay: 200, min: 15, need: 'm1' },
   { id: 'm4', pay: 300, min: 45, need: 'm2' }, { id: 'm5', pay: 400, min: 70, need: 'm4' },
   /* v7.8: an airport pick-up, a street race against Dani, Most wanted (4 stars for a minute, then lose them), and a stunt show on the side */
-  { id: 'm6', pay: 350, min: 50, need: 'm5' }, { id: 'm7', pay: 500, min: 45, need: 'm6' }, { id: 'm8', pay: 800, min: 75, need: 'm7' }, { id: 'm9', pay: 250, min: 8, need: 'm1' }
+  { id: 'm6', pay: 350, min: 50, need: 'm5' }, { id: 'm7', pay: 500, min: 45, need: 'm6' }, { id: 'm8', pay: 800, min: 75, need: 'm7' }, { id: 'm9', pay: 250, min: 8, need: 'm1' },
+  { id: 'm10', pay: 400, min: 60, need: 'm8' }
 ];
 /* street races (v7.8): first place pays 300 the first time, then 60 once a day per race; min is a time nobody can beat */
 const RACES = [{ id: 'r1', min: 30 }, { id: 'r2', min: 40 }, { id: 'r3', min: 18 }, { id: 'r4', min: 14 }];

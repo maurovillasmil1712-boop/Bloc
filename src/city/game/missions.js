@@ -17,7 +17,8 @@ export const MISSIONS = [
   { id: 'm6', steps: [{ k: 'go', at: [1500, 1250], r: 12, label: 'airport', car: true }, { k: 'go', at: [-380, -60], r: 12, label: 'oldtown', car: true, limit: 240 }] },
   { id: 'm7', steps: [{ k: 'race', id: 'r2' }] },
   { id: 'm8', steps: [{ k: 'stars', n: 4 }, { k: 'survive', n: 60 }, { k: 'clean' }] },
-  { id: 'm9', side: true, steps: [{ k: 'combo', n: 1500 }] }
+  { id: 'm9', side: true, steps: [{ k: 'combo', n: 1500 }] },
+  { id: 'm10', steps: [{ k: 'go', at: [-2900, -150], r: 16, label: 'island', car: true }, { k: 'door', place: 'cafe', car: true, limit: 200 }] }
 ];
 
 export class Missions {
@@ -66,7 +67,7 @@ export class Missions {
   }
   objective() {
     const st = this.cur.steps[this.step];
-    if (st.k === 'enter' || st.k === 'door') return T('mi_o_' + st.k, { p: T('place_' + st.place) });
+    if (st.k === 'enter' || st.k === 'door') return T('mi_o_' + st.k, { p: T('place_' + st.place) }) + (st.limit ? ' (' + Math.max(0, Math.ceil(st.limit - this.stepT)) + ' s)' : '');
     if (st.k === 'targets') return T('mi_o_targets', { n: Math.max(0, st.n - this.targets) });
     if (st.k === 'stars' || st.k === 'combo') return T('mi_o_' + st.k, { n: st.n.toLocaleString() });
     if (st.k === 'survive') return T('mi_o_survive', { s: Math.max(0, Math.ceil(st.n - this.stepT)) });
@@ -108,7 +109,7 @@ export class Missions {
     this.ring.visible = st.k === 'ring';
     if (st.k === 'enter') { if (g.rooms.inside && g.rooms.inside.door.id === st.place) this.advance(); }
     else if (st.k === 'rosa') { if (this.nearRosa()) this.advance(); }
-    else if (st.k === 'door') { const d = g.rooms.doors.find((x) => x.id === st.place); if (d && Math.hypot(me.x - d.x, me.z - d.z) < 9 && (!st.car || g.mode === 'car')) this.advance(); }
+    else if (st.k === 'door') { const d = g.rooms.doors.find((x) => x.id === st.place); if (d && Math.hypot(me.x - d.x, me.z - d.z) < 9 && (!st.car || g.mode === 'car')) this.advance(); else if (st.limit && this.stepT > st.limit) this.fail('late'); }
     else if (st.k === 'steal') { if (g.car !== this.carAtStart && g.car.stolen && g.mode === 'car') this.advance(); }
     else if (st.k === 'clean') { if (g.police && g.police.bustAt > this.stepAt) this.fail('busted'); else if (!g.police || g.police.stars === 0) this.advance(); }
     else if (st.k === 'race') { if (g.races && g.races.won(st.id, this.stepAt)) this.advance(); }

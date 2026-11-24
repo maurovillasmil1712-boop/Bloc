@@ -361,7 +361,7 @@ export class Game {
         P.list.push({ x: car.x + fx * car.T.L * 0.32, y: car.y + car.T.H * 0.75, z: car.z + fz * car.T.L * 0.32, a: 0, s: 0.4 });
       }
     }
-    const M = new THREE.Matrix4(); let n = 0;
+    const M = this._pm || (this._pm = new THREE.Matrix4()); let n = 0;
     P.list = P.list.filter((q) => (q.a += dt) < 2.2);
     for (const q of P.list) { q.y += dt * 1.1; q.s += dt * 0.9; M.makeScale(q.s, q.s, q.s); M.setPosition(q.x, q.y, q.z); P.mesh.setMatrixAt(n++, M); }
     P.mesh.count = n; P.mesh.instanceMatrix.needsUpdate = true;
@@ -449,7 +449,7 @@ export class Game {
     if ((!this.wp || this.wp.auto) && mt) { if (!this.wp || Math.hypot(this.wp.x - mt[0], this.wp.z - mt[1]) > 5) this.setWaypoint({ x: mt[0], z: mt[1], auto: true }); }
     else if (this.wp && this.wp.auto && !mt) this.setWaypoint(null);
     const U2 = this.ui;
-    if (!this.wp || this.rooms.inside) { U2.wp.hidden = true; U2.edge.hidden = true; if (this.wpBeam) this.wpBeam.visible = !!this.wp && !this.rooms.inside; return; }
+    if (!this.wp || this.rooms.inside) { if (!U2.wp.hidden) U2.wp.hidden = true; if (!U2.edge.hidden) U2.edge.hidden = true; if (this.wpBeam) this.wpBeam.visible = !!this.wp && !this.rooms.inside; return; }
     this.wpBeam.visible = true;
     const me = this.me();
     this.routeT -= dt;
@@ -458,15 +458,15 @@ export class Game {
     const left = pr ? pr.left : Math.hypot(this.wp.x - me.x, this.wp.z - me.z);
     if (Math.hypot(this.wp.x - me.x, this.wp.z - me.z) < 16 && !this.wp.auto) { if (this.audio) this.audio.chime(988); this.say(TEXT('wp_here')); this.setWaypoint(null); return; }
     const txt = left > 950 ? (left / 1000).toFixed(1) + ' km' : Math.round(left / 10) * 10 + ' m';
-    U2.wp.hidden = false; if (U2.wp.textContent !== txt) U2.wp.textContent = txt;
+    if (U2.wp.hidden) U2.wp.hidden = false; if (U2.wp.textContent !== txt) U2.wp.textContent = txt;
     /* an arrow at the edge of the screen when the waypoint is off screen */
     const v = (this._wpv || (this._wpv = new THREE.Vector3())).set(this.wp.x, sampleHeight(this.plan.height, this.wp.x, this.wp.z) + 3, this.wp.z).project(this.camera);
     const behind = v.z > 1, on = !behind && Math.abs(v.x) < 0.92 && Math.abs(v.y) < 0.88;
-    U2.edge.hidden = on;
+    if (U2.edge.hidden !== on) U2.edge.hidden = on;
     if (!on) {
       let ax = behind ? -v.x : v.x, ay = behind ? -v.y : v.y; if (behind && Math.abs(ax) < 0.2 && Math.abs(ay) < 0.2) ay = -1;
       const m = Math.max(Math.abs(ax) / 0.9, Math.abs(ay) / 0.85) || 1; ax /= m; ay /= m;
-      U2.edge.style.left = (50 + ax * 50) + '%'; U2.edge.style.top = (50 - ay * 50) + '%'; U2.edge.style.transform = `translate(-50%,-50%) rotate(${Math.atan2(ax, ay)}rad)`;
+      sty(U2.edge, 'left', (50 + ax * 50).toFixed(1) + '%'); sty(U2.edge, 'top', (50 - ay * 50).toFixed(1) + '%'); sty(U2.edge, 'transform', `translate(-50%,-50%) rotate(${Math.atan2(ax, ay).toFixed(2)}rad)`);
     }
   }
   /* someone was killed: people around scream and run, and someone says something about it */
@@ -870,10 +870,10 @@ export class Game {
   }
   hud(dt) {
     const U2 = this.ui, car = this.me(), t = TEXT;
-    U2.speedBox.style.display = this.mode === 'foot' ? 'none' : '';
+    sty(U2.speedBox, 'display', this.mode === 'foot' ? 'none' : '');
     if (!U2.hp) { U2.hp = document.createElement('div'); U2.hp.className = 'bc-hp'; U2.hp.innerHTML = '<i></i>'; this.ui.el.querySelector('.bc-fuel').appendChild(U2.hp); }
-    const hpOn = this.mode === 'foot' && this.hp != null && (this.hp < 100 || this.bout); U2.hp.style.display = hpOn ? 'block' : 'none'; if (hpOn) U2.hp.firstChild.style.width = this.hp + '%';
-    U2.mini.style.display = U2.place.style.display = this.rooms.inside ? 'none' : '';
+    const hpOn = this.mode === 'foot' && this.hp != null && (this.hp < 100 || this.bout); sty(U2.hp, 'display', hpOn ? 'block' : 'none'); if (hpOn) sty(U2.hp.firstChild, 'width', this.hp + '%');
+    sty(U2.mini, 'display', this.rooms.inside ? 'none' : ''); sty(U2.place, 'display', this.rooms.inside ? 'none' : '');
     { const ct = (this.sheets.farm && typeof this.sheets.farm.coins === 'number' ? this.sheets.farm.coins : this.coins).toLocaleString() + ' ' + TEXT('cash'); if (!U2.coinsEl) U2.coinsEl = U2.el.querySelector('.bc-coins'); if (U2.coinsEl.textContent !== ct) U2.coinsEl.textContent = ct; }
     U2.speed.textContent = Math.round(car.speed * 3.6);
     U2.fuel.textContent = fmt(this.fuel);
@@ -882,7 +882,8 @@ export class Game {
     if (this.trial) U2.trial.textContent = this.trial.t.name + '  ' + fmtMs((this.driven - this.trial.at) * 1000) + '  ' + this.trial.i + '/' + (this.trial.t.pts.length - 1);
     if (this.msgT > 0) { this.msgT -= dt; if (this.msgT <= 0) U2.msg.classList.remove('on'); }
     /* notes spin and bob near the car */
-    const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(1, 1, 1), Y = new THREE.Vector3(0, 1, 0), tt = performance.now() / 1000;
+    const TMP = this._tmp || (this._tmp = { M: new THREE.Matrix4(), Q: new THREE.Quaternion(), P: new THREE.Vector3(), S: new THREE.Vector3(1, 1, 1), Y: new THREE.Vector3(0, 1, 0) });
+    const M = TMP.M, Q = TMP.Q, P = TMP.P, S = TMP.S, Y = TMP.Y, tt = performance.now() / 1000;
     for (let i = 0; i < this.notes.length; i++) {
       const p = this.notes[i], far = Math.abs(p[0] - car.x) > 500 || Math.abs(p[1] - car.z) > 500;
       Q.setFromAxisAngle(Y, tt * 2.2 + i); P.set(p[0], this.taken.has(i) || far ? -500 : sampleHeight(this.plan.height, p[0], p[1]) + 1.5 + Math.sin(tt * 2.8 + i) * 0.2, p[1]);
@@ -894,13 +895,15 @@ export class Game {
     this.miniT = (this.miniT || 0) - dt;
     if (this.miniT <= 0) { this.miniT = 0.06; this.drawMini(); }
   }
+  /* floating labels: only touch the DOM when something changed (Safari recalculates styles on every write) */
   label(el, x, y, z, maxD) {
-    const m = this.me(), d = Math.hypot(x - m.x, z - m.z);
-    if (this.rooms.inside) { el.style.display = 'none'; return; }
-    if (d > maxD) { el.style.display = 'none'; return; }
-    const v = new THREE.Vector3(x, y, z).project(this.camera);
-    if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) { el.style.display = 'none'; return; }
-    el.style.display = 'block'; el.style.transform = `translate(${((v.x + 1) / 2 * innerWidth).toFixed(0)}px, ${((1 - v.y) / 2 * innerHeight).toFixed(0)}px) translate(-50%, -100%)`;
+    const m = this.me(), d = Math.hypot(x - m.x, z - m.z), hide = () => { if (el._on !== false) { el._on = false; el.style.display = 'none'; } };
+    if (this.rooms.inside || d > maxD) { hide(); return; }
+    const v = (this._lv || (this._lv = new THREE.Vector3())).set(x, y, z).project(this.camera);
+    if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) { hide(); return; }
+    if (el._on !== true) { el._on = true; el.style.display = 'block'; }
+    const tf = `translate(${((v.x + 1) / 2 * innerWidth).toFixed(0)}px, ${((1 - v.y) / 2 * innerHeight).toFixed(0)}px) translate(-50%, -100%)`;
+    if (el._tf !== tf) { el._tf = tf; el.style.transform = tf; }
   }
   drawMini() {
     const c = this.ui.mini, g = c.getContext('2d'), W = c.width, half = W / 2, img = this.mapImg, car = this.me();
@@ -999,6 +1002,8 @@ function rampGeo(len, h, w) {
   g.setAttribute('position', new THREE.Float32BufferAttribute([-W, 0, -L, W, 0, -L, W, h, L, -W, h, L, -W, 0, L, W, 0, L], 3));
   g.setIndex([0, 2, 1, 0, 3, 2, 3, 5, 2, 3, 4, 5, 0, 1, 5, 0, 5, 4, 0, 4, 3, 1, 2, 5]); g.computeVertexNormals(); return g;
 }
+/* set a style only when it changes: every write makes Safari recalculate styles */
+function sty(el, k, v) { const c = el._sty || (el._sty = {}); if (c[k] !== v) { c[k] = v; el.style[k] = v; } }
 const DISTRICT_LABELS = { oldtown: [-380, -60], ensanche: [-700, 600], downtown: [50, -2050], campus: [-900, -1700], beach: [-1550, 300], port: [-1400, 1700], poligono: [150, 1800], barrio: [-200, 1200], hills: [1700, -800], airport: [1700, 1500], island: [-2900, -150], park: [500, 150] };
 /* the whole city as a picture: water, parks, roads */
 export function drawMapImage(plan, s) {

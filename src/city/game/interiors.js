@@ -143,7 +143,7 @@ function buildShop(r) {
   const rail = mat('#2A2D33', 0.3, 0.8), wood = mat('#BFA584', 0.6), cols = ['#F2F2EE', '#22262F', '#FFE14D', '#C8383C', '#8FB3D9', '#3F5E45', '#4A6A93', '#8D9096', '#7A1F2B', '#E7DCC6'];
   for (const [x, z, ry] of [[-5, 1, 0], [-5, -2.5, 0], [5, 1, 0], [5, -2.5, 0]]) {
     r.box(0.05, 1.6, 0.05, rail, x - 1.2, 0, z, false); r.box(0.05, 1.6, 0.05, rail, x + 1.2, 0, z, false); r.box(2.5, 0.04, 0.04, rail, x, 1.6, z, false);
-    for (let i = 0; i < 9; i++) r.box(0.04, 0.75, 0.5, mat(cols[(i * 3 + Math.round(x)) % cols.length], 0.9), x - 1 + i * 0.25, 0.8, z, false, ry);
+    for (let i = 0; i < 9; i++) r.box(0.04, 0.75, 0.5, mat(cols[(((i * 3 + Math.round(x)) % cols.length) + cols.length) % cols.length], 0.9), x - 1 + i * 0.25, 0.8, z, false, ry);
     r.boxes.push({ x, z, hw: 1.3, hd: 0.35 });
   }
   r.box(3, 1.0, 0.8, wood, 0, 0, 4.3); r.box(0.4, 0.3, 0.3, mat('#191D29', 0.5), 0.8, 1.0, 4.3, false);

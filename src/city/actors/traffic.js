@@ -96,7 +96,7 @@ export class Traffic {
   updateLights(force) {
     if (!this.lights || !this.lamps) return;
     if (!force && (this.lightT += 1) % 6) return;
-    const cols = [new THREE.Color(4, 0.25, 0.15), new THREE.Color(3.5, 1.9, 0.1), new THREE.Color(0.2, 3.2, 1.2)], dim = new THREE.Color(0.05, 0.05, 0.05);
+    const cols = this._cols || (this._cols = [new THREE.Color(4, 0.25, 0.15), new THREE.Color(3.5, 1.9, 0.1), new THREE.Color(0.2, 3.2, 1.2)]), dim = this._dim || (this._dim = new THREE.Color(0.05, 0.05, 0.05));
     this.lights.forEach((it, i) => {
       const t = (this.signalT + it.node.id * 7.3) % 26;
       const green = it.group === 0 ? t <= 11 : t > 13 && t <= 24, amber = green && (it.group === 0 ? t > 8 : t > 21);

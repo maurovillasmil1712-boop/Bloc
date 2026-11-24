@@ -347,12 +347,13 @@ export class Arms {
     if (this.kick > 0) this.kick = Math.max(0, this.kick - dt * 12);
     /* HUD */
     const w = this.w, on = g.mode === 'foot';
-    this.ui.cross.hidden = !(on && w);
+    const hid = (el, v) => { if (el.hidden !== v) el.hidden = v; }, txt = (el, v) => { if (el.textContent !== v) el.textContent = v; };
+    hid(this.ui.cross, !(on && w));
     if (on && w) this.ui.cross.classList.toggle('aim', this.aimK > 0.6);
-    this.ui.ammo.hidden = !(on && w);
-    if (on && w) { this.ui.name.textContent = w.name; this.ui.count.textContent = this.reloadT > 0 ? T('reload') : this.mag[w.id] + ' / ' + w.mag; }
-    this.ui.ap.hidden = !(on && this.armour && this.ap > 0);
-    if (!this.ui.ap.hidden) this.ui.ap.firstChild.style.width = this.ap + '%';
+    hid(this.ui.ammo, !(on && w));
+    if (on && w) { txt(this.ui.name, w.name); txt(this.ui.count, this.reloadT > 0 ? T('reload') : this.mag[w.id] + ' / ' + w.mag); }
+    hid(this.ui.ap, !(on && this.armour && this.ap > 0));
+    if (!this.ui.ap.hidden) { const pw = this.ap + '%'; if (this.ui.ap.firstChild.style.width !== pw) this.ui.ap.firstChild.style.width = pw; }
     if (this.firePad) this.firePad.classList.toggle('on', on && !!this.own.length);
   }
   /* the arms after the body animated: point the gun along the camera */

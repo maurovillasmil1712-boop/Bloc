@@ -22,6 +22,7 @@ export class Phone {
       if (e.target.closest('[data-x]')) this.close();
       const call = e.target.closest('[data-call]'); if (call) { this.close(); this.callRosa(); }
       const shot = e.target.closest('[data-shot]'); if (shot) { this.close(); this.photoMode(); }
+      const go = e.target.closest('[data-go]'); if (go) { const [x, z] = go.dataset.go.split(',').map(Number); this.close(); this.g.setWaypoint({ x, z }); }
     });
     app ? this.app(app) : this.home();
   }
@@ -31,12 +32,22 @@ export class Phone {
     this.el.innerHTML = `<div class="bc-phone-in" role="dialog" aria-label="${T('phone')}"><div class="bc-phone-top"><span>${hh}:${mm}</span><b>${title}</b><button type="button" data-x aria-label="${T('close')}">✕</button></div><div class="bc-phone-body">${body}</div><button type="button" class="bc-phone-home" data-home aria-label="${T('home_screen')}"></button></div>`;
   }
   home() {
-    const apps = [['missions', '◎'], ['camera', '◉'], ['map', '⌖'], ['radio', '♫'], ['help', '?']];
+    const apps = [['missions', '◎'], ['go', '➤'], ['camera', '◉'], ['map', '⌖'], ['radio', '♫'], ['help', '?']];
     this.frame('Bloc', `<div class="bc-apps">${apps.map(([id, ic]) => `<button type="button" data-app="${id}"><i>${ic}</i><span>${T('app_' + id)}</span></button>`).join('')}</div>`);
   }
   app(id) {
     const g = this.g;
     if (id === 'map') { this.close(); g.toggleMap(); return; }
+    /* Drive to: a list of places, nearest first; picking one sets the waypoint */
+    if (id === 'go') {
+      const me = g.me(), list = g.rooms.doors.map((d) => [T('place_' + d.id), d.x, d.z]);
+      list.push([T('plane'), g.plane.x, g.plane.z]);
+      if (g.races) for (const r of g.races.pins()) list.push([T('race_' + r.id), r.x, r.z]);
+      if (g.missions && g.missions.next() && !g.missions.cur) list.push(['Rosa', g.missions.rosa.x, g.missions.rosa.z]);
+      list.sort((a, b) => Math.hypot(a[1] - me.x, a[2] - me.z) - Math.hypot(b[1] - me.x, b[2] - me.z));
+      const km = (x, z) => { const d = Math.hypot(x - me.x, z - me.z); return d > 950 ? (d / 1000).toFixed(1) + ' km' : Math.round(d / 10) * 10 + ' m'; };
+      this.frame(T('app_go'), `<ul class="bc-mis">${list.map(([n, x, z]) => `<li><button type="button" class="bc-go" data-go="${Math.round(x)},${Math.round(z)}"><b>${n}</b><small>${km(x, z)}</small></button></li>`).join('')}</ul>`); return;
+    }
     if (id === 'radio') { this.close(); if (g.radio) g.openWheel(); return; }
     if (id === 'camera') { this.frame(T('app_camera'), `<p>${T('cam_sub')}</p><button type="button" class="bc-btn wide" data-shot>${T('cam_go')}</button>`); return; }
     if (id === 'help') {

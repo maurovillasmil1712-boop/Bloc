@@ -154,3 +154,4 @@ html,body{margin:0;height:100%;background:#0B0E14;overflow:hidden;overscroll-beh
 /* v7.8: street race bar and stunt combo */
 .bc-race{position:absolute;left:50%;top:calc(max(12px,env(safe-area-inset-top)) + 58px);transform:translateX(-50%);background:#FF5AD7;color:#191D29;border-radius:6px;padding:5px 12px;font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none}
 .bc-combo{position:absolute;left:50%;top:calc(max(12px,env(safe-area-inset-top)) + 96px);transform:translateX(-50%);color:#FFE14D;font-weight:900;font-size:22px;font-variant-numeric:tabular-nums;text-shadow:0 2px 8px rgba(0,0,0,.7);white-space:nowrap;pointer-events:none}
+.bc-go{all:unset;display:block;width:100%;cursor:pointer}.bc-go b{display:block}.bc-go small{opacity:.7}

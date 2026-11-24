@@ -96,6 +96,12 @@ export class Races {
         x.s += x.spd * dt;
         if (x.s >= total) { x.done = c.t; }
       }
+      /* traffic ahead in your line: swing to the other side of the road */
+      if (c.t > 0 && g.traffic && (x.look = (x.look || 0) - dt) <= 0) {
+        x.look = 0.25; const ah = this.at(c.rt.pts, c.cum, x.s + 9 + x.spd * 0.5, x.lat);
+        if (g.traffic.near(ah.x, ah.z, 3.2).length) x.latT = x.lat > 0 ? -3.1 : 3.1;
+      }
+      if (x.latT != null) { x.lat += Math.max(-dt * 4, Math.min(dt * 4, x.latT - x.lat)); if (Math.abs(x.latT - x.lat) < 0.05) x.latT = null; }
       const p = this.at(c.rt.pts, c.cum, Math.max(0, x.s), x.lat), v = x.v;
       /* bumping into you: both get pushed apart and the rival loses speed */
       const dx = car.x - p.x, dz = car.z - p.z, d = Math.hypot(dx, dz);

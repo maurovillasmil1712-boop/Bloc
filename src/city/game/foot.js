@@ -103,7 +103,7 @@ export class FootCam {
       this.yaw += d * Math.min(1, dt * 1.6);
     }
     if (!this.init) { this.yaw = f.a; this.init = true; }
-    const head = new THREE.Vector3(f.x, f.y + 1.62 - (f.indoor ? 0 : 0), f.z);
+    const head = (this._head || (this._head = new THREE.Vector3())).set(f.x, f.y + 1.62, f.z);
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
     h.head.visible = this.mode !== 'first';
     if (this.mode === 'first') {
