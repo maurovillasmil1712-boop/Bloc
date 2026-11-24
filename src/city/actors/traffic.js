@@ -1,7 +1,7 @@
 /* NPC traffic on the road graph: cars keep to their lane, follow the car ahead with the Intelligent Driver
    Model (smooth gaps, no snapping), stop at red lights, pick a new road at each junction, and slow for you. */
 import * as THREE from 'three/webgpu';
-import { buildCar, carMaterials } from './carmesh.js';
+import { buildCar, carMaterials, TYPES as CAR_T } from './carmesh.js';
 import { buildMoto } from './moto.js';
 import { along } from '../core/geom.js';
 import { rng } from '../core/rng.js';
@@ -181,7 +181,10 @@ export class Traffic {
   /* circles that cover a car for collisions: one for most, three along a bus, a small one for a bike */
   circles(c) {
     if (c.type === 'bus') { const fx = Math.sin(c.h), fz = Math.cos(c.h); return [-3.9, 0, 3.9].map((o) => [c.x + fx * o, c.z + fz * o, 1.9]); }
-    return [[c.x, c.z, c.type === 'moto' ? 0.9 : 1.75]];
+    /* v7.9.2: three circles along the body instead of one big one, so you can walk right up to a car's side */
+    if (c.type === 'moto') return [[c.x, c.z, 0.7]];
+    const T = CAR_T[c.type] || CAR_T.sedan, fx = Math.sin(c.h), fz = Math.cos(c.h), o = T.L / 2 - T.W / 2, r = T.W / 2 + 0.02;
+    return [[c.x + fx * o, c.z + fz * o, r], [c.x, c.z, r], [c.x - fx * o, c.z - fz * o, r]];
   }
   /* circles for collisions with the player */
   near(x, z, r) { return this.cars.filter((c) => c.alive && Math.abs(c.x - x) < r && Math.abs(c.z - z) < r); }

@@ -40,14 +40,15 @@ export class Vehicle {
       for (const a of [0, 2.1, 4.2]) { const sp = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.02, 0.015), trimM); sp.position.set(Math.cos(a) * 0.08, Math.sin(a) * 0.08, 0); sp.rotation.z = a; this.wheelSpin.add(sp); }
     }
     this.base = { paint: parts.paint.attributes.position.array.slice(), glass: parts.glass ? parts.glass.attributes.position.array.slice() : null };
-    this.dmg = 0; add(parts.trim, M.trim); add(parts.light, M.light); add(parts.tail, M.tail); add(parts.plate, M.plate); add(parts.chrome, M.chrome);
+    this.dmg = 0; add(parts.trim, M.trim); add(parts.light, M.light); /* v7.9.2: each car has its own brake lights (they were shared, so braking lit every car) */
+    const tl = M.makeTail(); this.tailMesh = add(parts.tail, tl.m); add(parts.plate, M.plate); add(parts.chrome, M.chrome);
     this.wheels = parts.wheels.map(([x, y, z]) => {
       const w = new THREE.Group(); w.position.set(x, y, z);
       const t = new THREE.Mesh(parts.tyre, M.tyre), r = new THREE.Mesh(parts.rim, M.rim);
       t.castShadow = true; r.position.x = Math.sign(x) * 0.005; w.add(t, r); this.group.add(w); w.userData.base = new THREE.Vector3(x, y, z);
       return w;
     });
-    this.brakeU = M.brakeU;
+    this.brakeU = tl.u;
     /* state */
     this.x = 0; this.z = 0; this.y = 0; this.h = 0; this.vx = 0; this.vz = 0; this.vy = 0; this.r = 0;
     this.steer = 0; this.air = false; this.airT = 0; this.ramp = null; this.jumpId = -1;

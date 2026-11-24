@@ -165,6 +165,7 @@ export function carMaterials() {
   tail.emissiveNode = vec3(1.0, 0.05, 0.03).mul(U.night.mul(2.5).add(0.15).add(brakeU.mul(4)));
   const plate = new THREE.MeshStandardNodeMaterial({ color: 0xf4f4f0, roughness: 0.4 });
   MATS = { paint, glass, trim, chrome, tyre, rim, light, tail, plate, lightU, brakeU };
+  MATS.makeTail = () => { const u = uniform(0), m = new THREE.MeshStandardNodeMaterial({ color: 0x6a0a0a, roughness: 0.2 }); m.emissiveNode = vec3(1.0, 0.05, 0.03).mul(U.night.mul(2.5).add(0.15).add(u.mul(4))); return { m, u }; };
   void smoothstep;
   return MATS;
 }
