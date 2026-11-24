@@ -2,13 +2,13 @@
    Network first, cache as fallback: new uploads show up on the next load,
    and the app shell still opens offline. It never touches /api/, so account
    data is never cached here. It also shows the reminders the server sends. */
-var CACHE = 'myib-v7-9-2';
+var CACHE = 'myib-v7-9-3';
 var CORE = [
   './',
-  'styles.css?v=7.9.2',
-  'app.js?v=7.9.2',
-  'pet.js?v=7.9.2',
-  'data.js?v=7.9.2',
+  'styles.css?v=7.9.3',
+  'app.js?v=7.9.3',
+  'pet.js?v=7.9.3',
+  'data.js?v=7.9.3',
   'manifest.webmanifest',
   'icons/favicon.svg',
   'icons/icon-192.png',

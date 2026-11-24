@@ -58,16 +58,18 @@ export class Police {
     for (const c of tr.cars) {
       if (c.mode !== 'free') continue;
       const dx = me.x - c.x, dz = me.z - c.z, d = Math.hypot(dx, dz);
-      nearest = Math.min(nearest, d);
+      if (!c.rage) nearest = Math.min(nearest, d);
       const want = Math.atan2(dx, dz); let dh = want - c.h; while (dh > Math.PI) dh -= Math.PI * 2; while (dh < -Math.PI) dh += Math.PI * 2;
       c.h += Math.max(-1, Math.min(1, dh)) * dt * (1.2 + Math.min(1, c.v / 20));
-      const vT = d < 6.5 ? 0 : Math.min(33 + Math.max(0, this.stars - 3) * 3, Math.max(4, (d - 5) * 1.1)) * (Math.abs(dh) > 1.2 ? 0.5 : 1);
+      const vT = d < 6.5 ? 0 : Math.min(c.rage ? 25 : 33 + Math.max(0, this.stars - 3) * 3, Math.max(4, (d - 5) * 1.1)) * (Math.abs(dh) > 1.2 ? 0.5 : 1);
       c.v += Math.max(-14, Math.min(7, vT - c.v)) * dt;
       if (d < 6.5) c.h -= Math.max(-1, Math.min(1, dh)) * dt * (1.2 + Math.min(1, c.v / 20));
       c.x += Math.sin(c.h) * c.v * dt; c.z += Math.cos(c.h) * c.v * dt;
       const p = { x: c.x, z: c.z }, pen = W.collide.resolve(p, 1.4, c.y + 0.8, { x: 0, z: 0 });
       if (pen > 0.05) { c.x = p.x; c.z = p.z; c.v *= 0.92; c.h += dh > 0 ? 0.04 : -0.04; }
       c.y = W.surface(c.x, c.z, c.y + 1).y + 0.02;
+      /* an angry driver following you (road rage): bumps you, never arrests you */
+      if (c.rage) { if (g.mode === 'car' && d < 3.4 && d > 0.01) { const nx = -dx / d, nz = -dz / d; g.car.x -= nx * (3.4 - d) * 0.5; g.car.z -= nz * (3.4 - d) * 0.5; } continue; }
       if (d < 7) closeCop = true;
       /* stopped near you on foot: an officer gets out (two at three stars) */
       if (g.mode === 'foot' && this.stars > 0 && d < 14 && c.v < 2.5 && (c.dropped || 0) < (this.stars >= 3 ? 2 : 1)) this.foot.spawnFrom(c);

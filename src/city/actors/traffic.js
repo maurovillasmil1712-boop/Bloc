@@ -118,7 +118,7 @@ export class Traffic {
     this.updateLights();
     const px = player.x, pz = player.z;
     for (const c of this.cars) {
-      if (c.mode === 'free') continue;
+      if (c.mode === 'free' || c.mode === 'hold') continue;
       if (!c.alive || (Math.hypot(c.x - px, c.z - pz) > 430 && c.mode === 'lane')) { this.spawn(c, px, pz, true); if (c.alive) this.pose(c); continue; }
       if (c.mode === 'stop') {
         c.v = 0;

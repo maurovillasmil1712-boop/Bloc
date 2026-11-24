@@ -238,6 +238,7 @@ export class Game {
       if (this.missions && this.missions.rosaH) this.missions.rosaH.group.visible = !this.rooms.inside && !far(this.missions.rosa.x, this.missions.rosa.z, 90);
     }
     if (this.stunts) this.stunts.update(dt);
+    this.rageTick(dt);
     this.routeTick(dt);
     /* a bus at its stop near you: the driver announces it */
     if (this.traffic && !this.rooms.inside) { const me = this.me(); for (const c of this.traffic.cars) if (c.busStop && c.mode === 'stop' && !c.announced && Math.hypot(c.x - me.x, c.z - me.z) < 26) { c.announced = true; setTimeout(() => { c.announced = false; }, 20000); this.talk.say({ x: c.x, z: c.z }, this.talk.pick('bus'), { name: TEXT('bus_driver') }); } }
@@ -262,7 +263,8 @@ export class Game {
       up: (p) => T2.say(p, T2.pick('up', p.voice)),
       taunt: (p) => T2.say(p, T2.pick('fight_taunt', p.voice)),
       meNow: () => this.me(),
-      punchPlayer: (p) => this.hurt(12, p)
+      punchPlayer: (p) => this.hurt(12, p),
+      bang: (p) => { T2.say(p, T2.pick('rage_bang', p.voice)); if (this.mode === 'car') { this.cam.shake = 0.12; if (this.audio) this.audio.hit(3); } }
     });
     C.draw(dt, this.camera);
     /* now and then someone nearby says something */
@@ -300,7 +302,7 @@ export class Game {
       for (const v of this.parked) { const dx = car.x - v.x, dz = car.z - v.z, d = Math.hypot(dx, dz), R = myR + 1.8; if (d < R && d > 0.01) { const nx = dx / d, nz = dz / d; car.x += nx * (R - d); car.z += nz * (R - d); const vn = car.vx * nx + car.vz * nz; if (vn < 0) { car.vx -= 1.1 * vn * nx; car.vz -= 1.1 * vn * nz; car.damage(nx, nz, -vn); } } }
       for (const o of this.traffic.near(car.x, car.z, 10)) for (const [ox, oz, orr] of this.traffic.circles(o)) {
         const dx = car.x - ox, dz = car.z - oz, d = Math.hypot(dx, dz), R = myR + orr;
-        if (d < R && d > 0.01) { const nx = dx / d, nz = dz / d, pen = R - d; car.x += nx * pen; car.z += nz * pen; const vn = car.vx * nx + car.vz * nz; if (vn < 0) { car.damage(nx, nz, -vn); car.vx -= 1.1 * vn * nx; car.vz -= 1.1 * vn * nz; car.vx *= 0.9; car.vz *= 0.9; if (-vn > 4) { this.cam.shake = Math.min(0.3, -vn / 45); if (this.audio) { this.audio.hit(-vn); this.audio.honk(); } this.talk.remark({ x: o.x, z: o.z, voice: Math.random() < 0.5 ? 'f' : 'm', i: null }, o.type === 'police' ? 'cop_chase' : o.type === 'moto' ? 'biker' : o.type === 'bus' ? 'bus' : 'rage'); if (o.type === 'police' && this.police) this.police.crime('ram', car.x, car.z); } } o.v = 0; }
+        if (d < R && d > 0.01) { const nx = dx / d, nz = dz / d, pen = R - d; car.x += nx * pen; car.z += nz * pen; const vn = car.vx * nx + car.vz * nz; if (vn < 0) { car.damage(nx, nz, -vn); car.vx -= 1.1 * vn * nx; car.vz -= 1.1 * vn * nz; car.vx *= 0.9; car.vz *= 0.9; if (-vn > 4) { this.cam.shake = Math.min(0.3, -vn / 45); if (this.audio) { this.audio.hit(-vn); this.audio.honk(); } this.talk.remark({ x: o.x, z: o.z, voice: Math.random() < 0.5 ? 'f' : 'm', i: null }, o.type === 'police' ? 'cop_chase' : o.type === 'moto' ? 'biker' : o.type === 'bus' ? 'bus' : 'rage'); if (o.type === 'police' && this.police) this.police.crime('ram', car.x, car.z); if (-vn > 5) this.roadRage(o, -vn); } } o.v = 0; }
       }
       this.traffic.update(dt, { x: car.x, z: car.z, forwardSpeed: car.vf });
     }
@@ -440,6 +442,61 @@ export class Game {
       if (car.moto) this.ride();
       this.camera.fov = 60; this.camera.updateProjectionMatrix();
       if (this.audio) this.audio.duck(false);
+    }
+  }
+  /* ---------- road rage (v7.9.3): hit someone's car hard and they might get out and come for you ---------- */
+  roadRage(o, hit) {
+    if (this.rage || (this.rageCool || 0) > 0 || !this.crowd || o.rage || o.mode === 'free' || o.mode === 'hold' || /police|bus|moto/.test(o.type)) return;
+    if (Math.random() > Math.min(0.75, 0.25 + hit / 25)) return;
+    o.mode = 'stop'; o.v = 0; o.rage = true;
+    this.rage = { o, t: 0, phase: 'stop', p: null };
+  }
+  rageTick(dt) {
+    if (this.rageCool > 0) this.rageCool -= dt;
+    const R = this.rage; if (!R) return;
+    const o = R.o, me = this.me(), C = this.crowd, T2 = this.talk; R.t += dt;
+    const door = () => { const rx = Math.cos(o.h), rz = -Math.sin(o.h); return [o.x - rx * 1.25, o.z - rz * 1.25]; };
+    const dMe = Math.hypot(o.x - me.x, o.z - me.z);
+    const release = () => {
+      if (R.p) { R.p.rager = false; if (R.p.state === 'storm' || R.p.state === 'back') R.p.alive = false; }
+      if (o.mode === 'stop') o.mode = 'lane'; else if (o.mode === 'free' || o.mode === 'hold') this.traffic.spawn(o, me.x, me.z, true);
+      o.rage = false; this.rage = null; this.rageCool = 25;
+    };
+    if (!o.alive) { R.o.rage = false; this.rage = null; return; }
+    if (R.phase === 'stop') {
+      if (R.t < 1.1) return;
+      /* the driver: someone from the crowd who's far away, moved to the driver's door */
+      let p = null, bd = -1;
+      for (const q of C.people) { if (q.state === 'fight' || q.state === 'down' || q.rager || q.partner) continue; const d = q.alive ? Math.hypot(q.x - me.x, q.z - me.z) : 1e9; if (d > bd) { bd = d; p = q; } }
+      if (!p || !p.e) { release(); return; }
+      const [dx, dz] = door();
+      p.alive = true; p.x = dx; p.z = dz; p.y = sampleHeight(this.plan.height, dx, dz) + 0.12; p.h = o.h; p.state = 'storm'; p.t = 0; p.rager = true; p.near = false; p.stuck = 0; p.lx = dx; p.lz = dz; p.hp = 4; p.anger = 2; p.fall = 0; p.bangT = 1.2;
+      R.p = p; R.phase = 'out'; R.t = 0;
+      T2.say(p, T2.pick('rage_out', p.voice));
+    } else if (R.phase === 'out') {
+      const p = R.p;
+      if (!p.alive || p.state === 'down' || p.dead) { R.phase = 'over'; R.t = 0; return; }
+      const away = this.mode !== 'foot' && this.car.speed > 6 && Math.hypot(this.car.x - p.x, this.car.z - p.z) > 7;
+      if (away || p.state === 'walk' || p.state === 'flee') {
+        R.chase = away && this.mode === 'car' && Math.random() < 0.6; p.state = 'back'; p.t = 0; R.phase = 'back'; R.t = 0;
+        T2.say(p, T2.pick('rage_back', p.voice));
+      }
+    } else if (R.phase === 'back') {
+      const p = R.p, [tx, tz] = door(), dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
+      if (p.state !== 'back' || !p.alive) { R.phase = 'over'; R.t = 0; return; }
+      p.h = Math.atan2(dx, dz); if (d > 0.5) { const sp = Math.min(3, d * 3); p.x += dx / d * sp * dt; p.z += dz / d * sp * dt; p.y = sampleHeight(this.plan.height, p.x, p.z) + 0.12; }
+      if (d < 0.6 || R.t > 8) {
+        p.alive = false; p.rager = false; p.state = 'walk'; R.p = null;
+        if (R.chase) { o.mode = 'free'; o.siren = false; o.v = 3; R.phase = 'chase'; R.t = 0; R.lineT = 2; }
+        else release();
+      }
+    } else if (R.phase === 'chase') {
+      if ((R.lineT -= dt) <= 0) { R.lineT = 7; if (dMe < 40) T2.say({ x: o.x, z: o.z, voice: Math.random() < 0.5 ? 'f' : 'm', i: null }, T2.pick('rage_chase')); }
+      /* you got out: so do they */
+      if (this.mode === 'foot' && dMe < 14 && o.v < 4) { o.mode = 'hold'; o.v = 0; R.phase = 'stop'; R.t = 0.4; return; }
+      if (R.t > 28 || dMe > 220) release();
+    } else if (R.phase === 'over') {
+      if (R.t > 40 || dMe > 120) release();
     }
   }
   /* ---------- mouse look (v7.9): pointer lock on computers ---------- */

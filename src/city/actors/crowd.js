@@ -189,6 +189,27 @@ export class Crowd {
           }
         }
         if (p.punchT > 0) p.punchT -= dt;
+      } else if (p.state === 'storm') {
+        /* v7.9.3 road rage: a driver you hit storms over to you (or to your car window) */
+        const tg = me || car;
+        if (!tg || p.t > (this.native ? 12 : 30)) { p.state = 'walk'; this.snap(p); }
+        else {
+          const dx = tg.x - p.x, dz = tg.z - p.z, d = Math.hypot(dx, dz), stopAt = me ? 1.7 : 2.9;
+          p.h += angDiff(Math.atan2(dx, dz), p.h) * Math.min(1, dt * 6);
+          /* blocked by a parked car or a wall close to you counts as there */
+          if (d < 5 && (p.stuck = (p.stuck || 0) + dt) > 1.0 && Math.hypot(p.x - (p.lx || 0), p.z - (p.lz || 0)) < 0.5) p.near = true;
+          if (p.stuck > 1.0) { p.stuck = 0; p.lx = p.x; p.lz = p.z; }
+          if (d > stopAt && !(p.near && d < 5)) {
+            const sp = Math.min(2.6, d * 2); p.walkSp = sp; p.x += dx / d * sp * dt; p.z += dz / d * sp * dt;
+            if (this.collide) { const q = { x: p.x, z: p.z }; if (this.collide.resolve(q, 0.3, p.y + 0.9, { x: 0, z: 0 }) > 0.02) { p.x = q.x; p.z = q.z; } }
+            p.y = sampleHeight(this.plan.height, p.x, p.z) + 0.12;
+          } else {
+            p.walkSp = 0;
+            /* fists on the website; in the app (and at your car window) they just shout and bang */
+            if (me && !this.native) { p.state = 'fight'; p.t = 0; p.nextPunch = this.t + 0.6; if (hooks.taunt) hooks.taunt(p); }
+            else if ((p.bangT = (p.bangT || 0) - dt) <= 0) { p.bangT = 2.4; if (hooks.bang) hooks.bang(p); }
+          }
+        }
       } else if (p.state === 'flee') {
         const sp = 4.6; p.x += Math.sin(p.fleeH) * sp * dt; p.z += Math.cos(p.fleeH) * sp * dt; p.h += angDiff(p.fleeH, p.h) * Math.min(1, dt * 8);
         /* run around buildings, not through them */
@@ -290,7 +311,7 @@ export class Crowd {
       if (!p.alive || Math.hypot(p.x - cx, p.z - cz) > 140) continue;
       pose.phase = p.phase; pose.t = p.t;
       const g = pose.group; g.position.set(p.x, p.y - 0.12, p.z); g.rotation.set(0, p.h, 0); pose.root.scale.setScalar(p.scale);
-      const speed = p.state === 'walk' ? p.v : p.state === 'flee' ? 4.6 : p.state === 'fight' ? 0.6 : 0;
+      const speed = p.state === 'walk' ? p.v : p.state === 'flee' ? 4.6 : p.state === 'fight' ? 0.6 : p.state === 'storm' ? p.walkSp || 0 : p.state === 'back' ? 3 : 0;
       pose.punchT = p.punchT || 0; pose.punchSide = p.punchSide || 1;
       pose.animate(dt, { speed, guard: p.state === 'fight' });
       if (p.state === 'stagger') { g.rotation.x = -0.25 * Math.max(0, 1 - p.t * 2); }
