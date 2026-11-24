@@ -81,11 +81,14 @@ export class Game {
     this.arms = new Arms(this);
     this.talk = new Talk(this); this.remarkT = 4; this.timeScale = 1;
     if (!ctx.test) this.friends = new Friends(this);
+    /* on foot with a weapon out, holding Q aims (for laptops without a mouse); otherwise Q is the radio */
+    window.addEventListener('keydown', (e) => { if (e.code === 'KeyQ' && this.mode === 'foot' && this.arms && this.arms.cur && !e.target.closest('input, textarea')) { e.preventDefault(); this.arms.aim = true; this.arms.qAim = true; } }, true);
+    window.addEventListener('keyup', (e) => { if (e.code === 'KeyQ' && this.arms && this.arms.qAim) { this.arms.aim = false; this.arms.qAim = false; } }, true);
     /* the radio and its wheel: hold Q (or tap Radio), pick a station, let go */
     if (this.audio) {
       this.radio = new Radio(this.audio, this.native);
       this.radio.onTrack = (title) => { if (this.mode !== 'foot') this.say(this.radio.stationName(this.radio.cur), title); };
-      window.addEventListener('keydown', (e) => { if (e.code === 'KeyQ' && !e.repeat && !this.wheel) { e.preventDefault(); this.openWheel(); } }, true);
+      window.addEventListener('keydown', (e) => { if (e.code === 'KeyQ' && !e.repeat && !this.wheel) { e.preventDefault(); if (this.mode === 'foot' && this.arms && this.arms.cur) return; this.openWheel(); } }, true);
       window.addEventListener('keyup', (e) => { if (e.code === 'KeyQ' && this.wheel) { e.preventDefault(); this.closeWheel(true); } }, true);
     }
     /* the flight-school plane waits on the airport apron */
